@@ -10,6 +10,7 @@ generator client {
   output       = "../src/generated/prisma"
   runtime      = "nodejs"
   moduleFormat = "cjs"
+  importFileExtension = ""
 }
 
 datasource db {
@@ -20,11 +21,45 @@ datasource db {
 // Enums
 // ---------------------------------------------------------------------------
 
+/// Organization-scoped role. A role only ever exists on an OrganizationMember
+/// row — the same person may be OWNER of one organization and INTERVIEWER in
+/// another. There is deliberately no CANDIDATE and no EMPLOYEE value: being a
+/// job seeker is not an organization role (see CandidateAccount).
 enum Role {
   OWNER
   HR_ADMIN
   RECRUITER
   INTERVIEWER
+}
+
+/// The product's supported UI/AI locales. A validated enum rather than a free
+/// string so an unsupported locale can never be persisted.
+enum Locale {
+  en
+  ko
+  ru
+  uz
+}
+
+/// Where an application came from. Only DIRECT (candidate applied through
+/// HR Copilot) and MANUAL_UPLOAD (recruiter created it) are produced today;
+/// the rest are reserved for future integrations and carry no behaviour yet.
+enum ApplicationSource {
+  DIRECT
+  EMAIL
+  LINKEDIN
+  INDEED
+  SARAMIN
+  JOBKOREA
+  WANTED
+  JUMPIT
+  REFERRAL
+  MANUAL_UPLOAD
+}
+
+enum ProfileVisibility {
+  PRIVATE
+  PUBLIC
 }
 
 enum VacancyStatus {
@@ -81,6 +116,17 @@ enum EvidenceType {
   OTHER
 }
 
+/// Outcome of mapping one job requirement against one candidate's documents.
+///
+/// Describes what the EVIDENCE shows, never the candidate. There is
+/// deliberately no score, percentage or ranking: "we found supporting text",
+/// "we found none", or "a person should look" are the only answers.
+enum EvidenceMappingStatus {
+  EVIDENCE_FOUND
+  NO_EVIDENCE_FOUND
+  NEEDS_HUMAN_REVIEW
+}
+
 enum ProcessingJobType {
   PROCESS_DOCUMENT
 }
@@ -104,31 +150,103 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users          User[]
+  members        OrganizationMember[]
   vacancies      Vacancy[]
   candidates     Candidate[]
   documents      Document[]
   evidence       CandidateEvidence[]
   processingJobs ProcessingJob[]
+  evidenceMaps   RequirementEvidenceMap[]
 
   @@map("organizations")
 }
 
+/// Account identity only. Organization access lives on OrganizationMember and
+/// job-seeker identity on CandidateAccount — a User row by itself grants
+/// neither. There is deliberately no role and no organizationId here: the same
+/// person may hold different roles in different organizations.
 model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String
+  fullName        String
+  preferredLocale Locale   @default(en)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  memberships      OrganizationMember[]
+  candidateAccount CandidateAccount?
+  createdVacancies Vacancy[]            @relation("VacancyCreatedBy")
+
+  @@map("users")
+}
+
+/// One user's role inside one organization. THE source of organization
+/// authorization: every org-scoped request resolves the caller's membership
+/// row (live, from the database) — never a cached role claim.
+model OrganizationMember {
   id             String   @id @default(uuid())
-  email          String   @unique
-  passwordHash   String
-  fullName       String
-  role           Role     @default(RECRUITER)
+  userId         String
   organizationId String
+  role           Role     @default(RECRUITER)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdVacancies Vacancy[]    @relation("VacancyCreatedBy")
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, organizationId])
   @@index([organizationId])
-  @@map("users")
+  @@index([userId])
+  @@map("organization_members")
+}
+
+/// The user's personal job-seeker identity. One per user, owned by the user,
+/// belonging to NO organization — it must never inherit tenant access.
+/// Experience/education are validated-JSON arrays (see the DTOs): structured
+/// enough to render, deliberately not normalized into tables for the MVP.
+model CandidateAccount {
+  id                String            @id @default(uuid())
+  userId            String            @unique
+  headline          String?
+  location          String?
+  phone             String?
+  summary           String?
+  skills            String[]          @default([])
+  languages         String[]          @default([])
+  experience        Json?
+  education         Json?
+  resumeDocumentId  String?           @unique
+  profileVisibility ProfileVisibility @default(PRIVATE)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The CURRENT profile resume. Applications snapshot the document that was
+  /// actually submitted (Application.submittedDocumentId), so replacing this
+  /// never rewrites history.
+  resumeDocument    Document?   @relation("CandidateAccountResume", fields: [resumeDocumentId], references: [id], onDelete: SetNull)
+  personalDocuments Document[]  @relation("PersonalDocuments")
+  candidates        Candidate[]
+  savedJobs         SavedJob[]
+
+  @@map("candidate_accounts")
+}
+
+/// A vacancy bookmarked by a job seeker. Personal data — never visible to the
+/// vacancy's organization.
+model SavedJob {
+  id                 String   @id @default(uuid())
+  candidateAccountId String
+  vacancyId          String
+  createdAt          DateTime @default(now())
+
+  candidateAccount CandidateAccount @relation(fields: [candidateAccountId], references: [id], onDelete: Cascade)
+  vacancy          Vacancy          @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateAccountId, vacancyId])
+  @@index([vacancyId])
+  @@map("saved_jobs")
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +263,11 @@ model Vacancy {
   description     String?
   experienceLevel String?
   status          VacancyStatus @default(DRAFT)
+  /// Stable shareable identifier for public job pages, e.g.
+  /// `senior-backend-engineer-northwind-labs-3fa9c1`. Generated once at
+  /// creation (title + org slug + random suffix) and never regenerated on
+  /// title edits — a published link must keep working.
+  publicSlug      String        @unique
   createdById     String
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -154,9 +277,12 @@ model Vacancy {
   requirements JobRequirement[]
   applications Application[]
   evidence     CandidateEvidence[]
+  evidenceMaps RequirementEvidenceMap[]
+  savedBy      SavedJob[]
 
   @@index([organizationId])
   @@index([organizationId, status])
+  @@index([status])
   @@map("vacancies")
 }
 
@@ -167,16 +293,26 @@ model JobRequirement {
   type      RequirementType @default(SKILL)
   required  Boolean         @default(true)
 
-  vacancy  Vacancy             @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
-  evidence CandidateEvidence[]
+  vacancy      Vacancy                  @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  evidence     CandidateEvidence[]
+  evidenceMaps RequirementEvidenceMap[]
 
   @@index([vacancyId])
   @@map("job_requirements")
 }
 
+/// The ORGANIZATION-side recruitment record — distinct from CandidateAccount
+/// (the person's own job-seeker profile). A Candidate row is what a recruiter
+/// sees inside their tenant. `candidateAccountId` is set only when the person
+/// applied through HR Copilot; manually uploaded / external candidates have
+/// none, and that is correct.
 model Candidate {
   id                   String   @id @default(uuid())
   organizationId       String
+  /// Link back to the applicant's own account when they applied directly.
+  /// Uniqueness rule: at most ONE Candidate per CandidateAccount per
+  /// organization — repeat applications to the same organization reuse it.
+  candidateAccountId   String?
   fullName             String
   email                String?
   phone                String?
@@ -186,11 +322,14 @@ model Candidate {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidateAccount CandidateAccount? @relation(fields: [candidateAccountId], references: [id], onDelete: SetNull)
   applications Application[]
   documents    Document[]
   evidence     CandidateEvidence[]
+  evidenceMaps RequirementEvidenceMap[]
 
+  @@unique([organizationId, candidateAccountId])
   @@index([organizationId])
   @@index([organizationId, fullName])
   @@map("candidates")
@@ -201,15 +340,26 @@ model Application {
   vacancyId   String
   candidateId String
   status      ApplicationStatus @default(NEW)
+  /// How this application entered the system. DIRECT = the candidate applied
+  /// through HR Copilot themselves; MANUAL_UPLOAD = a recruiter created it.
+  /// The column default also labels pre-migration rows, all of which were
+  /// recruiter-created.
+  source      ApplicationSource @default(MANUAL_UPLOAD)
+  /// Snapshot of the resume actually submitted with this application (an
+  /// org-scoped copy). Replacing the profile resume later must never change
+  /// what an old application shows.
+  submittedDocumentId String?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  vacancy   Vacancy   @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
-  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  vacancy           Vacancy   @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  candidate         Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  submittedDocument Document? @relation("ApplicationSubmittedDocument", fields: [submittedDocumentId], references: [id], onDelete: SetNull)
 
   @@unique([vacancyId, candidateId])
   @@index([vacancyId])
   @@index([candidateId])
+  @@index([source])
   @@map("applications")
 }
 
@@ -217,28 +367,41 @@ model Application {
 // Documents & async processing
 // ---------------------------------------------------------------------------
 
+/// Ownership is EXCLUSIVE and explicit: an organization document has
+/// `organizationId` set (recruiter uploads, application snapshots) and a
+/// personal document has `candidateAccountId` set (a job seeker's own resume).
+/// Never both, never neither — enforced at every creation site. Org-scoped
+/// queries filter on organizationId, which a NULL can never match, so a
+/// personal resume is structurally unreachable through tenant queries.
+/// Personal documents are NEVER queued for AI processing/indexing; only
+/// org-scoped copies created at apply time are.
 model Document {
-  id               String         @id @default(uuid())
-  organizationId   String
-  candidateId      String?
-  type             DocumentType   @default(RESUME)
-  originalFileName String
-  storageKey       String         @unique
-  mimeType         String
-  fileSize         Int
-  status           DocumentStatus @default(UPLOADED)
-  pageCount        Int?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  id                 String         @id @default(uuid())
+  organizationId     String?
+  candidateId        String?
+  candidateAccountId String?
+  type               DocumentType   @default(RESUME)
+  originalFileName   String
+  storageKey         String         @unique
+  mimeType           String
+  fileSize           Int
+  status             DocumentStatus @default(UPLOADED)
+  pageCount          Int?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
-  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  candidate      Candidate?          @relation(fields: [candidateId], references: [id], onDelete: SetNull)
-  evidence       CandidateEvidence[]
-  processingJobs ProcessingJob[]
+  organization     Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate        Candidate?        @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  candidateAccount CandidateAccount? @relation("PersonalDocuments", fields: [candidateAccountId], references: [id], onDelete: Cascade)
+  resumeOf         CandidateAccount? @relation("CandidateAccountResume")
+  submittedWith    Application[]     @relation("ApplicationSubmittedDocument")
+  evidence         CandidateEvidence[]
+  processingJobs   ProcessingJob[]
 
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([candidateId])
+  @@index([candidateAccountId])
   @@map("documents")
 }
 
@@ -256,20 +419,69 @@ model CandidateEvidence {
   section        String?
   text           String
   evidenceType   EvidenceType @default(OTHER)
+  /// Stable id of the Qdrant chunk this row was promoted from. Lets a stored
+  /// evidence row be traced back to the exact indexed passage, and lets a
+  /// re-run recognise the same passage.
+  sourceChunkId  String?
+  /// Set when this row was created by a requirement mapping. Plain search
+  /// results are NOT persisted here — only requirement-linked evidence is.
+  requirementMapId String?
   createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  candidate    Candidate       @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  vacancy      Vacancy?        @relation(fields: [vacancyId], references: [id], onDelete: SetNull)
-  requirement  JobRequirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
-  document     Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate      Candidate               @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  vacancy        Vacancy?                @relation(fields: [vacancyId], references: [id], onDelete: SetNull)
+  requirement    JobRequirement?         @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  document       Document                @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  requirementMap RequirementEvidenceMap? @relation(fields: [requirementMapId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([organizationId, candidateId])
   @@index([organizationId, vacancyId])
   @@index([requirementId])
   @@index([documentId])
+  @@index([requirementMapId])
+  @@index([sourceChunkId])
   @@map("candidate_evidence")
+}
+
+/// One requirement's mapping result for one candidate on one vacancy.
+///
+/// Separate from CandidateEvidence because a requirement with NO evidence
+/// still has a decision worth storing, and a row in an *evidence* table with
+/// no evidence in it would be a modelling error — "list this candidate's
+/// evidence" must not return empty placeholders.
+///
+/// Re-running a mapping replaces the row (see the unique constraint) and its
+/// evidence, so repeated runs cannot accumulate duplicates.
+model RequirementEvidenceMap {
+  id             String                @id @default(uuid())
+  organizationId String
+  candidateId    String
+  vacancyId      String
+  requirementId  String
+  status         EvidenceMappingStatus
+  /// Human-readable explanation of the status, e.g. which terms were found.
+  reason         String?
+  /// Requirement terms located verbatim in the evidence. Explains the
+  /// decision to a reviewer; not a score.
+  matchedTerms   String[]              @default([])
+  missingTerms   String[]              @default([])
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate    Candidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  vacancy      Vacancy             @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  requirement  JobRequirement      @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  evidence     CandidateEvidence[]
+
+  @@unique([candidateId, vacancyId, requirementId])
+  @@index([organizationId])
+  @@index([organizationId, candidateId])
+  @@index([organizationId, vacancyId])
+  @@map("requirement_evidence_maps")
 }
 
 model ProcessingJob {

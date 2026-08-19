@@ -125,7 +125,8 @@ async function main(): Promise<void> {
     { fullName: 'Hana Yamamoto', email: 'hana.yamamoto@example.test', phone: '+81 90 0000 0005', location: 'Osaka, JP', currentTitle: 'Staff Engineer', totalExperienceYears: 11 },
   ];
 
-  const candidates = [];
+  // Annotated so TypeScript does not infer never[] from the empty literal.
+  const candidates: Awaited<ReturnType<typeof prisma.candidate.create>>[] = [];
   for (const seed of candidateSeeds) {
     const existing = await prisma.candidate.findFirst({
       where: { organizationId: organization.id, email: seed.email },

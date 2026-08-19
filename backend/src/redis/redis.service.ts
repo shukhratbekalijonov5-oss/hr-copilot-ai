@@ -45,12 +45,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async onModuleDestroy(): Promise<void> {
+  onModuleDestroy(): void {
     this.client.disconnect();
   }
 
   async ping(): Promise<void> {
-    const reply = await this.client.ping();
+    const reply: string = await this.client.ping();
     if (reply !== 'PONG') {
       throw new Error(`Unexpected PING reply: ${reply}`);
     }

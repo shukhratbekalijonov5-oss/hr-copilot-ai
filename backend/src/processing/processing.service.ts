@@ -142,7 +142,11 @@ export class ProcessingService {
     return document;
   }
 
-  async markFailed(documentId: string, errorMessage: string, attempts?: number) {
+  async markFailed(
+    documentId: string,
+    errorMessage: string,
+    attempts?: number,
+  ) {
     const job = await this.prisma.processingJob.findFirst({
       where: { documentId },
       orderBy: { createdAt: 'desc' },
@@ -180,6 +184,32 @@ export class ProcessingService {
     return document;
   }
 
+  /**
+   * Records a stage reported by the AI service.
+   *
+   * The organizationId is verified against the document before anything is
+   * written, so a compromised service credential still cannot move another
+   * tenant's document.
+   */
+  async recordStage(
+    organizationId: string,
+    documentId: string,
+    documentStatus: DocumentStatus,
+    progress: number,
+  ) {
+    const document = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true },
+    });
+    if (!document) {
+      this.logger.warn(
+        `Ignoring progress for unknown document in this organization`,
+      );
+      return null;
+    }
+    return this.advance(documentId, documentStatus, progress);
+  }
+
   // -- Read APIs for the frontend -----------------------------------------
 
   async findAll(
@@ -201,7 +231,12 @@ export class ProcessingService {
         orderBy: { createdAt: 'desc' },
         include: {
           document: {
-            select: { id: true, originalFileName: true, status: true, type: true },
+            select: {
+              id: true,
+              originalFileName: true,
+              status: true,
+              type: true,
+            },
           },
         },
       }),

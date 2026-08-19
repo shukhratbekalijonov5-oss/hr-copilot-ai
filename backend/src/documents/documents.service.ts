@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,8 +11,9 @@ import { TenantService } from '../common/tenant/tenant.service';
 import { StorageService } from '../storage/storage.service';
 import { ProcessingService } from '../processing/processing.service';
 import { DocumentProcessingProducer } from '../queue/document-processing.producer';
+import { AiServiceClient } from '../ai/ai-service.client';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
-import { DocumentType } from '../generated/prisma/enums';
+import { DocumentStatus, DocumentType } from '../generated/prisma/enums';
 import { validateUploadedFile, type ValidatableFile } from './file-validation';
 import type { UploadDocumentDto } from './dto/upload-document.dto';
 import type { QueryDocumentsDto } from './dto/query-documents.dto';
@@ -23,6 +29,7 @@ export class DocumentsService {
     private readonly storage: StorageService,
     private readonly processing: ProcessingService,
     private readonly producer: DocumentProcessingProducer,
+    private readonly ai: AiServiceClient,
     configService: ConfigService,
   ) {
     this.maxFileSizeBytes = configService.get<number>(
@@ -217,6 +224,76 @@ export class DocumentsService {
     };
   }
 
+  /**
+   * Requeues one document for processing.
+   *
+   * Deliberately explicit and per-document: the safe cases are documents that
+   * failed for an environmental reason (the AI service was unavailable), not
+   * ones that failed because the file itself is unusable. Blanket-retrying
+   * every historical failure would repeatedly re-run documents that can never
+   * succeed, so the caller decides which to retry and a corrupt file is
+   * rejected up front.
+   *
+   * Re-indexing is safe: the AI service replaces a document's vectors rather
+   * than appending, so this cannot duplicate them.
+   *
+   * An in-flight status alone does not block a retry — the queue is asked
+   * whether a job really exists, so a document stranded in QUEUED by a dead
+   * worker can still be recovered.
+   */
+  async reprocess(organizationId: string, id: string) {
+    const document = await this.prisma.document.findFirst({
+      where: { id, ...this.tenant.scope(organizationId) },
+      select: {
+        id: true,
+        organizationId: true,
+        candidateId: true,
+        storageKey: true,
+        status: true,
+      },
+    });
+    this.tenant.assertFound(document, 'Document');
+
+    if (document!.status === DocumentStatus.COMPLETED) {
+      throw new ConflictException(
+        'Document is already processed; delete and re-upload to replace it',
+      );
+    }
+    if (
+      IN_FLIGHT_STATUSES.includes(document!.status) &&
+      (await this.producer.hasLiveJob(id))
+    ) {
+      throw new ConflictException('Document is already being processed');
+    }
+
+    // The original file must still be in storage, otherwise the job would be
+    // queued only to fail again on a missing object.
+    if (!(await this.storage.exists(document!.storageKey))) {
+      throw new UnprocessableEntityException(
+        'The stored file for this document is missing; it must be re-uploaded',
+      );
+    }
+
+    const processingJob = await this.processing.createJob(organizationId, id);
+    const bullmqJobId = await this.producer.enqueueDocument(
+      {
+        documentId: id,
+        organizationId,
+        candidateId: document!.candidateId,
+      },
+      // The previous (failed) job still holds this document's job id.
+      { replaceExisting: true },
+    );
+    await this.processing.markQueued(processingJob.id, bullmqJobId);
+
+    this.logger.log(`Document ${id} requeued for processing`);
+    return {
+      id,
+      status: DocumentStatus.QUEUED,
+      processingJobId: processingJob.id,
+    };
+  }
+
   async remove(organizationId: string, id: string) {
     const document = await this.prisma.document.findFirst({
       where: { id, ...this.tenant.scope(organizationId) },
@@ -226,6 +303,29 @@ export class DocumentsService {
 
     await this.prisma.document.delete({ where: { id } });
     await this.storage.delete(document!.storageKey);
+
+    // Drop the vectors too, so a deleted resume stops being searchable.
+    // Best-effort: the document row and file are already gone, and a failure
+    // here must not turn a successful delete into an error.
+    if (this.ai.enabled) {
+      try {
+        await this.ai.deleteDocument(organizationId, id);
+      } catch (error) {
+        this.logger.warn(
+          `Document ${id} deleted, but its vectors could not be removed: ${(error as Error).message}`,
+        );
+      }
+    }
+
     return { id, deleted: true };
   }
 }
+
+/** Statuses meaning "a worker already has this document". */
+const IN_FLIGHT_STATUSES: DocumentStatus[] = [
+  DocumentStatus.QUEUED,
+  DocumentStatus.PARSING,
+  DocumentStatus.CHUNKING,
+  DocumentStatus.EMBEDDING,
+  DocumentStatus.INDEXING,
+];

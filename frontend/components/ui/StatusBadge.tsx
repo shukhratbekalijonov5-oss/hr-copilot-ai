@@ -1,65 +1,135 @@
+"use client";
+
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
-import {
-  EVIDENCE_STATUS_LABELS,
-  PROCESSING_STATUS_LABELS,
-  REVIEW_STATE_LABELS,
-  VACANCY_STATUS_LABELS,
-} from "@/lib/constants";
+import { useI18n } from "@/lib/i18n/context";
 import type {
+  AnswerStatus,
+  ApplicationStatus,
+  DocumentStatus,
   EvidenceStatus,
-  ProcessingStatus,
-  ReviewState,
+  ProcessingJobStatus,
   VacancyStatus,
 } from "@/lib/types";
 
+/**
+ * Status pills.
+ *
+ * Client components because the label comes from the active dictionary: these
+ * are rendered inside both server and client trees, and a server-only variant
+ * would mean maintaining two of each.
+ *
+ * Tones carry meaning about *evidence and pipeline state*, never about a
+ * person. Nothing here is styled as a verdict the product reached on its own.
+ */
+
 const VACANCY_TONES: Record<VacancyStatus, BadgeTone> = {
-  draft: "neutral",
-  open: "positive",
-  on_hold: "warning",
-  closed: "neutral",
+  DRAFT: "neutral",
+  OPEN: "positive",
+  CLOSED: "neutral",
+  ARCHIVED: "neutral",
 };
 
-const PROCESSING_TONES: Record<ProcessingStatus, BadgeTone> = {
-  uploaded: "neutral",
-  queued: "neutral",
-  parsing: "info",
-  chunking: "info",
-  embedding: "info",
-  indexing: "info",
-  completed: "positive",
-  failed: "critical",
+const DOCUMENT_TONES: Record<DocumentStatus, BadgeTone> = {
+  UPLOADED: "neutral",
+  QUEUED: "neutral",
+  PARSING: "info",
+  CHUNKING: "info",
+  EMBEDDING: "info",
+  INDEXING: "info",
+  COMPLETED: "positive",
+  FAILED: "critical",
 };
 
-const REVIEW_TONES: Record<ReviewState, BadgeTone> = {
-  not_reviewed: "neutral",
-  needs_human_review: "warning",
-  reviewed: "positive",
+const JOB_TONES: Record<ProcessingJobStatus, BadgeTone> = {
+  PENDING: "neutral",
+  QUEUED: "neutral",
+  RUNNING: "info",
+  COMPLETED: "positive",
+  FAILED: "critical",
+};
+
+/**
+ * Application stages are human decisions. They are shown neutrally — no stage
+ * is styled as a verdict the product reached on its own.
+ */
+const APPLICATION_TONES: Record<ApplicationStatus, BadgeTone> = {
+  NEW: "neutral",
+  REVIEWING: "info",
+  INTERVIEW: "info",
+  OFFER: "brand",
+  HIRED: "positive",
+  REJECTED: "neutral",
+  WITHDRAWN: "neutral",
 };
 
 const EVIDENCE_TONES: Record<EvidenceStatus, BadgeTone> = {
-  found: "positive",
-  not_found: "neutral",
-  needs_human_review: "warning",
+  FOUND: "positive",
+  NOT_FOUND: "neutral",
+  NEEDS_REVIEW: "warning",
+  NOT_RUN: "neutral",
+};
+
+/**
+ * Quality of an AI *answer*, never of a candidate. "Insufficient evidence" is
+ * neutral rather than critical: it describes the documents, not the person.
+ */
+const ANSWER_TONES: Record<AnswerStatus, BadgeTone> = {
+  GROUNDED: "positive",
+  INSUFFICIENT_EVIDENCE: "neutral",
+  NEEDS_HUMAN_REVIEW: "warning",
 };
 
 export function VacancyStatusBadge({ status }: { status: VacancyStatus }) {
-  return <Badge tone={VACANCY_TONES[status]}>{VACANCY_STATUS_LABELS[status]}</Badge>;
+  const { d } = useI18n();
+  return <Badge tone={VACANCY_TONES[status]}>{d.status.vacancy[status]}</Badge>;
 }
 
-export function ProcessingStatusBadge({ status }: { status: ProcessingStatus }) {
+export function DocumentStatusBadge({
+  status,
+}: {
+  status: DocumentStatus | null;
+}) {
+  const { d } = useI18n();
+  if (!status) return <Badge tone="neutral">{d.candidates.noDocuments}</Badge>;
   return (
-    <Badge tone={PROCESSING_TONES[status]}>
-      {PROCESSING_STATUS_LABELS[status]}
-    </Badge>
+    <Badge tone={DOCUMENT_TONES[status]}>{d.status.document[status]}</Badge>
   );
 }
 
-export function ReviewStateBadge({ state }: { state: ReviewState }) {
-  return <Badge tone={REVIEW_TONES[state]}>{REVIEW_STATE_LABELS[state]}</Badge>;
+export function ProcessingJobStatusBadge({
+  status,
+}: {
+  status: ProcessingJobStatus;
+}) {
+  const { d } = useI18n();
+  return <Badge tone={JOB_TONES[status]}>{d.status.job[status]}</Badge>;
 }
 
-export function EvidenceStatusBadge({ status }: { status: EvidenceStatus }) {
+export function ApplicationStatusBadge({
+  status,
+}: {
+  status: ApplicationStatus;
+}) {
+  const { d } = useI18n();
   return (
-    <Badge tone={EVIDENCE_TONES[status]}>{EVIDENCE_STATUS_LABELS[status]}</Badge>
+    <Badge tone={APPLICATION_TONES[status]}>{d.status.application[status]}</Badge>
   );
+}
+
+export function EvidenceStatusBadge({
+  status,
+  short = false,
+}: {
+  status: EvidenceStatus;
+  /** Compact wording for table cells, where the legend carries the detail. */
+  short?: boolean;
+}) {
+  const { d } = useI18n();
+  const labels = short ? d.status.evidenceShort : d.status.evidence;
+  return <Badge tone={EVIDENCE_TONES[status]}>{labels[status]}</Badge>;
+}
+
+export function AnswerStatusBadge({ status }: { status: AnswerStatus }) {
+  const { d } = useI18n();
+  return <Badge tone={ANSWER_TONES[status]}>{d.status.answer[status]}</Badge>;
 }

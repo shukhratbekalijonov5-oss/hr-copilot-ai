@@ -9,7 +9,13 @@ import { ROLES_KEY } from '../decorators/roles.decorator';
 import type { Role } from '../../generated/prisma/enums';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
-/** Enforces @Roles(...). Runs after JwtAuthGuard has populated request.user. */
+/**
+ * Enforces @Roles(...). Runs after OrgContextGuard, so `user.role` is the
+ * caller's role in the ACTIVE organization, freshly read from the membership
+ * row — never a token claim and never a role from some other organization.
+ * A user without organization context (`role === null`) fails every @Roles
+ * check: candidate-only accounts hold no recruiter privileges.
+ */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
@@ -27,7 +33,7 @@ export class RolesGuard implements CanActivate {
       .switchToHttp()
       .getRequest<{ user?: AuthenticatedUser }>();
 
-    if (!user || !required.includes(user.role)) {
+    if (!user || user.role === null || !required.includes(user.role)) {
       throw new ForbiddenException('Insufficient role for this operation');
     }
     return true;

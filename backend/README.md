@@ -1,98 +1,442 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# HR Copilot AI — Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS + TypeScript API for HR Copilot AI, an AI-assisted recruitment
+**intelligence** platform.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+The product flow is: HR creates a vacancy → uploads resumes → files are stored →
+an asynchronous processing job is created → the AI service parses and indexes
+the documents → candidate evidence becomes searchable → **a human reviews the
+evidence and makes the hiring decision**.
 
-## Description
+> The system never hires or rejects a candidate automatically. Application
+> status is changed only by an explicit request from a signed-in user.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## Ports
 
-```bash
-$ npm install
-```
+| Service            | Port   | Notes                                            |
+| ------------------ | ------ | ------------------------------------------------ |
+| Frontend (Next.js) | `3000` | Owned by the frontend. The backend never binds it. |
+| **Backend (this)** | `3001` | Default. Override with `PORT`.                    |
+| AI service (Python)| `8000` | See `ai-service/`                                 |
+| PostgreSQL         | `5432` | Local default                                    |
+| Redis              | `6379` | Local default                                    |
+| Qdrant             | `6333` | Vector store used by the AI service               |
 
-## Compile and run the project
+The port is resolved in [`src/config/configuration.ts`](src/config/configuration.ts)
+(`PORT`, defaulting to `3001`) and read via `ConfigService` in
+[`src/main.ts`](src/main.ts). No port is hardcoded anywhere else.
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+PORT=4000 yarn start:dev   # runs on 4000 instead
 ```
 
-## Run tests
+---
+
+## Requirements
+
+- **Node.js 22.12+** — see [`.nvmrc`](.nvmrc); run `nvm use`.
+  Prisma 7 requires Node 20.19+/22.12+/24+, and its CLI requires 22+.
+- **Yarn** (Yarn 1.x). This project does **not** use npm — there is no
+  `package-lock.json` and one should not be created.
+- PostgreSQL 14+ and Redis 6+ for full functionality.
+
+---
+
+## Getting started
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+nvm use            # Node 22
+yarn               # install dependencies (also runs `prisma generate`)
+cp .env.example .env
+# edit .env — at minimum set DATABASE_URL and a real SECRET_TOKEN
+yarn db:migrate    # create the schema
+yarn db:seed       # optional: fictional development data
+yarn start:dev
 ```
 
-## Deployment
+The API is then at `http://localhost:3001`, and startup logs:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+```
+HR Copilot API listening on port 3001
+```
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Local PostgreSQL and Redis
+
+If you do not already run them locally:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+docker run -d --name hrcopilot-pg -p 5432:5432 \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=hr_copilot \
+  postgres:16-alpine
+
+docker run -d --name hrcopilot-redis -p 6379:6379 redis:7-alpine
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+---
 
-## Resources
+## Commands
 
-Check out a few resources that may come in handy when working with NestJS:
+All commands use Yarn.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```bash
+yarn                 # install dependencies
+yarn start:dev       # watch mode (http://localhost:3001)
+yarn start           # run once
+yarn start:prod      # run the compiled build (node dist/main)
+yarn build           # compile to dist/
+yarn lint            # eslint --fix
+yarn format          # prettier
+yarn test            # unit tests
+yarn test:cov        # unit tests with coverage
+yarn test:e2e        # end-to-end tests
+```
 
-## Support
+Database:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+yarn prisma:generate    # regenerate the Prisma client
+yarn db:migrate         # create + apply a migration (development)
+yarn db:migrate:deploy  # apply existing migrations (CI / production)
+yarn db:seed            # fictional development seed data
+yarn db:studio          # Prisma Studio
+```
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## Environment
 
-## License
+Every variable is documented in [`.env.example`](.env.example), which contains
+**placeholders only**. `.env` is gitignored and must never be committed.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+| Variable                                                          | Purpose                                                     |
+| ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| `PORT`                                                            | Backend HTTP port. Default `3001`.                          |
+| `FRONTEND_URL`                                                    | Allowed CORS origin. Default `http://localhost:3000`.       |
+| `API_PREFIX`                                                      | REST path prefix. Default `api`. Health routes sit outside. |
+| `DATABASE_URL`                                                    | PostgreSQL connection string. **Required.**                 |
+| `REDIS_URL`                                                       | Redis connection string.                                    |
+| `SECRET_TOKEN`                                                    | Backend auth signing secret, min 32 chars. **Required.**    |
+| `TOKEN_TTL`, `BCRYPT_ROUNDS`                                      | Token lifetime and password hashing cost.                   |
+| `STORAGE_DRIVER`                                                  | `local` (default) or `r2`.                                  |
+| `STORAGE_LOCAL_ROOT`, `MAX_FILE_SIZE_BYTES`, `SIGNED_URL_TTL_SECONDS` | Storage tuning.                                        |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Required when `STORAGE_DRIVER=r2`.                |
+| `AI_SERVICE_URL`                                                  | Python AI service, e.g. `http://localhost:8000`. Empty disables AI. |
+| `INTERNAL_SERVICE_TOKEN`                                          | Shared backend↔AI service credential. Required when `AI_SERVICE_URL` is set. |
+| `THROTTLE_TTL_MS`, `THROTTLE_LIMIT`                               | Rate limiting.                                              |
+
+Configuration is validated at boot ([`src/config/env.validation.ts`](src/config/env.validation.ts)).
+A bad environment fails fast, and error messages name the offending **variable**
+without printing its value.
+
+There is a single auth secret, `SECRET_TOKEN`. Do not add a second `JWT_SECRET`.
+
+**Never logged:** passwords, tokens, `DATABASE_URL`, `REDIS_URL`, R2 credentials.
+
+---
+
+## Architecture
+
+```
+src/
+  main.ts                 bootstrap: port, CORS, global validation pipe
+  app.module.ts           module wiring + global guards
+  config/                 typed configuration and env validation
+  common/
+    guards/               JwtAuthGuard, RolesGuard (both registered globally)
+    decorators/           @CurrentUser, @Roles, @Public
+    tenant/               TenantService — multi-tenancy primitives
+    filters/              AllExceptionsFilter — stops internals leaking in 500s
+    errors/               describeError — actionable driver diagnostics
+    dto/                  shared pagination
+  prisma/                 PrismaService (driver-adapter connection)
+  redis/                  shared Redis connection + health ping
+  auth/                   register, login, current user, invite teammate
+  search/                 HR-facing semantic evidence search
+  users/                  team directory, role changes (org-scoped)
+  organizations/          the caller's own organization + dashboard counters
+  vacancies/              vacancies + job requirements
+  candidates/             candidates + metadata search
+  applications/           candidate ↔ vacancy links, human stage changes
+  documents/              upload, validation, signed URLs
+  storage/                StorageService abstraction (local | R2)
+  queue/                  BullMQ producer + processor
+  processing/             lifecycle state machine, progress API, WebSocket
+  evidence/               candidate evidence storage and retrieval
+  ai/                     AiServiceClient — boundary to the Python service
+  health/                 liveness and readiness probes
+  generated/prisma/       generated Prisma client (gitignored)
+```
+
+### Multi-tenancy
+
+This is the most important invariant in the codebase.
+
+- `organizationId` is taken **only** from the verified JWT, surfaced as
+  `@CurrentUser('organizationId')`. It is never read from a request body,
+  query string or header.
+- No DTO declares an `organizationId` field, and the global `ValidationPipe`
+  runs with `forbidNonWhitelisted: true` — a client that tries to send one gets
+  a `400`, not silent acceptance.
+- Every org-scoped query spreads `TenantService.scope(organizationId)` into its
+  Prisma `where`.
+- Rows that inherit tenancy through a parent (job requirements via vacancy,
+  applications via both vacancy and candidate) are filtered through that
+  relation.
+- A cross-tenant read returns **404, not 403** — a 403 would confirm the id
+  exists in some other organization, which is itself a leak.
+
+### Authentication and roles
+
+JWT bearer tokens signed with `SECRET_TOKEN`; passwords hashed with bcrypt.
+`JwtAuthGuard` and `RolesGuard` are registered globally, so routes are private
+by default and must opt out with `@Public()`.
+
+Roles: `OWNER`, `HR_ADMIN`, `RECRUITER`, `INTERVIEWER`.
+
+### Storage
+
+`StorageService` is an abstract class with `upload()`, `delete()`,
+`getSignedUrl()` and `exists()`. Two drivers:
+
+- **`local`** (default) — writes under `STORAGE_LOCAL_ROOT`. Signed URLs point
+  at this backend and carry an HMAC signature plus expiry, mirroring the R2
+  contract so calling code is identical.
+- **`r2`** — Cloudflare R2 over the S3 API, returning presigned URLs.
+
+Object keys are namespaced per tenant: `org/{organizationId}/documents/{id}.{ext}`.
+Storage credentials never leave the backend; the frontend only ever receives a
+short-lived signed URL.
+
+### Redis and BullMQ
+
+Queue `resume-processing`, job `PROCESS_DOCUMENT`. Payloads carry
+**identifiers only** — `{ documentId, organizationId, candidateId }` — never
+file contents or signed URLs. The worker re-reads what it needs.
+
+Job options: 3 attempts, exponential backoff from 5s, completed jobs retained
+24h/1000, failed jobs 7d/5000.
+
+No AI work happens in an HTTP handler. Upload returns as soon as the job is
+enqueued.
+
+### Processing lifecycle
+
+```
+UPLOADED → QUEUED → PARSING → CHUNKING → EMBEDDING → INDEXING → COMPLETED
+                                                              ↘ FAILED
+```
+
+`ProcessingJob` tracks `status`, `progress`, `attempts` and `errorMessage`.
+Progress is exposed at `GET /api/processing-jobs` and pushed over a WebSocket
+(`/processing` namespace, one room per organization, JWT-authenticated) as
+`processing.progress`, `processing.completed` and `processing.failed`.
+
+---
+
+## AI service integration
+
+The Python AI service (`ai-service/`, port 8000) is **wired up and working**.
+
+```
+upload → Document row → BullMQ PROCESS_DOCUMENT → worker
+       → streams the file to the AI service over the internal channel
+       → parse → chunk → embed (PyTorch) → index (Qdrant)
+       → COMPLETED
+```
+
+### Internal authentication
+
+Backend↔AI traffic uses `INTERNAL_SERVICE_TOKEN` in the `X-Internal-Service-Token`
+header — a dedicated **service** credential, deliberately separate from
+`SECRET_TOKEN`. A recruiter's JWT is never forwarded to the AI service, and the
+same token guards the backend's own `/api/internal/*` callback route. Both
+sides fail closed when it is unset.
+
+### File access
+
+The worker reads the document from `StorageService` and streams the bytes to
+the AI service. No public URL and no signed URL is ever minted for
+machine-to-machine access, and none is stored in Qdrant. The same path works
+for the local-disk driver and for R2.
+
+### Progress
+
+Document status is **observed, not guessed**. The backend cannot see inside a
+single processing call, so writing PARSING → CHUNKING → EMBEDDING → INDEXING
+around it would be inventing progress. Instead the AI service reports each
+stage to `POST /api/internal/processing/progress` as it genuinely completes,
+and that drives both the `Document` row and the existing WebSocket gateway.
+
+The queue worker still owns orchestration and the terminal states
+(COMPLETED / FAILED) — it remains the source of truth for whether a job
+succeeded, and refuses to mark a document COMPLETED if nothing was indexed.
+
+### Retry
+
+`POST /api/documents/:id/reprocess` requeues a failed document without a
+re-upload. It is deliberately per-document rather than a blanket retry: a file
+that is genuinely corrupt would just fail again. Re-indexing is safe because
+the AI service replaces a document's vectors rather than appending.
+
+The route also recovers a document stranded in an in-flight status with no live
+BullMQ job (a dead worker), by asking the queue what actually exists rather
+than trusting the row.
+
+### Not implemented: RAG
+
+No LLM is called anywhere. The pipeline is retrieval only — parse, chunk,
+embed, index, search, rerank, cite. Grounded answer generation is future work.
+
+## Candidate evidence
+
+Evidence rows are passages extracted from documents, each pointing back at its
+document and page so a human can verify it. There is deliberately **no score,
+confidence or rating field** — evidence is something a person reads and judges,
+not a machine verdict.
+
+---
+
+## Health endpoints
+
+Both are public, unprefixed and exempt from rate limiting.
+
+| Endpoint        | Meaning                                                         |
+| --------------- | --------------------------------------------------------------- |
+| `GET /health/live`  | `200` whenever the process is alive. Touches no dependency. |
+| `GET /health/ready` | `200` when PostgreSQL **and** Redis answer; `503` otherwise. |
+
+```bash
+curl http://localhost:3001/health/live
+curl http://localhost:3001/health/ready
+```
+
+```jsonc
+// ready, everything up
+{ "status": "ok", "checks": { "database": { "status": "up" }, "redis": { "status": "up" } } }
+
+// ready, database down -> HTTP 503
+{ "status": "error", "checks": { "database": { "status": "down", "error": "ECONNREFUSED: ..." }, "redis": { "status": "up" } } }
+```
+
+---
+
+## CORS
+
+A single explicit origin from `FRONTEND_URL` (default `http://localhost:3000`),
+with `credentials: true`. `origin: '*'` is never used — it is unsafe alongside
+credentials and rejected by browsers. The WebSocket gateway applies the same
+policy via `ProcessingIoAdapter`.
+
+---
+
+## API overview
+
+All routes are under `/api` except the health probes, and all require a bearer
+token except those marked public.
+
+| Method | Path                                                | Notes                     |
+| ------ | --------------------------------------------------- | ------------------------- |
+| POST   | `/api/auth/register`                                | public — creates org + OWNER |
+| POST   | `/api/auth/login`                                   | public                    |
+| GET    | `/api/auth/me`                                      |                           |
+| POST   | `/api/auth/users`                                   | OWNER, HR_ADMIN           |
+| GET    | `/api/users`, `/api/users/:id`                      | own organization only     |
+| PATCH  | `/api/users/:id`                                    | OWNER, HR_ADMIN           |
+| DELETE | `/api/users/:id`                                    | OWNER                     |
+| GET    | `/api/organizations/current`                        | own organization only     |
+| GET    | `/api/organizations/current/stats`                  | dashboard counters        |
+| PATCH  | `/api/organizations/current`                        | OWNER, HR_ADMIN           |
+| GET/POST | `/api/vacancies`                                  | pagination + filtering    |
+| GET/PATCH/DELETE | `/api/vacancies/:id`                      |                           |
+| PATCH  | `/api/vacancies/:id/close`, `/archive`              |                           |
+| GET/POST | `/api/vacancies/:id/requirements`                 |                           |
+| PATCH/DELETE | `/api/vacancies/:id/requirements/:requirementId` |                     |
+| GET/POST | `/api/candidates`                                 | pagination + search       |
+| GET/PATCH/DELETE | `/api/candidates/:id`                     |                           |
+| GET/POST | `/api/applications`                               |                           |
+| GET/DELETE | `/api/applications/:id`                         |                           |
+| PATCH  | `/api/applications/:id/status`                      | **human-controlled only** |
+| POST   | `/api/documents`                                    | multipart upload          |
+| GET    | `/api/documents`, `/api/documents/:id`              |                           |
+| GET    | `/api/documents/:id/download-url`                   | short-lived signed URL    |
+| GET    | `/api/documents/download`                           | signature-authorised (local driver) |
+| GET/POST | `/api/evidence`                                   |                           |
+| GET    | `/api/evidence/by-candidate/:candidateId`           |                           |
+| GET    | `/api/evidence/by-requirement/:requirementId`       |                           |
+| POST   | `/api/documents/:id/reprocess`                      | requeue a failed document |
+| POST   | `/api/search/evidence`                              | semantic evidence search  |
+| GET    | `/api/processing-jobs`, `/api/processing-jobs/:id`  |                           |
+| POST   | `/api/internal/processing/progress`                 | AI service only (service token) |
+| GET    | `/health/live`, `/health/ready`                     | public                    |
+
+---
+
+## Database
+
+PostgreSQL via Prisma 7. The schema is [`prisma/schema.prisma`](prisma/schema.prisma).
+
+Prisma 7 connects through a **driver adapter** rather than a `url` in the
+schema: the runtime connection is built from `ConfigService` in
+[`src/prisma/prisma.service.ts`](src/prisma/prisma.service.ts), and the CLI
+reads `DATABASE_URL` via [`prisma.config.ts`](prisma.config.ts).
+
+Models: `Organization`, `User`, `Vacancy`, `JobRequirement`, `Candidate`,
+`Application`, `Document`, `CandidateEvidence`, `ProcessingJob`.
+
+The generated client is written to `src/generated/prisma` and is **gitignored**
+— `yarn` regenerates it via `postinstall`.
+
+---
+
+## Security
+
+- DTO validation on every endpoint; unknown properties rejected (`400`).
+- Upload validation checks declared MIME type, file extension **and magic
+  bytes** — the first two are attacker-controlled, so content is what decides.
+  PDF and DOCX only, size-capped.
+- bcrypt password hashing; login is timing-equalised for unknown accounts.
+- Global auth and role guards; rate limiting via `@nestjs/throttler`, tightened
+  on `/auth/login` and `/auth/register`.
+- Tenant isolation as described above.
+- Signed local-storage URLs are HMAC-verified, expiring, and reject path
+  traversal.
+- `AllExceptionsFilter` converts any unexpected error into a flat `500`; driver
+  messages (which can carry a connection string) go to the server log only, and
+  the log redacts query strings so signed-URL signatures are never written down.
+- Organization integrity: nobody can change their own role, and the last `OWNER`
+  cannot be demoted or removed.
+
+---
+
+## Seed data
+
+`yarn db:seed` creates entirely fictional data: two organizations (the second
+exists so tenant isolation can be exercised by hand), an owner and a recruiter,
+one vacancy with six requirements, and five invented candidates using `.test`
+email addresses.
+
+**No real candidate or applicant data may ever be added to the seed file** — it
+is committed and shared with every contributor.
+
+Development login: `recruiter@northwind-labs.test` / `DevPassword123!`
+
+No documents, evidence or processing jobs are seeded: those only exist as the
+result of a real upload, and faking them would misrepresent a pipeline that has
+not run.
+
+---
+
+## Tests
+
+```bash
+yarn test        # unit
+yarn test:e2e    # end-to-end
+```
+
+Coverage is focused on the parts where a mistake is expensive: **tenant
+isolation** (every service asserts cross-organization access fails), auth and
+token handling, role guards, upload validation including magic-byte spoofing,
+queue job creation and payload shape, the processing lifecycle, the AI boundary
+refusing to fabricate output, and the health probes.

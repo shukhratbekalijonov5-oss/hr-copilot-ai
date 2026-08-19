@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
+import { requireSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -8,7 +9,8 @@ import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { buttonStyles } from "@/components/ui/Button";
 import {
-  ProcessingStatusBadge,
+  DocumentStatusBadge,
+  ProcessingJobStatusBadge,
   VacancyStatusBadge,
 } from "@/components/ui/StatusBadge";
 import { ProcessingProgress } from "@/components/processing/ProcessingProgress";
@@ -17,7 +19,6 @@ import {
   ArrowRightIcon,
   BriefcaseIcon,
   PlusIcon,
-  SearchIcon,
   SparkIcon,
   UploadIcon,
   UsersIcon,
@@ -34,22 +35,32 @@ const QUICK_ACTIONS = [
     icon: PlusIcon,
   },
   {
+    href: "/candidates/new",
+    label: "Add candidate",
+    description: "Create a person, then upload their resume.",
+    icon: UsersIcon,
+  },
+  {
     href: "/processing",
     label: "Upload resumes",
     description: "Drop PDFs or DOCX and watch them index.",
     icon: UploadIcon,
   },
-  {
-    href: "/search",
-    label: "Search candidates",
-    description: "Ask in plain language, get cited passages.",
-    icon: SearchIcon,
-  },
 ];
 
 export default async function DashboardPage() {
-  const { stats, recentVacancies, recentCandidates, processing, activity } =
-    await api.getDashboard();
+  await requireSession();
+
+  const {
+    generatedAt,
+    stats,
+    recentVacancies,
+    recentCandidates,
+    processing,
+    recentJobs,
+  } = await api.getDashboard();
+
+  const referenceTime = new Date(generatedAt).getTime();
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -90,7 +101,7 @@ export default async function DashboardPage() {
           label="Completed analyses"
           value={stats.completedAnalyses}
           icon={<SparkIcon className="size-4" />}
-          hint="Documents indexed and ready to search"
+          hint="Documents indexed and ready to read"
         />
       </div>
 
@@ -101,7 +112,7 @@ export default async function DashboardPage() {
             <Link
               key={action.href}
               href={action.href}
-              className="group flex items-center gap-3 rounded-xl border border-line bg-surface p-3.5 shadow-card transition-colors hover:border-line-strong hover:bg-surface-muted/50"
+              className="group flex min-w-0 items-center gap-3 rounded-xl border border-line bg-surface p-3.5 shadow-card transition-colors hover:border-line-strong hover:bg-surface-muted/50"
             >
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-ink">
                 <Icon className="size-4.5" />
@@ -138,6 +149,14 @@ export default async function DashboardPage() {
               icon={<BriefcaseIcon className="size-5" />}
               title="No vacancies yet"
               description="Create your first vacancy to tell the copilot what to look for."
+              action={
+                <Link
+                  href="/vacancies/new"
+                  className={buttonStyles("primary", "sm")}
+                >
+                  Create vacancy
+                </Link>
+              }
             />
           ) : (
             <ul className="divide-y divide-[var(--line)]">
@@ -152,7 +171,8 @@ export default async function DashboardPage() {
                         {vacancy.title}
                       </p>
                       <p className="truncate text-[12.5px] text-ink-muted">
-                        {vacancy.department} · {vacancy.location}
+                        {vacancy.department ?? "No department"} ·{" "}
+                        {vacancy.location ?? "No location"}
                       </p>
                     </div>
                     <span className="hidden text-[12.5px] text-ink-muted sm:block">
@@ -200,7 +220,15 @@ export default async function DashboardPage() {
             <EmptyState
               icon={<UsersIcon className="size-5" />}
               title="No candidates yet"
-              description="Upload resumes to start building your pipeline."
+              description="Add a candidate and upload their resume to start building your pipeline."
+              action={
+                <Link
+                  href="/candidates/new"
+                  className={buttonStyles("primary", "sm")}
+                >
+                  Add candidate
+                </Link>
+              }
             />
           ) : (
             <ul className="divide-y divide-[var(--line)]">
@@ -216,11 +244,10 @@ export default async function DashboardPage() {
                         {candidate.fullName}
                       </p>
                       <p className="truncate text-[12.5px] text-ink-muted">
-                        {candidate.currentTitle} ·{" "}
-                        {candidate.primaryVacancyTitle ?? "No vacancy"}
+                        {candidate.currentTitle ?? "Title not set"}
                       </p>
                     </div>
-                    <ProcessingStatusBadge status={candidate.processingStatus} />
+                    <DocumentStatusBadge status={candidate.processingStatus} />
                   </Link>
                 </li>
               ))}
@@ -229,22 +256,43 @@ export default async function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader title="Activity" />
-          <ul className="divide-y divide-[var(--line)]">
-            {activity.map((entry) => (
-              <li key={entry.id} className="px-4 py-3">
-                <p className="text-[13px] leading-snug text-ink">{entry.message}</p>
-                {entry.detail ? (
-                  <p className="mt-0.5 text-[12px] text-ink-muted">
-                    {entry.detail}
+          <CardHeader
+            title="Latest processing"
+            description="Most recent jobs"
+          />
+          {recentJobs.length === 0 ? (
+            <EmptyState
+              icon={<ActivityIcon className="size-5" />}
+              title="Nothing processed yet"
+              description="Uploaded documents appear here as they move through the pipeline."
+            />
+          ) : (
+            <ul className="divide-y divide-[var(--line)]">
+              {recentJobs.map((job) => (
+                <li key={job.id} className="px-4 py-3">
+                  <p className="truncate text-[13px] font-medium leading-snug text-ink">
+                    {job.document?.originalFileName ?? "Document"}
                   </p>
-                ) : null}
-                <p className="mt-1 text-[11.5px] text-ink-subtle">
-                  {formatRelativeTime(entry.at)}
-                </p>
-              </li>
-            ))}
-          </ul>
+                  {job.candidateName ? (
+                    <p className="mt-0.5 truncate text-[12px] text-ink-muted">
+                      {job.candidateName}
+                    </p>
+                  ) : null}
+                  {job.errorMessage ? (
+                    <p className="mt-1 text-[11.5px] leading-snug text-critical">
+                      {job.errorMessage}
+                    </p>
+                  ) : null}
+                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                    <ProcessingJobStatusBadge status={job.status} />
+                    <span className="text-[11.5px] text-ink-subtle">
+                      {formatRelativeTime(job.updatedAt, referenceTime)}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       </div>
     </div>

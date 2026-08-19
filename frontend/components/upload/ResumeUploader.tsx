@@ -1,130 +1,62 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type ProcessingChannel } from "@/lib/api";
+import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useResumeUpload } from "@/lib/hooks/useResumeUpload";
+import { useProcessingStream } from "@/lib/hooks/useProcessingStream";
+import { summarizeDocumentStatuses } from "@/lib/api/adapters";
 import {
   ACCEPTED_RESUME_EXTENSIONS,
   MAX_RESUME_SIZE_BYTES,
 } from "@/lib/constants";
-import { cn, formatFileSize, pluralize } from "@/lib/utils";
-import type { UploadItem } from "@/lib/types";
+import { useI18n } from "@/lib/i18n/context";
+import { cn, formatFileSize } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
-import { ProcessingStatusBadge } from "@/components/ui/StatusBadge";
+import { DocumentStatusBadge } from "@/components/ui/StatusBadge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ProcessingProgress } from "@/components/processing/ProcessingProgress";
-import {
-  AlertIcon,
-  CloseIcon,
-  FileIcon,
-  UploadIcon,
-} from "@/components/ui/icons";
-
-interface RejectedFile {
-  fileName: string;
-  reason: string;
-}
+import { StreamStatusPill } from "@/components/processing/StreamStatusPill";
+import { CloseIcon, FileIcon, UploadIcon } from "@/components/ui/icons";
 
 interface ResumeUploaderProps {
-  vacancyId?: string | null;
+  /** Attaches uploads to a candidate. Without it the API stores them unlinked. */
+  candidateId?: string | null;
   className?: string;
-  /** Fires whenever the queue changes, so a page can react to completion. */
-  onQueueChange?: (items: UploadItem[]) => void;
 }
 
-function validate(file: File): string | null {
-  const extension = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
-  if (!(ACCEPTED_RESUME_EXTENSIONS as readonly string[]).includes(extension)) {
-    return `Unsupported format (${extension || "unknown"}). Upload PDF or DOCX.`;
-  }
-  if (file.size > MAX_RESUME_SIZE_BYTES) {
-    return `Larger than ${formatFileSize(MAX_RESUME_SIZE_BYTES)}.`;
-  }
-  if (file.size === 0) {
-    return "File is empty.";
-  }
-  return null;
-}
-
+/**
+ * Browser → Next → NestJS → storage → BullMQ.
+ *
+ * Files are posted to this app's own route so the session cookie authenticates
+ * them; the frontend never talks to storage or the AI service directly.
+ */
 export function ResumeUploader({
-  vacancyId = null,
+  candidateId = null,
   className,
-  onQueueChange,
 }: ResumeUploaderProps) {
-  const [items, setItems] = useState<UploadItem[]>([]);
-  const [rejected, setRejected] = useState<RejectedFile[]>([]);
+  const router = useRouter();
+  const { d, f, p } = useI18n();
   const [dragging, setDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const inputRef = useRef<HTMLInputElement>(null);
-  const channelsRef = useRef<ProcessingChannel[]>([]);
 
-  useEffect(() => {
-    const channels = channelsRef.current;
-    return () => {
-      channels.forEach((channel) => channel.close());
-    };
-  }, []);
+  const { items, rejected, busy, addFiles, applyEvent, remove, clear } =
+    useResumeUpload({
+      candidateId,
+      // New documents change server-rendered lists on the page.
+      onUploaded: () => router.refresh(),
+    });
 
-  useEffect(() => {
-    onQueueChange?.(items);
-  }, [items, onQueueChange]);
+  const streamStatus = useProcessingStream({
+    onEvent: applyEvent,
+    // Progress that arrived while the stream was down is recovered from the
+    // server rather than left stale.
+    onResync: () => router.refresh(),
+    enabled: items.length > 0,
+  });
 
-  const addFiles = useCallback(
-    async (fileList: FileList | null) => {
-      if (!fileList || fileList.length === 0) return;
-
-      const files = Array.from(fileList);
-      const accepted: File[] = [];
-      const failures: RejectedFile[] = [];
-
-      for (const file of files) {
-        const reason = validate(file);
-        if (reason) {
-          failures.push({ fileName: file.name, reason });
-        } else {
-          accepted.push(file);
-        }
-      }
-
-      setRejected(failures);
-      setError(null);
-
-      if (accepted.length === 0) return;
-
-      setUploading(true);
-      try {
-        const queued = await api.uploadResumes({ files: accepted, vacancyId });
-        setItems((current) => [...current, ...queued]);
-
-        // Replace this with a WebSocket subscription once the worker exposes one.
-        const channel = api.openProcessingChannel(queued, (event) => {
-          setItems((current) =>
-            current.map((item) =>
-              item.id === event.uploadId
-                ? {
-                    ...item,
-                    status: event.status,
-                    progress: event.progress,
-                    error: event.error,
-                  }
-                : item,
-            ),
-          );
-        });
-        channelsRef.current.push(channel);
-      } catch {
-        setError("Upload failed. Check your connection and try again.");
-      } finally {
-        setUploading(false);
-      }
-    },
-    [vacancyId],
-  );
-
-  const summary = api.summarizeUploads(items);
-  const done = items.filter((item) => item.status === "completed").length;
-  const failed = items.filter((item) => item.status === "failed").length;
+  const summary = summarizeDocumentStatuses(items.map((item) => item.status));
+  const done = items.filter((item) => item.status === "COMPLETED").length;
+  const failed = items.filter((item) => item.status === "FAILED").length;
 
   return (
     <div className={cn("flex flex-col gap-4", className)}>
@@ -150,21 +82,23 @@ export function ResumeUploader({
           <UploadIcon className="size-5" />
         </div>
         <p className="mt-3 text-sm font-medium text-ink">
-          Drag resumes here, or browse
+          {d.uploader.dragOrBrowse}
         </p>
         <p className="mt-1 text-[12.5px] text-ink-muted">
-          PDF or DOCX, up to {formatFileSize(MAX_RESUME_SIZE_BYTES)} each.
-          Multiple files supported.
+          {f(d.uploader.sizeHint, {
+            size: formatFileSize(MAX_RESUME_SIZE_BYTES),
+          })}
         </p>
         <Button
           type="button"
           variant="secondary"
           size="sm"
           className="mt-3"
-          loading={uploading}
+          loading={busy}
+          disabled={busy}
           onClick={() => inputRef.current?.click()}
         >
-          Select files
+          {busy ? d.uploader.uploading : d.uploader.selectFiles}
         </Button>
         <input
           ref={inputRef}
@@ -179,20 +113,10 @@ export function ResumeUploader({
         />
       </div>
 
-      {error ? (
-        <p
-          role="alert"
-          className="flex items-center gap-2 rounded-lg bg-critical-soft px-3 py-2 text-[13px] text-critical"
-        >
-          <AlertIcon className="size-4 shrink-0" />
-          {error}
-        </p>
-      ) : null}
-
       {rejected.length > 0 ? (
         <div className="rounded-lg border border-line bg-surface p-3">
           <p className="text-[12.5px] font-semibold text-ink">
-            {rejected.length} {pluralize(rejected.length, "file")} skipped
+            {p(d.uploader.skipped, rejected.length)}
           </p>
           <ul className="mt-1.5 flex flex-col gap-1">
             {rejected.map((file) => (
@@ -211,12 +135,19 @@ export function ResumeUploader({
       {items.length > 0 ? (
         <>
           <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-ink">Pipeline</h3>
-              <p className="text-[12.5px] text-ink-muted tabular-nums">
-                {done} of {items.length} indexed
-                {failed > 0 ? ` · ${failed} failed` : ""}
-              </p>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-ink">
+                {d.uploader.pipeline}
+              </h3>
+              <div className="flex items-center gap-2">
+                <StreamStatusPill status={streamStatus} />
+                <p className="text-[12.5px] tabular-nums text-ink-muted">
+                  {f(d.uploader.indexedOf, { done, total: items.length })}
+                  {failed > 0
+                    ? f(d.uploader.failedSuffix, { count: failed })
+                    : ""}
+                </p>
+              </div>
             </div>
             <ProcessingProgress summary={summary} />
           </div>
@@ -235,15 +166,11 @@ export function ResumeUploader({
                   <span className="hidden text-[12px] text-ink-muted sm:block">
                     {formatFileSize(item.sizeBytes)}
                   </span>
-                  <ProcessingStatusBadge status={item.status} />
+                  <DocumentStatusBadge status={item.status} />
                   <button
                     type="button"
-                    aria-label={`Remove ${item.fileName} from the queue`}
-                    onClick={() =>
-                      setItems((current) =>
-                        current.filter((entry) => entry.id !== item.id),
-                      )
-                    }
+                    aria-label={f(d.uploader.removeFromList, { name: item.fileName })}
+                    onClick={() => remove(item.id)}
                     className="rounded p-1 text-ink-subtle hover:bg-surface-muted hover:text-ink"
                   >
                     <CloseIcon className="size-3.5" />
@@ -251,16 +178,28 @@ export function ResumeUploader({
                 </div>
                 <ProgressBar
                   value={item.progress}
-                  tone={item.status === "failed" ? "critical" : "brand"}
-                  label={`${item.fileName} progress`}
+                  tone={item.status === "FAILED" ? "critical" : "brand"}
+                  label={f(d.uploader.progressLabel, { name: item.fileName })}
                   className="mt-2"
                 />
                 {item.error ? (
-                  <p className="mt-1.5 text-[12px] text-critical">{item.error}</p>
+                  <p role="alert" className="mt-1.5 text-[12px] text-critical">
+                    {item.error}
+                  </p>
                 ) : null}
               </li>
             ))}
           </ul>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="self-start"
+            onClick={clear}
+          >
+            {d.uploader.clearList}
+          </Button>
         </>
       ) : null}
     </div>

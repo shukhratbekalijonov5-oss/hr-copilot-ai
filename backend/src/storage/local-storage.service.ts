@@ -27,9 +27,14 @@ export class LocalStorageService extends StorageService {
 
   constructor(configService: ConfigService) {
     super();
-    this.root = resolve(configService.get<string>('storage.localRoot', './storage'));
+    this.root = resolve(
+      configService.get<string>('storage.localRoot', './storage'),
+    );
     this.secret = configService.getOrThrow<string>('auth.secretToken');
-    this.defaultTtl = configService.get<number>('storage.signedUrlTtlSeconds', 900);
+    this.defaultTtl = configService.get<number>(
+      'storage.signedUrlTtlSeconds',
+      900,
+    );
     const port = configService.get<number>('app.port', 3001);
     const prefix = configService.get<string>('app.globalPrefix', 'api');
     this.publicBaseUrl = `http://localhost:${port}/${prefix}`;
@@ -47,6 +52,14 @@ export class LocalStorageService extends StorageService {
     await fs.rm(this.resolveKey(key), { force: true });
   }
 
+  async getObject(key: string): Promise<Buffer> {
+    try {
+      return await fs.readFile(this.resolveKey(key));
+    } catch {
+      throw new NotFoundException('Object not found');
+    }
+  }
+
   async exists(key: string): Promise<boolean> {
     try {
       await fs.access(this.resolveKey(key));
@@ -57,7 +70,8 @@ export class LocalStorageService extends StorageService {
   }
 
   getSignedUrl(key: string, expiresInSeconds?: number): Promise<string> {
-    const expires = Math.floor(Date.now() / 1000) + (expiresInSeconds ?? this.defaultTtl);
+    const expires =
+      Math.floor(Date.now() / 1000) + (expiresInSeconds ?? this.defaultTtl);
     const signature = this.sign(key, expires);
     const url = new URL(`${this.publicBaseUrl}/documents/download`);
     url.searchParams.set('key', key);
@@ -67,7 +81,11 @@ export class LocalStorageService extends StorageService {
   }
 
   /** Reads a stored object after verifying the signature has not expired. */
-  async readSigned(key: string, expires: number, signature: string): Promise<Buffer> {
+  async readSigned(
+    key: string,
+    expires: number,
+    signature: string,
+  ): Promise<Buffer> {
     if (!Number.isFinite(expires) || expires * 1000 < Date.now()) {
       throw new NotFoundException('Link has expired');
     }

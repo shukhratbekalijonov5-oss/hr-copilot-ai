@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { ApiError, api } from "@/lib/api";
-import { hasErrors, isConsumerEmail, validateRegister } from "@/lib/validation";
-import type { FieldErrors } from "@/lib/api/client";
+import { useState, useTransition } from "react";
+import { registerAction } from "@/lib/auth/actions";
+import { MIN_PASSWORD_LENGTH, hasErrors, validateRegister } from "@/lib/validation";
+import type { FieldErrors } from "@/lib/api/errors";
+import { slugify } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 import {
@@ -19,44 +19,45 @@ import {
 } from "@/components/ui/icons";
 
 export function RegisterForm() {
-  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [organizationName, setOrganizationName] = useState("");
+  // Auto-derived from the name until the user edits it themselves.
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [organizationSlug, setOrganizationSlug] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [pending, startTransition] = useTransition();
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  function handleOrganizationName(value: string) {
+    setOrganizationName(value);
+    if (!slugTouched) setOrganizationSlug(slugify(value));
+  }
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFormError(null);
+    if (pending) return;
 
-    const values = { fullName, email, organizationName, password };
+    setFormError(null);
+    const values = {
+      fullName,
+      email,
+      organizationName,
+      organizationSlug,
+      password,
+    };
     const validationErrors = validateRegister(values);
     setErrors(validationErrors);
     if (hasErrors(validationErrors)) return;
 
-    setSubmitting(true);
-    try {
-      await api.register(values);
-      router.push("/dashboard");
-    } catch (error) {
-      if (error instanceof ApiError) {
-        setFormError(error.message);
-        setErrors(error.fieldErrors);
-      } else {
-        setFormError("Something went wrong. Try again.");
-      }
-      setSubmitting(false);
-    }
+    startTransition(async () => {
+      const result = await registerAction(values);
+      setFormError(result.message ?? "Could not create the workspace.");
+      setErrors(result.fieldErrors ?? {});
+    });
   }
-
-  const emailHint =
-    email && isConsumerEmail(email)
-      ? "This looks like a personal address. A work email keeps your team on one workspace."
-      : "We use this to group your team into one workspace.";
 
   return (
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
@@ -65,7 +66,7 @@ export function RegisterForm() {
           Create your workspace
         </h1>
         <p className="mt-1 text-[13.5px] text-ink-muted">
-          Set up an organization and start uploading resumes in a few minutes.
+          Sets up your organization and makes you its owner.
         </p>
       </div>
 
@@ -86,6 +87,7 @@ export function RegisterForm() {
         placeholder="Jane Doe"
         required
         value={fullName}
+        disabled={pending}
         leading={<UserIcon className="size-4" />}
         error={errors.fullName}
         onChange={(event) => setFullName(event.target.value)}
@@ -99,9 +101,9 @@ export function RegisterForm() {
         placeholder="jane@company.com"
         required
         value={email}
+        disabled={pending}
         leading={<MailIcon className="size-4" />}
         error={errors.email}
-        hint={emailHint}
         onChange={(event) => setEmail(event.target.value)}
       />
 
@@ -112,9 +114,25 @@ export function RegisterForm() {
         placeholder="Northwind Talent"
         required
         value={organizationName}
+        disabled={pending}
         leading={<BuildingIcon className="size-4" />}
         error={errors.organizationName}
-        onChange={(event) => setOrganizationName(event.target.value)}
+        onChange={(event) => handleOrganizationName(event.target.value)}
+      />
+
+      <Input
+        label="Workspace URL"
+        name="organizationSlug"
+        placeholder="northwind-talent"
+        required
+        value={organizationSlug}
+        disabled={pending}
+        error={errors.organizationSlug}
+        hint="Lowercase letters, numbers and hyphens. Must be unique."
+        onChange={(event) => {
+          setSlugTouched(true);
+          setOrganizationSlug(event.target.value);
+        }}
       />
 
       <Input
@@ -122,12 +140,13 @@ export function RegisterForm() {
         type={showPassword ? "text" : "password"}
         name="password"
         autoComplete="new-password"
-        placeholder="At least 8 characters"
+        placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
         required
         value={password}
+        disabled={pending}
         leading={<LockIcon className="size-4" />}
         error={errors.password}
-        hint="At least 8 characters, including a letter and a number."
+        hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
         onChange={(event) => setPassword(event.target.value)}
         trailing={
           <button
@@ -145,8 +164,8 @@ export function RegisterForm() {
         }
       />
 
-      <Button type="submit" size="lg" loading={submitting}>
-        {submitting ? "Creating workspace" : "Create workspace"}
+      <Button type="submit" size="lg" loading={pending}>
+        {pending ? "Creating workspace" : "Create workspace"}
       </Button>
 
       <p className="text-center text-[13px] text-ink-muted">

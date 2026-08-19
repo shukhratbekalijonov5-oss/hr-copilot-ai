@@ -29,7 +29,11 @@ export function CitationLink({
     <>
       <FileIcon className="size-3.5 shrink-0" />
       <span className="truncate">
-        {citation.documentName} · page {citation.page}
+        {citation.documentName}
+        {citation.page !== null ? ` · page ${citation.page}` : ""}
+        {citation.page === null && citation.section
+          ? ` · ${citation.section}`
+          : ""}
       </span>
     </>
   );
@@ -49,7 +53,11 @@ export function CitationLink({
         onClick={() => onSelect(citation)}
         aria-pressed={active}
         className={classes}
-        title={`Open ${citation.documentName} at page ${citation.page}`}
+        title={
+          citation.page !== null
+            ? `Open ${citation.documentName} at page ${citation.page}`
+            : `Open ${citation.documentName}`
+        }
       >
         {label}
       </button>

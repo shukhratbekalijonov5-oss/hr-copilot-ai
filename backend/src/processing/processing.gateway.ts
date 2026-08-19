@@ -7,6 +7,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { MembershipService } from '../common/membership/membership.service';
 import type {
   DocumentStatus,
   ProcessingJobStatus,
@@ -42,6 +43,7 @@ export class ProcessingGateway implements OnGatewayConnection {
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly memberships: MembershipService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -58,6 +60,24 @@ export class ProcessingGateway implements OnGatewayConnection {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
         secret: this.configService.getOrThrow<string>('auth.secretToken'),
       });
+
+      // The org claim is a pointer, not an authority: joining a tenant's
+      // event room requires a LIVE membership row, exactly like the REST
+      // guard chain. A candidate-only token (no org claim) or a revoked
+      // membership is disconnected here.
+      if (!payload.org || !payload.sub) {
+        client.disconnect(true);
+        return;
+      }
+      const membership = await this.memberships.findMembership(
+        payload.sub,
+        payload.org,
+      );
+      if (!membership) {
+        client.disconnect(true);
+        return;
+      }
+
       await client.join(room(payload.org));
     } catch {
       // No detail to the client and nothing about the token in the logs.

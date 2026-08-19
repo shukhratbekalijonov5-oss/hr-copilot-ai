@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { ApiError, api } from "@/lib/api";
+import { useState, useTransition } from "react";
+import { loginAction } from "@/lib/auth/actions";
 import { hasErrors, validateLogin } from "@/lib/validation";
-import type { FieldErrors } from "@/lib/api/client";
+import type { FieldErrors } from "@/lib/api/errors";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 import {
@@ -17,35 +16,30 @@ import {
 } from "@/components/ui/icons";
 
 export function LoginForm() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [pending, startTransition] = useTransition();
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFormError(null);
+    // Guards against a second submit while the first is in flight.
+    if (pending) return;
 
+    setFormError(null);
     const validationErrors = validateLogin({ email, password });
     setErrors(validationErrors);
     if (hasErrors(validationErrors)) return;
 
-    setSubmitting(true);
-    try {
-      await api.login({ email, password });
-      router.push("/dashboard");
-    } catch (error) {
-      if (error instanceof ApiError) {
-        setFormError(error.message);
-        setErrors(error.fieldErrors);
-      } else {
-        setFormError("Something went wrong. Try again.");
-      }
-      setSubmitting(false);
-    }
+    startTransition(async () => {
+      // On success the action sets the session cookie and redirects, so
+      // control never returns here.
+      const result = await loginAction({ email, password });
+      setFormError(result.message ?? "Could not sign in.");
+      setErrors(result.fieldErrors ?? {});
+    });
   }
 
   return (
@@ -77,6 +71,7 @@ export function LoginForm() {
         placeholder="you@company.com"
         required
         value={email}
+        disabled={pending}
         leading={<MailIcon className="size-4" />}
         error={errors.email}
         onChange={(event) => setEmail(event.target.value)}
@@ -90,6 +85,7 @@ export function LoginForm() {
         placeholder="••••••••"
         required
         value={password}
+        disabled={pending}
         leading={<LockIcon className="size-4" />}
         error={errors.password}
         onChange={(event) => setPassword(event.target.value)}
@@ -109,8 +105,8 @@ export function LoginForm() {
         }
       />
 
-      <Button type="submit" size="lg" loading={submitting}>
-        {submitting ? "Signing in" : "Sign in"}
+      <Button type="submit" size="lg" loading={pending}>
+        {pending ? "Signing in" : "Sign in"}
       </Button>
 
       <p className="text-center text-[13px] text-ink-muted">

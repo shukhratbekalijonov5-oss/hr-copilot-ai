@@ -31,7 +31,9 @@ export class CandidatesService {
       ...this.tenant.scope(organizationId),
       ...(query.location ? { location: query.location } : {}),
       ...(query.currentTitle
-        ? { currentTitle: { contains: query.currentTitle, mode: 'insensitive' } }
+        ? {
+            currentTitle: { contains: query.currentTitle, mode: 'insensitive' },
+          }
         : {}),
       ...(query.minExperienceYears !== undefined
         ? { totalExperienceYears: { gte: query.minExperienceYears } }
@@ -54,7 +56,9 @@ export class CandidatesService {
         take: query.limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          _count: { select: { applications: true, documents: true, evidence: true } },
+          _count: {
+            select: { applications: true, documents: true, evidence: true },
+          },
         },
       }),
       this.prisma.candidate.count({ where }),
@@ -68,7 +72,9 @@ export class CandidatesService {
       where: { id, ...this.tenant.scope(organizationId) },
       include: {
         applications: {
-          include: { vacancy: { select: { id: true, title: true, status: true } } },
+          include: {
+            vacancy: { select: { id: true, title: true, status: true } },
+          },
         },
         documents: {
           select: {

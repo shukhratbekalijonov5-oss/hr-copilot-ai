@@ -1,0 +1,105 @@
+# Local development stack for HR Copilot AI.
+#
+# Deliberately covers the *backing services* plus the AI service, and NOT the
+# NestJS backend or the Next.js frontend: both are iterated on constantly and
+# run far faster with their own watch mode (`yarn start:dev`) than through a
+# container rebuild.
+#
+# Container and volume names are prefixed `hrcopilot-` so nothing here can
+# collide with unrelated stacks already running on the machine.
+#
+#   docker compose -f infra/docker-compose.yml up -d
+#   docker compose -f infra/docker-compose.yml down          # keeps volumes
+#   docker compose -f infra/docker-compose.yml down -v       # drops data
+#
+# The AI service is in the `ai` profile so the default `up` starts only the
+# datastores:
+#   docker compose -f infra/docker-compose.yml --profile ai up -d
+
+name: hrcopilot
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hrcopilot-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-hr_copilot}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - hrcopilot-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hr_copilot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: hrcopilot-redis
+    # Non-default host port: 6379 is often already taken by another stack.
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - hrcopilot-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: hrcopilot-qdrant
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - hrcopilot-qdrant-storage:/qdrant/storage
+    healthcheck:
+      # The image has no curl/wget; Qdrant ships its own healthcheck binary.
+      test: ["CMD", "/qdrant/qdrant", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ai-service:
+    profiles: ["ai"]
+    build:
+      context: ../ai-service
+      dockerfile: Dockerfile
+    image: hrcopilot-ai-service:local
+    container_name: hrcopilot-ai-service
+    environment:
+      # Secrets come from the environment or an .env file — never baked in.
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?set INTERNAL_SERVICE_TOKEN}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-resume_chunks}
+      QDRANT_COLLECTION_VERSION: ${QDRANT_COLLECTION_VERSION:-1}
+      # The backend runs on the host, not in this network.
+      PROGRESS_CALLBACK_URL: ${PROGRESS_CALLBACK_URL:-http://host.docker.internal:3001/api/internal/processing/progress}
+      EAGER_LOAD_MODELS: "true"
+    ports:
+      - "${AI_SERVICE_PORT:-8000}:8000"
+    volumes:
+      # Persist model weights (~1.6GB) so a restart does not re-download them.
+      - hrcopilot-ai-models:/models
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  hrcopilot-postgres-data:
+  hrcopilot-redis-data:
+  hrcopilot-qdrant-storage:
+  hrcopilot-ai-models:

@@ -11,15 +11,24 @@ import {
   AiServiceClient,
   AiServiceDisabledError,
 } from '../ai/ai-service.client';
+import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import { DocumentStatus } from '../generated/prisma/enums';
 
 /**
  * Drives one document through the processing lifecycle.
  *
- * The AI work itself lives behind AiServiceClient. While that service is not
- * configured the job fails fast with an UnrecoverableError — it does NOT retry
- * pointlessly and, crucially, does NOT mark the document COMPLETED. A document
- * only reaches COMPLETED after the AI service has really returned a parse.
+ * Division of responsibility:
+ *   - This worker owns orchestration and the terminal states (COMPLETED /
+ *     FAILED). It is the source of truth for whether the job succeeded.
+ *   - The AI service owns the intermediate stages, and reports each one back
+ *     through /internal/processing/progress as it genuinely completes. That is
+ *     why the worker does not write PARSING..INDEXING itself: doing so around a
+ *     single HTTP call would be inventing progress it cannot observe.
+ *
+ * A document only reaches COMPLETED after the AI service has really parsed,
+ * embedded and indexed it. While the AI service is unconfigured the job fails
+ * fast and honestly.
  */
 @Processor(RESUME_PROCESSING_QUEUE, { concurrency: 2 })
 export class DocumentProcessingProcessor extends WorkerHost {
@@ -28,60 +37,76 @@ export class DocumentProcessingProcessor extends WorkerHost {
   constructor(
     private readonly processing: ProcessingService,
     private readonly ai: AiServiceClient,
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
   ) {
     super();
   }
 
   async process(job: Job<ProcessDocumentJobData>): Promise<void> {
-    const { documentId } = job.data;
+    const { documentId, organizationId } = job.data;
     const attempts = job.attemptsMade + 1;
 
     try {
       if (!this.ai.enabled) {
-        // Honest stop, not a fake success.
+        // Honest stop, not a fake success. Unrecoverable: retrying cannot
+        // configure the service.
         throw new UnrecoverableError(
           'AI service is not configured (AI_SERVICE_URL is unset); document ' +
             'parsing cannot run yet',
         );
       }
 
-      await this.processing.advance(
-        documentId,
-        DocumentStatus.PARSING,
-        PROCESSING_PROGRESS.PARSING,
-        attempts,
-      );
-      const parsed = await this.ai.parseDocument(documentId);
-      await job.updateProgress(PROCESSING_PROGRESS.PARSING);
+      // Re-read from the database rather than trusting the job payload, and
+      // scope by organization so a malformed job cannot cross tenants.
+      const document = await this.prisma.document.findFirst({
+        where: { id: documentId, organizationId },
+        select: {
+          id: true,
+          organizationId: true,
+          candidateId: true,
+          originalFileName: true,
+          storageKey: true,
+          mimeType: true,
+          type: true,
+        },
+      });
 
-      await this.processing.advance(
-        documentId,
-        DocumentStatus.CHUNKING,
-        PROCESSING_PROGRESS.CHUNKING,
-        attempts,
-      );
-      await job.updateProgress(PROCESSING_PROGRESS.CHUNKING);
+      if (!document) {
+        throw new UnrecoverableError(
+          `Document ${documentId} no longer exists in organization ${organizationId}`,
+        );
+      }
 
-      await this.processing.advance(
-        documentId,
-        DocumentStatus.EMBEDDING,
-        PROCESSING_PROGRESS.EMBEDDING,
-        attempts,
-      );
-      await this.ai.generateEmbeddings(documentId);
-      await job.updateProgress(PROCESSING_PROGRESS.EMBEDDING);
+      const content = await this.storage.getObject(document.storageKey);
 
-      await this.processing.advance(
-        documentId,
-        DocumentStatus.INDEXING,
-        PROCESSING_PROGRESS.INDEXING,
-        attempts,
-      );
-      await job.updateProgress(PROCESSING_PROGRESS.INDEXING);
+      // Stages PARSING -> INDEXING are written by the AI service's progress
+      // callbacks while this call is in flight.
+      const result = await this.ai.processDocument({
+        documentId: document.id,
+        organizationId: document.organizationId,
+        candidateId: document.candidateId,
+        fileName: document.originalFileName,
+        documentType: document.type,
+        content,
+        mimeType: document.mimeType,
+      });
 
-      await this.processing.markCompleted(documentId, parsed.pageCount);
+      if (result.vectorsIndexed <= 0) {
+        // Nothing was indexed, so the document is not searchable. Reporting
+        // COMPLETED here would claim work that did not happen.
+        throw new Error(
+          `AI service indexed no vectors for document ${documentId}`,
+        );
+      }
+
+      await this.processing.markCompleted(documentId, result.pageCount);
       await job.updateProgress(PROCESSING_PROGRESS.COMPLETED);
-      this.logger.log(`Document ${documentId} processed`);
+
+      this.logger.log(
+        `Document ${documentId} processed: ${result.chunksCreated} chunk(s), ` +
+          `${result.vectorsIndexed} vector(s), ${result.pageCount} page(s)`,
+      );
     } catch (error) {
       const message =
         error instanceof AiServiceDisabledError || error instanceof Error
@@ -93,3 +118,11 @@ export class DocumentProcessingProcessor extends WorkerHost {
     }
   }
 }
+
+/** Re-exported so tests can assert the stage set without importing Prisma. */
+export const AI_REPORTED_STAGES = [
+  DocumentStatus.PARSING,
+  DocumentStatus.CHUNKING,
+  DocumentStatus.EMBEDDING,
+  DocumentStatus.INDEXING,
+] as const;

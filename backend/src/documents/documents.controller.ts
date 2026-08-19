@@ -21,9 +21,11 @@ import { LocalStorageService } from '../storage/local-storage.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { Role } from '../generated/prisma/enums';
 import type { ValidatableFile } from './file-validation';
 
+@OrgScoped()
 @Controller('documents')
 export class DocumentsController {
   constructor(
@@ -89,6 +91,16 @@ export class DocumentsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.documentsService.getDownloadUrl(organizationId, id);
+  }
+
+  /** Requeues a failed document without needing a re-upload. */
+  @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
+  @Post(':id/reprocess')
+  reprocess(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.documentsService.reprocess(organizationId, id);
   }
 
   @Roles(Role.OWNER, Role.HR_ADMIN)

@@ -55,7 +55,8 @@ export class EvidenceService {
     this.tenant.assertFound(candidate, 'Candidate');
     this.tenant.assertFound(document, 'Document');
     if (dto.vacancyId) this.tenant.assertFound(vacancy, 'Vacancy');
-    if (dto.requirementId) this.tenant.assertFound(requirement, 'Job requirement');
+    if (dto.requirementId)
+      this.tenant.assertFound(requirement, 'Job requirement');
 
     return this.prisma.candidateEvidence.create({
       data: {
@@ -102,7 +103,9 @@ export class EvidenceService {
               type: true,
             },
           },
-          requirement: { select: { id: true, text: true, type: true, required: true } },
+          requirement: {
+            select: { id: true, text: true, type: true, required: true },
+          },
         },
       }),
       this.prisma.candidateEvidence.count({ where }),

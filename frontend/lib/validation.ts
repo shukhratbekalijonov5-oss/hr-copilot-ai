@@ -1,7 +1,13 @@
-import type { FieldErrors } from "@/lib/api/client";
+import type { FieldErrors } from "@/lib/api/errors";
 import type { LoginInput, RegisterInput } from "@/lib/types";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** Matches the backend's RegisterDto slug rule exactly. */
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Backend InviteUserDto/RegisterDto require at least 12 characters. */
+export const MIN_PASSWORD_LENGTH = 12;
 
 export function isValidEmail(value: string): boolean {
   return EMAIL_PATTERN.test(value.trim());
@@ -59,10 +65,15 @@ export function validateRegister(values: RegisterInput): FieldErrors {
 
   if (!values.password) {
     errors.password = "Password is required.";
-  } else if (values.password.length < 8) {
-    errors.password = "Use at least 8 characters.";
-  } else if (!/[a-zA-Z]/.test(values.password) || !/[0-9]/.test(values.password)) {
-    errors.password = "Include at least one letter and one number.";
+  } else if (values.password.length < MIN_PASSWORD_LENGTH) {
+    errors.password = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+  }
+
+  if (!values.organizationSlug.trim()) {
+    errors.organizationSlug = "Workspace URL is required.";
+  } else if (!SLUG_PATTERN.test(values.organizationSlug.trim())) {
+    errors.organizationSlug =
+      "Use lowercase letters, numbers and hyphens only.";
   }
 
   return errors;

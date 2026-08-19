@@ -1,0 +1,29 @@
+# --- API -------------------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+
+# --- Embeddings / reranking ------------------------------------------------
+# torch is the inference engine for both the bi-encoder (embeddings) and the
+# cross-encoder (reranker). CPU wheels are sufficient for local development.
+torch==2.5.1
+sentence-transformers==3.3.1
+
+# --- Grounded generation ---------------------------------------------------
+# Both are imported lazily inside their provider module; only the configured
+# provider is ever loaded. `google-genai` is the current unified Google SDK —
+# the older `google-generativeai` line is deprecated and is not used.
+google-genai==2.18.1
+anthropic==0.69.0
+
+# --- Vector store ----------------------------------------------------------
+qdrant-client==1.12.2
+
+# --- Document parsing ------------------------------------------------------
+pypdf==5.1.0
+python-docx==1.1.2
+
+# --- Utilities -------------------------------------------------------------
+httpx==0.28.1

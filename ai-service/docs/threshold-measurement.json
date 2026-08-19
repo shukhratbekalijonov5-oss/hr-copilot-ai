@@ -1,0 +1,19 @@
+{
+  "present": {
+    "NestJS": 0.9059500098228455,
+    "Redis Pub/Sub": 0.9284287095069885,
+    "Production Kubernetes experience": 0.11909442394971848,
+    "TypeScript": 0.5744801163673401,
+    "PostgreSQL schema design": 0.010459339246153831,
+    "Go programming": 0.05493038520216942,
+    "Professional working English": 0.8726598620414734
+  },
+  "absent": {
+    "AWS production experience": 0.03767602890729904,
+    "Terraform infrastructure as code": 0.013395257294178009,
+    "Machine learning model training": 0.005067822989076376,
+    "Salesforce administration": 0.005324012599885464,
+    "iOS Swift development": 0.010903021320700645,
+    "Kafka Streams stateful processing": 0.005457007326185703
+  }
+}

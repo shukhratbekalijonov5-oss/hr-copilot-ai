@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { describeError } from '../common/errors/describe-error';
 
 export type CheckStatus = 'up' | 'down';
 
@@ -51,6 +52,6 @@ async function probe(fn: () => Promise<unknown>): Promise<DependencyCheck> {
   } catch (error) {
     // Driver messages are safe to surface; URLs and credentials are not, and
     // ioredis/pg do not include them in these messages.
-    return { status: 'down', error: (error as Error).message };
+    return { status: 'down', error: describeError(error) };
   }
 }

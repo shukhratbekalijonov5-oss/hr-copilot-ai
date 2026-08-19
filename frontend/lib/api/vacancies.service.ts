@@ -1,128 +1,124 @@
-import { ApiError, matchesSearch, mockRequest } from "@/lib/api/client";
-import { organization } from "@/lib/mock/seed/org";
-import { candidates, findVacancy, vacancies } from "@/lib/mock/store";
-import { summarizeProcessing } from "@/lib/utils";
+import "server-only";
+
+import { apiFetch, fetchAllPages, type Paginated } from "@/lib/api/http";
+import { toJobRequirement, toVacancy } from "@/lib/api/adapters";
 import type {
-  Candidate,
+  JobRequirementResponse,
+  VacancyResponse,
+} from "@/lib/api/contracts";
+import type {
   CreateVacancyInput,
   JobRequirement,
+  JobRequirementInput,
   Vacancy,
   VacancyQuery,
+  VacancyStatus,
 } from "@/lib/types";
 
-/** Session-scoped additions from the create form. Replaced by the backend. */
-const createdVacancies: Vacancy[] = [];
-
-function allVacancies(): Vacancy[] {
-  return [...createdVacancies, ...vacancies];
+export interface VacancyPage {
+  vacancies: Vacancy[];
+  total: number;
+  page: number;
+  totalPages: number;
 }
 
-export async function getVacancies(query: VacancyQuery = {}): Promise<Vacancy[]> {
-  return mockRequest(() => {
-    const status = query.status ?? "all";
-    const department = query.department ?? "all";
-
-    return allVacancies()
-      .filter((vacancy) => (status === "all" ? true : vacancy.status === status))
-      .filter((vacancy) =>
-        department === "all" ? true : vacancy.department === department,
-      )
-      .filter((vacancy) =>
-        matchesSearch(
-          query.search ?? "",
-          vacancy.title,
-          vacancy.department,
-          vacancy.location,
-        ),
-      )
-      .sort(
-        (a, b) =>
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      );
+export async function getVacancies(
+  query: VacancyQuery = {},
+): Promise<VacancyPage> {
+  const response = await apiFetch<Paginated<VacancyResponse>>("/vacancies", {
+    query: {
+      page: query.page ?? 1,
+      limit: query.limit ?? 50,
+      status: query.status,
+      department: query.department,
+      location: query.location,
+      search: query.search,
+    },
   });
+
+  return {
+    vacancies: response.data.map(toVacancy),
+    total: response.meta.total,
+    page: response.meta.page,
+    totalPages: response.meta.totalPages,
+  };
+}
+
+/** Every vacancy, for filter dropdowns and the compare picker. */
+export async function getAllVacancies(): Promise<Vacancy[]> {
+  const rows = await fetchAllPages<VacancyResponse>("/vacancies");
+  return rows.map(toVacancy);
 }
 
 export async function getVacancy(id: string): Promise<Vacancy> {
-  return mockRequest(() => {
-    const vacancy =
-      createdVacancies.find((item) => item.id === id) ?? findVacancy(id);
-    if (!vacancy) {
-      throw new ApiError(`Vacancy ${id} was not found.`, 404);
-    }
-    return vacancy;
-  });
-}
-
-export async function getVacancyCandidates(
-  vacancyId: string,
-): Promise<Candidate[]> {
-  return mockRequest(() =>
-    candidates
-      .filter((candidate) => candidate.primaryVacancyId === vacancyId)
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      ),
-  );
-}
-
-export async function getDepartments(): Promise<string[]> {
-  return mockRequest(
-    () => [...new Set(allVacancies().map((vacancy) => vacancy.department))].sort(),
-    0,
-  );
+  return toVacancy(await apiFetch<VacancyResponse>(`/vacancies/${id}`));
 }
 
 export async function createVacancy(
   input: CreateVacancyInput,
 ): Promise<Vacancy> {
-  return mockRequest(() => {
-    if (!input.title.trim()) {
-      throw new ApiError("Vacancy title is required.", 422, {
-        title: "Vacancy title is required.",
-      });
-    }
-    if (input.requirements.length === 0) {
-      throw new ApiError("Add at least one requirement.", 422, {
-        requirements: "Add at least one requirement.",
-      });
-    }
+  return toVacancy(
+    await apiFetch<VacancyResponse>("/vacancies", {
+      method: "POST",
+      body: input,
+    }),
+  );
+}
 
-    const id = `vac-${Date.now().toString(36)}`;
-    const now = new Date().toISOString();
+export async function updateVacancy(
+  id: string,
+  input: Partial<CreateVacancyInput>,
+): Promise<Vacancy> {
+  return toVacancy(
+    await apiFetch<VacancyResponse>(`/vacancies/${id}`, {
+      method: "PATCH",
+      body: input,
+    }),
+  );
+}
 
-    const requirements: JobRequirement[] = input.requirements.map(
-      (requirement, index) => ({
-        id: `${id}-req-${index + 1}`,
-        vacancyId: id,
-        label: requirement.label,
-        detail: requirement.detail ?? null,
-        kind: requirement.kind,
-        category: requirement.category,
-        position: index,
+/**
+ * Status changes. CLOSED and ARCHIVED have dedicated routes on the API;
+ * DRAFT/OPEN go through the general update.
+ */
+export async function setVacancyStatus(
+  id: string,
+  status: VacancyStatus,
+): Promise<Vacancy> {
+  if (status === "CLOSED") {
+    return toVacancy(
+      await apiFetch<VacancyResponse>(`/vacancies/${id}/close`, {
+        method: "PATCH",
       }),
     );
+  }
+  if (status === "ARCHIVED") {
+    return toVacancy(
+      await apiFetch<VacancyResponse>(`/vacancies/${id}/archive`, {
+        method: "PATCH",
+      }),
+    );
+  }
+  return updateVacancy(id, { status });
+}
 
-    const vacancy: Vacancy = {
-      id,
-      organizationId: organization.id,
-      title: input.title.trim(),
-      department: input.department.trim(),
-      location: input.location.trim(),
-      employmentType: input.employmentType,
-      experienceLevel: input.experienceLevel,
-      status: input.status,
-      description: input.description.trim(),
-      requirements,
-      preferredSkills: input.preferredSkills,
-      candidateCount: 0,
-      processing: summarizeProcessing([]),
-      ownerId: "usr-1",
-      createdAt: now,
-      updatedAt: now,
-    };
+export async function addRequirement(
+  vacancyId: string,
+  input: JobRequirementInput,
+): Promise<JobRequirement> {
+  return toJobRequirement(
+    await apiFetch<JobRequirementResponse>(
+      `/vacancies/${vacancyId}/requirements`,
+      { method: "POST", body: input },
+    ),
+  );
+}
 
-    createdVacancies.unshift(vacancy);
-    return vacancy;
-  }, 700);
+export async function removeRequirement(
+  vacancyId: string,
+  requirementId: string,
+): Promise<void> {
+  await apiFetch<void>(`/vacancies/${vacancyId}/requirements/${requirementId}`, {
+    method: "DELETE",
+  });
 }

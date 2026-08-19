@@ -1,50 +1,54 @@
 /**
  * Domain types for HR Copilot AI.
  *
- * These mirror the shape the backend contract is expected to return, so the
- * mock service layer in `lib/api` can be swapped for real HTTP calls without
- * touching any component.
+ * Enum values and entity fields mirror the NestJS API exactly — the backend
+ * contract is the source of truth. Where the UI needs something the API does
+ * not return (a display title, a derived status), it is added as a clearly
+ * marked derived field and populated in `lib/api/adapters.ts`, never invented
+ * inside a component.
  */
+
+import type { Locale } from "@/lib/i18n/locales";
 
 export type ID = string;
 /** ISO-8601 timestamp. */
 export type ISODateString = string;
 
 /* -------------------------------------------------------------------------- */
-/* Identity                                                                    */
+/* Identity — mirrors prisma Role                                              */
 /* -------------------------------------------------------------------------- */
 
-export type UserRole = "owner" | "admin" | "recruiter" | "viewer";
+export const ROLES = ["OWNER", "HR_ADMIN", "RECRUITER", "INTERVIEWER"] as const;
+export type Role = (typeof ROLES)[number];
 
 export interface User {
   id: ID;
   organizationId: ID;
   fullName: string;
   email: string;
-  role: UserRole;
-  jobTitle: string | null;
-  avatarUrl: string | null;
-  createdAt: ISODateString;
-  lastActiveAt: ISODateString | null;
+  role: Role;
+  createdAt?: ISODateString;
+  updatedAt?: ISODateString;
 }
 
 export interface Organization {
   id: ID;
   name: string;
   slug: string;
-  industry: string | null;
-  companySize: string | null;
-  website: string | null;
-  timezone: string;
-  createdAt: ISODateString;
+  createdAt?: ISODateString;
+  updatedAt?: ISODateString;
+  /** Present on GET /organizations/current. */
+  counts?: {
+    users: number;
+    vacancies: number;
+    candidates: number;
+    documents: number;
+  };
 }
 
-export interface AuthSession {
-  user: User;
-  organization: Organization;
-  /** Placeholder — real tokens are issued by the backend. */
-  accessToken: string;
-  expiresAt: ISODateString;
+/** GET /auth/me */
+export interface SessionUser extends User {
+  organization: Pick<Organization, "id" | "name" | "slug">;
 }
 
 export interface LoginInput {
@@ -57,158 +61,167 @@ export interface RegisterInput {
   email: string;
   password: string;
   organizationName: string;
+  organizationSlug: string;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Vacancies                                                                   */
+/* Vacancies — mirrors prisma VacancyStatus / RequirementType                  */
 /* -------------------------------------------------------------------------- */
 
-export type EmploymentType =
-  | "full_time"
-  | "part_time"
-  | "contract"
-  | "internship"
-  | "temporary";
+export const VACANCY_STATUSES = [
+  "DRAFT",
+  "OPEN",
+  "CLOSED",
+  "ARCHIVED",
+] as const;
+export type VacancyStatus = (typeof VACANCY_STATUSES)[number];
 
-export type ExperienceLevel =
-  | "intern"
-  | "junior"
-  | "mid"
-  | "senior"
-  | "lead"
-  | "principal";
-
-export type VacancyStatus = "draft" | "open" | "on_hold" | "closed";
-
-export type RequirementKind = "must_have" | "nice_to_have";
-
-export type RequirementCategory =
-  | "skill"
-  | "experience"
-  | "education"
-  | "certification"
-  | "language"
-  | "other";
+export const REQUIREMENT_TYPES = [
+  "SKILL",
+  "EXPERIENCE",
+  "EDUCATION",
+  "LANGUAGE",
+  "OTHER",
+] as const;
+export type RequirementType = (typeof REQUIREMENT_TYPES)[number];
 
 export interface JobRequirement {
   id: ID;
   vacancyId: ID;
-  /** Short label used as the evidence row header, e.g. "Kubernetes". */
-  label: string;
-  /** Optional longer phrasing taken from the job description. */
-  detail: string | null;
-  kind: RequirementKind;
-  category: RequirementCategory;
-  position: number;
+  /** The requirement as written, e.g. "Kubernetes". */
+  text: string;
+  type: RequirementType;
+  /** true = must have, false = nice to have. */
+  required: boolean;
 }
 
 export interface Vacancy {
   id: ID;
   organizationId: ID;
   title: string;
-  department: string;
-  location: string;
-  employmentType: EmploymentType;
-  experienceLevel: ExperienceLevel;
+  department: string | null;
+  location: string | null;
+  /** Free-form on the API, not an enum. */
+  employmentType: string | null;
+  experienceLevel: string | null;
+  description: string | null;
   status: VacancyStatus;
-  description: string;
-  requirements: JobRequirement[];
-  preferredSkills: string[];
-  candidateCount: number;
-  processing: ProcessingSummary;
-  ownerId: ID;
+  createdById: ID | null;
   createdAt: ISODateString;
   updatedAt: ISODateString;
-}
-
-/** A requirement as typed into the create-vacancy form (no ids yet). */
-export interface JobRequirementDraft {
-  label: string;
-  detail?: string | null;
-  kind: RequirementKind;
-  category: RequirementCategory;
+  requirements: JobRequirement[];
+  /** Derived from `_count.applications` — candidates attached to this vacancy. */
+  candidateCount: number;
+  /** Derived from `_count.requirements` when the list endpoint omits them. */
+  requirementCount: number;
 }
 
 export interface CreateVacancyInput {
   title: string;
-  department: string;
-  location: string;
-  employmentType: EmploymentType;
-  experienceLevel: ExperienceLevel;
-  description: string;
-  requirements: JobRequirementDraft[];
-  preferredSkills: string[];
-  status: Extract<VacancyStatus, "draft" | "open">;
+  department?: string;
+  location?: string;
+  employmentType?: string;
+  experienceLevel?: string;
+  description?: string;
+  status?: Extract<VacancyStatus, "DRAFT" | "OPEN">;
+}
+
+export interface JobRequirementInput {
+  text: string;
+  type: RequirementType;
+  required: boolean;
 }
 
 export interface VacancyQuery {
   search?: string;
-  status?: VacancyStatus | "all";
-  department?: string | "all";
+  status?: VacancyStatus;
+  department?: string;
+  location?: string;
+  page?: number;
+  limit?: number;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Documents & processing                                                      */
+/* Documents & processing — mirrors DocumentStatus / ProcessingJobStatus       */
 /* -------------------------------------------------------------------------- */
 
-export const PROCESSING_STATUSES = [
-  "uploaded",
-  "queued",
-  "parsing",
-  "chunking",
-  "embedding",
-  "indexing",
-  "completed",
-  "failed",
+export const DOCUMENT_STATUSES = [
+  "UPLOADED",
+  "QUEUED",
+  "PARSING",
+  "CHUNKING",
+  "EMBEDDING",
+  "INDEXING",
+  "COMPLETED",
+  "FAILED",
 ] as const;
-
-export type ProcessingStatus = (typeof PROCESSING_STATUSES)[number];
+export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 
 /**
- * Ordered pipeline stages used by the progress readout. `queued` and `failed`
- * are states rather than stages, so they are reported separately.
+ * Ordered pipeline stages for the progress readout. QUEUED and FAILED are
+ * states rather than stages, so they are reported separately.
  */
 export const PIPELINE_STAGES = [
-  "uploaded",
-  "parsing",
-  "chunking",
-  "embedding",
-  "indexing",
-  "completed",
+  "UPLOADED",
+  "PARSING",
+  "CHUNKING",
+  "EMBEDDING",
+  "INDEXING",
+  "COMPLETED",
 ] as const;
-
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];
 
-export type DocumentKind = "resume" | "cover_letter" | "portfolio" | "other";
+export const DOCUMENT_TYPES = [
+  "RESUME",
+  "PORTFOLIO",
+  "JOB_DESCRIPTION",
+  "HR_DOCUMENT",
+] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export interface CandidateDocument {
   id: ID;
   candidateId: ID | null;
-  vacancyId: ID | null;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-  pageCount: number;
-  kind: DocumentKind;
-  status: ProcessingStatus;
-  uploadedAt: ISODateString;
+  type: DocumentType;
+  originalFileName: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  status: DocumentStatus;
+  /** null until the AI service has parsed the file. */
+  pageCount: number | null;
+  createdAt: ISODateString;
 }
+
+export const PROCESSING_JOB_STATUSES = [
+  "PENDING",
+  "QUEUED",
+  "RUNNING",
+  "COMPLETED",
+  "FAILED",
+] as const;
+export type ProcessingJobStatus = (typeof PROCESSING_JOB_STATUSES)[number];
 
 export interface ProcessingJob {
   id: ID;
+  organizationId: ID;
   documentId: ID;
-  documentName: string;
+  type: string;
+  status: ProcessingJobStatus;
+  /** 0–100 pipeline progress. Never a candidate-quality measure. */
+  progress: number;
+  attempts: number;
+  errorMessage: string | null;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+  document: {
+    id: ID;
+    originalFileName: string;
+    status: DocumentStatus;
+    type: DocumentType;
+  } | null;
+  /** Derived: resolved from the document's candidate when available. */
   candidateId: ID | null;
   candidateName: string | null;
-  vacancyId: ID | null;
-  vacancyTitle: string | null;
-  status: ProcessingStatus;
-  /** 0–100, describes pipeline progress only — not candidate quality. */
-  progress: number;
-  error: string | null;
-  startedAt: ISODateString;
-  updatedAt: ISODateString;
-  completedAt: ISODateString | null;
 }
 
 export interface ProcessingSummary {
@@ -218,189 +231,355 @@ export interface ProcessingSummary {
   reached: Record<PipelineStage, number>;
 }
 
-/** A file queued in the browser before/while it is sent to the backend. */
+/** A file queued in the browser while it is being sent to the backend. */
 export interface UploadItem {
   id: ID;
   fileName: string;
   sizeBytes: number;
-  status: ProcessingStatus;
+  status: DocumentStatus;
   progress: number;
   error: string | null;
+  /** Set once the backend has accepted the file. */
+  documentId: ID | null;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Candidates                                                                  */
+/* Candidates & applications                                                   */
 /* -------------------------------------------------------------------------- */
+
+export const APPLICATION_STATUSES = [
+  "NEW",
+  "REVIEWING",
+  "INTERVIEW",
+  "OFFER",
+  "HIRED",
+  "REJECTED",
+  "WITHDRAWN",
+] as const;
+export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
 /**
- * Human review state. The product never lets the AI accept or reject anyone —
- * every transition here is recorded against a person.
+ * Where an application came from.
+ *
+ * The API has no `source` column yet, so this is never populated today. It is
+ * declared with the platform's agreed names so that when the column lands the
+ * frontend does not introduce competing vocabulary.
  */
-export type ReviewState = "not_reviewed" | "needs_human_review" | "reviewed";
+export const APPLICATION_SOURCES = [
+  "DIRECT",
+  "EMAIL",
+  "LINKEDIN",
+  "INDEED",
+  "SARAMIN",
+  "JOBKOREA",
+  "WANTED",
+  "JUMPIT",
+  "REFERRAL",
+  "MANUAL_UPLOAD",
+] as const;
+export type ApplicationSource = (typeof APPLICATION_SOURCES)[number];
 
-export interface ExperienceEntry {
+export interface Application {
   id: ID;
-  company: string;
-  title: string;
-  location: string | null;
-  startDate: ISODateString;
-  endDate: ISODateString | null;
-  highlights: string[];
-}
-
-export interface EducationEntry {
-  id: ID;
-  institution: string;
-  degree: string;
-  field: string;
-  startYear: number;
-  endYear: number | null;
+  candidateId: ID;
+  vacancyId: ID;
+  status: ApplicationStatus;
+  /** Absent until the API models provenance. */
+  source?: ApplicationSource;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+  vacancy?: Pick<Vacancy, "id" | "title" | "status">;
+  candidate?: Pick<Candidate, "id" | "fullName" | "currentTitle">;
 }
 
 export interface Candidate {
   id: ID;
   organizationId: ID;
   fullName: string;
-  currentTitle: string;
-  email: string;
+  email: string | null;
   phone: string | null;
-  location: string;
-  yearsOfExperience: number;
-  skills: string[];
-  experience: ExperienceEntry[];
-  education: EducationEntry[];
-  documents: CandidateDocument[];
-  processingStatus: ProcessingStatus;
-  reviewState: ReviewState;
-  primaryVacancyId: ID | null;
-  primaryVacancyTitle: string | null;
+  location: string | null;
+  currentTitle: string | null;
+  totalExperienceYears: number | null;
   createdAt: ISODateString;
   updatedAt: ISODateString;
+  /** Present on the detail endpoint. */
+  documents: CandidateDocument[];
+  applications: Application[];
+  /** Derived from the documents' statuses — the worst-case pipeline state. */
+  processingStatus: DocumentStatus | null;
+  /** Derived from the first application. */
+  primaryVacancyId: ID | null;
+  primaryVacancyTitle: string | null;
 }
 
-export type CandidateSortKey =
-  | "recent"
-  | "name"
-  | "experience"
-  | "evidence_coverage";
+export interface CreateCandidateInput {
+  fullName: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  currentTitle?: string;
+  totalExperienceYears?: number;
+}
+
+export type CandidateSortKey = "recent" | "name" | "experience";
 
 export interface CandidateQuery {
   search?: string;
-  vacancyId?: ID | "all";
-  processingStatus?: ProcessingStatus | "all";
-  reviewState?: ReviewState | "all";
-  sort?: CandidateSortKey;
-}
-
-/** Human-owned pipeline stages. The AI never moves an application. */
-export type ApplicationStage =
-  | "new"
-  | "in_review"
-  | "interview"
-  | "offer"
-  | "closed";
-
-export interface Application {
-  id: ID;
-  candidateId: ID;
-  vacancyId: ID;
-  stage: ApplicationStage;
-  /** User id of the person who last moved this application. */
-  movedByUserId: ID | null;
-  note: string | null;
-  appliedAt: ISODateString;
-  updatedAt: ISODateString;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Evidence & AI-assisted reading                                              */
-/* -------------------------------------------------------------------------- */
-
-export type EvidenceStatus = "found" | "not_found" | "needs_human_review";
-
-export interface Citation {
-  id: ID;
-  documentId: ID;
-  documentName: string;
-  page: number;
-  /** Verbatim excerpt from the source document. */
-  snippet: string;
-}
-
-export interface CandidateEvidence {
-  id: ID;
-  candidateId: ID;
-  vacancyId: ID;
-  requirementId: ID;
-  requirementLabel: string;
-  requirementKind: RequirementKind;
-  status: EvidenceStatus;
-  citations: Citation[];
-  /** Reviewer-facing note, e.g. why the extraction is uncertain. */
-  note: string | null;
-}
-
-export interface CandidateSummary {
-  candidateId: ID;
-  vacancyId: ID | null;
-  headline: string;
-  bullets: string[];
-  /** Points a reviewer should verify themselves. */
-  openQuestions: string[];
-  generatedAt: ISODateString;
-}
-
-export type InterviewQuestionCategory =
-  | "technical"
-  | "experience"
-  | "system_design"
-  | "collaboration";
-
-export interface InterviewQuestion {
-  id: ID;
-  candidateId: ID;
-  category: InterviewQuestionCategory;
-  question: string;
-  /** Which requirement or resume claim prompted the question. */
-  rationale: string;
-  relatedRequirementId: ID | null;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Search                                                                      */
-/* -------------------------------------------------------------------------- */
-
-export interface SearchQuery {
-  query: string;
-  vacancyId?: ID | "all";
+  location?: string;
+  currentTitle?: string;
+  minExperienceYears?: number;
+  page?: number;
   limit?: number;
 }
 
-export interface SearchMatch {
-  /** The part of the query this passage answers, e.g. "Redis Pub/Sub". */
-  term: string;
-  citation: Citation;
+/* -------------------------------------------------------------------------- */
+/* Evidence                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export const EVIDENCE_TYPES = [
+  "SKILL",
+  "EXPERIENCE",
+  "EDUCATION",
+  "LANGUAGE",
+  "CERTIFICATION",
+  "OTHER",
+] as const;
+export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
+
+/**
+ * One extracted passage. The API deliberately has no score or confidence
+ * field — evidence is a pointer to text a person reads and judges.
+ */
+export interface Evidence {
+  id: ID;
+  candidateId: ID;
+  documentId: ID;
+  vacancyId: ID | null;
+  requirementId: ID | null;
+  pageNumber: number | null;
+  section: string | null;
+  text: string;
+  evidenceType: EvidenceType | null;
+  createdAt: ISODateString;
+  document?: Pick<CandidateDocument, "id" | "originalFileName">;
 }
 
-export interface SearchResult {
+/**
+ * Presentation state for one requirement.
+ *
+ * Every value maps 1:1 from a backend signal — none is guessed:
+ *   EVIDENCE_FOUND      -> FOUND
+ *   NO_EVIDENCE_FOUND   -> NOT_FOUND
+ *   NEEDS_HUMAN_REVIEW  -> NEEDS_REVIEW
+ *   (no stored mapping) -> NOT_RUN
+ *
+ * NOT_RUN exists because "we have not looked" and "we looked and found
+ * nothing" are different facts, and collapsing them would misreport the second.
+ */
+export type EvidenceStatus =
+  | "FOUND"
+  | "NOT_FOUND"
+  | "NEEDS_REVIEW"
+  | "NOT_RUN";
+
+export interface Citation {
+  /** Stable key. The evidence row id when stored, else the chunk id. */
+  id: ID;
+  /**
+   * The AI service's chunk identifier, when the citation came from a
+   * generation call. Present so a citation can be traced back to the exact
+   * indexed passage that produced it.
+   */
+  chunkId: ID | null;
+  documentId: ID;
+  /** Null when the API did not report a filename; the UI supplies wording. */
+  documentName: string | null;
+  /**
+   * Page as reported by the backend. Never computed on the client: a
+   * client-derived page number would send a reader to the wrong place while
+   * looking authoritative.
+   */
+  page: number | null;
+  section: string | null;
+  snippet: string;
+}
+
+/** A requirement paired with whatever supports it. */
+export interface RequirementEvidence {
+  requirementId: ID;
+  requirementText: string;
+  required: boolean;
+  status: EvidenceStatus;
+  citations: Citation[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Evidence search                                                             */
+/* -------------------------------------------------------------------------- */
+
+/** One retrieved passage, with everything needed to open its source. */
+export interface EvidencePassage {
+  documentId: ID;
+  /** Null when the API did not report a filename. */
+  documentName: string | null;
+  page: number | null;
+  section: string | null;
+  text: string;
+}
+
+/**
+ * A candidate and the passages of theirs that matched.
+ *
+ * There is deliberately no score field: retrieval relevance decides ordering
+ * inside the service layer and is dropped before the view model, so no screen
+ * can present it as a measure of the candidate.
+ */
+export interface CandidateEvidenceMatch {
+  candidateId: ID;
+  /** Null when the candidate row no longer resolves to a name. */
+  candidateName: string | null;
+  passages: EvidencePassage[];
+}
+
+export interface EvidenceSearchResult {
+  query: string;
+  candidates: CandidateEvidenceMatch[];
+  reranked: boolean;
+  totalConsidered: number;
+  durationMs: number;
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Grounded AI                                                                 */
+/*                                                                             */
+/* Mirrors backend/src/ai/ai-service.client.ts exactly. Every status below      */
+/* describes the ANSWER and its evidence — never the candidate, and never a     */
+/* hiring decision.                                                            */
+/* -------------------------------------------------------------------------- */
+
+export const ANSWER_STATUSES = [
+  "GROUNDED",
+  "INSUFFICIENT_EVIDENCE",
+  "NEEDS_HUMAN_REVIEW",
+] as const;
+export type AnswerStatus = (typeof ANSWER_STATUSES)[number];
+
+export const EVIDENCE_MAPPING_STATUSES = [
+  "EVIDENCE_FOUND",
+  "NO_EVIDENCE_FOUND",
+  "NEEDS_HUMAN_REVIEW",
+] as const;
+export type EvidenceMappingStatus = (typeof EVIDENCE_MAPPING_STATUSES)[number];
+
+export const INTERVIEW_QUESTION_KINDS = [
+  "evidence_probe",
+  "missing_requirement_probe",
+] as const;
+export type InterviewQuestionKind = (typeof INTERVIEW_QUESTION_KINDS)[number];
+
+/** POST /ai/answer */
+export interface GroundedAnswer {
+  answer: string;
+  status: AnswerStatus;
+  citations: Citation[];
+  /** The language the answer was written in, as the backend confirmed it. */
+  locale: Locale;
+  /** How many passages were retrieved before the answer was written. */
+  evidenceConsidered: number;
+  durationMs: number;
+  model: string | null;
+  /**
+   * Citations the backend validated away because they did not match retrieved
+   * context. Surfaced as a count so a reader knows filtering happened, without
+   * showing chunk ids that mean nothing to them.
+   */
+  rejectedCitationCount: number;
+}
+
+/** POST /ai/candidates/:id/summary */
+export interface CandidateSummary {
+  summary: string;
+  status: AnswerStatus;
+  citations: Citation[];
+  locale: Locale;
+  durationMs: number;
+  model: string | null;
+  rejectedCitationCount: number;
+}
+
+export interface InterviewQuestion {
+  /** Derived stable key — the API returns no id per question. */
+  id: string;
+  question: string;
+  /** Why a human might ask it. Not a finding and not an assessment. */
+  reason: string;
+  kind: InterviewQuestionKind;
+  requirementId: ID | null;
+  citations: Citation[];
+}
+
+/** POST /ai/candidates/:cid/vacancies/:vid/interview-questions */
+export interface InterviewQuestionSet {
+  candidateId: ID;
+  vacancyId: ID;
+  questions: InterviewQuestion[];
+  locale: Locale;
+  durationMs: number;
+  model: string | null;
+}
+
+/** One requirement and whatever the mapping found for it. */
+export interface RequirementMapping {
+  requirementId: ID;
+  requirementText: string;
+  requirementType: RequirementType;
+  required: boolean;
+  status: EvidenceStatus;
+  /** The backend's own explanation. Null when the mapping has not run. */
+  reason: string | null;
+  matchedTerms: string[];
+  missingTerms: string[];
+  mappedAt: ISODateString | null;
+  citations: Citation[];
+}
+
+/**
+ * GET/POST /candidates/:cid/vacancies/:vid/evidence-map
+ *
+ * There is deliberately no overall score, percentage or verdict field. The
+ * backend does not return one, and deriving one here would invent exactly the
+ * summary judgement this product refuses to make.
+ */
+export interface EvidenceMap {
   candidateId: ID;
   candidateName: string;
-  currentTitle: string;
-  location: string;
-  yearsOfExperience: number;
-  relevantSkills: string[];
-  matches: SearchMatch[];
-  /** Query terms with no supporting passage in this candidate's documents. */
-  unmatchedTerms: string[];
+  vacancyId: ID;
+  vacancyTitle: string;
+  requirements: RequirementMapping[];
+  /** True once at least one requirement has a stored mapping. */
+  hasRun: boolean;
+  /** Most recent mapping time across requirements, or null. */
+  mappedAt: ISODateString | null;
 }
 
-export interface SearchResponse {
-  query: string;
-  /** Terms the search layer extracted from the natural-language query. */
-  interpretedTerms: string[];
-  results: SearchResult[];
-  tookMs: number;
-}
+/**
+ * Why an AI call did not produce a result.
+ *
+ * Kept distinct on purpose: retrieval being down, generation being down, a
+ * network failure and a role restriction need different words on screen, and
+ * collapsing them into "Something went wrong" hides which part of the system
+ * is actually unavailable.
+ */
+export type AiFailureReason =
+  | "generation_unavailable"
+  | "retrieval_unavailable"
+  | "network"
+  | "forbidden"
+  | "not_found"
+  | "invalid"
+  | "error";
 
 /* -------------------------------------------------------------------------- */
 /* Compare                                                                     */
@@ -414,8 +593,8 @@ export interface ComparisonCell {
 
 export interface ComparisonRow {
   requirementId: ID;
-  requirementLabel: string;
-  requirementKind: RequirementKind;
+  requirementText: string;
+  required: boolean;
   cells: ComparisonCell[];
 }
 
@@ -424,7 +603,7 @@ export interface ComparisonResult {
   vacancyTitle: string;
   candidates: Pick<
     Candidate,
-    "id" | "fullName" | "currentTitle" | "yearsOfExperience" | "location"
+    "id" | "fullName" | "currentTitle" | "totalExperienceYears" | "location"
   >[];
   rows: ComparisonRow[];
 }
@@ -440,20 +619,13 @@ export interface DashboardStats {
   completedAnalyses: number;
 }
 
-export interface ActivityEntry {
-  id: ID;
-  kind: "upload" | "processing" | "vacancy" | "review";
-  message: string;
-  detail: string | null;
-  at: ISODateString;
-}
-
 export interface DashboardData {
+  generatedAt: ISODateString;
   stats: DashboardStats;
   recentVacancies: Vacancy[];
   recentCandidates: Candidate[];
   processing: ProcessingSummary;
-  activity: ActivityEntry[];
+  recentJobs: ProcessingJob[];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -464,31 +636,12 @@ export interface TeamMember {
   id: ID;
   fullName: string;
   email: string;
-  role: UserRole;
-  status: "active" | "invited";
-  invitedAt: ISODateString;
-}
-
-export interface AiPreferences {
-  /** Show requirement evidence with citations rather than bare claims. */
-  requireCitations: boolean;
-  /** Route low-confidence extractions to a human instead of hiding them. */
-  flagUncertainForReview: boolean;
-  /** Redact contact details in shared views. */
-  redactContactDetails: boolean;
-  summaryLanguage: "en" | "uz" | "ru";
-}
-
-export interface SecuritySettings {
-  twoFactorEnabled: boolean;
-  sessionTimeoutMinutes: number;
-  lastPasswordChangeAt: ISODateString;
+  role: Role;
+  createdAt?: ISODateString;
 }
 
 export interface SettingsData {
-  user: User;
+  user: SessionUser;
   organization: Organization;
   team: TeamMember[];
-  ai: AiPreferences;
-  security: SecuritySettings;
 }

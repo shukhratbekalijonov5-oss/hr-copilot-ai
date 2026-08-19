@@ -1,10 +1,3 @@
-import type {
-  PipelineStage,
-  ProcessingStatus,
-  ProcessingSummary,
-} from "@/lib/types";
-import { PIPELINE_STAGES } from "@/lib/types";
-
 /** Minimal class-name joiner — avoids pulling in clsx for a 6-line helper. */
 export function cn(
   ...values: Array<string | false | null | undefined>
@@ -81,47 +74,17 @@ export function pluralize(count: number, singular: string, plural?: string) {
   return count === 1 ? singular : (plural ?? `${singular}s`);
 }
 
-/** Where a status sits in the pipeline; -1 for statuses outside it. */
-export function pipelineStageIndex(status: ProcessingStatus): number {
-  return (PIPELINE_STAGES as readonly string[]).indexOf(status);
-}
-
 /**
- * Collapses per-document statuses into the cumulative "reached at least this
- * stage" counts the progress readout displays.
+ * Derives the organization slug the API expects: lowercase alphanumeric words
+ * joined by hyphens (backend RegisterDto enforces this pattern).
  */
-export function summarizeProcessing(
-  statuses: ProcessingStatus[],
-): ProcessingSummary {
-  const reached = Object.fromEntries(
-    PIPELINE_STAGES.map((stage) => [stage, 0]),
-  ) as Record<PipelineStage, number>;
-
-  let failed = 0;
-
-  for (const status of statuses) {
-    if (status === "failed") {
-      failed += 1;
-      continue;
-    }
-    // A queued document has been uploaded but has not entered parsing yet.
-    const index = status === "queued" ? 0 : pipelineStageIndex(status);
-    if (index < 0) continue;
-
-    for (let i = 0; i <= index; i += 1) {
-      reached[PIPELINE_STAGES[i]] += 1;
-    }
-  }
-
-  return { total: statuses.length, failed, reached };
-}
-
-/** Percentage of the pipeline a single document has completed. */
-export function processingProgress(status: ProcessingStatus): number {
-  if (status === "completed") return 100;
-  if (status === "failed") return 0;
-  if (status === "queued") return 8;
-  const index = pipelineStageIndex(status);
-  if (index < 0) return 0;
-  return Math.round((index / (PIPELINE_STAGES.length - 1)) * 100);
+export function slugify(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
 }

@@ -11,22 +11,21 @@ import {
   SettingsIcon,
   UserIcon,
 } from "@/components/ui/icons";
-import type { Organization, User } from "@/lib/types";
-import { USER_ROLE_LABELS } from "@/lib/constants";
+import type { SessionUser } from "@/lib/types";
+import type { WorkspaceContext } from "@/lib/workspace/types";
+import { useI18n } from "@/lib/i18n/context";
+import { LocaleSwitcher } from "@/components/layout/LocaleSwitcher";
+import { WorkspaceSwitcher } from "@/components/layout/WorkspaceSwitcher";
+import { logoutAction } from "@/lib/auth/actions";
 
 interface HeaderProps {
-  user: User;
-  organization: Organization;
-  unreadNotifications: number;
+  user: SessionUser;
+  workspace: WorkspaceContext;
   onOpenSidebar: () => void;
 }
 
-export function Header({
-  user,
-  organization,
-  unreadNotifications,
-  onOpenSidebar,
-}: HeaderProps) {
+export function Header({ user, workspace, onOpenSidebar }: HeaderProps) {
+  const { d } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -55,35 +54,27 @@ export function Header({
       <button
         type="button"
         onClick={onOpenSidebar}
-        aria-label="Open navigation"
+        aria-label={d.nav.openNavigation}
         className="-ml-1 rounded-md p-1.5 text-ink-muted hover:bg-surface-muted hover:text-ink lg:hidden"
       >
         <MenuIcon className="size-5" />
       </button>
 
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-muted text-[11px] font-semibold text-ink-muted">
-          {organization.name.slice(0, 1)}
-        </span>
-        <span className="truncate text-[13.5px] font-medium text-ink">
-          {organization.name}
-        </span>
-      </div>
+      <WorkspaceSwitcher context={workspace} />
 
       <div className="ml-auto flex items-center gap-1">
+        <LocaleSwitcher />
+
+        {/* Notifications have no backing endpoint yet, so the control is
+            present but explicitly inert rather than showing an invented count. */}
         <button
           type="button"
-          className="relative rounded-md p-2 text-ink-muted hover:bg-surface-muted hover:text-ink"
-          aria-label={
-            unreadNotifications > 0
-              ? `Notifications, ${unreadNotifications} unread`
-              : "Notifications"
-          }
+          disabled
+          className="relative rounded-md p-2 text-ink-subtle disabled:cursor-not-allowed"
+          aria-label={`${d.nav.notifications} — ${d.nav.notificationsUnavailable}`}
+          title={d.nav.notificationsUnavailable}
         >
           <BellIcon className="size-5" />
-          {unreadNotifications > 0 ? (
-            <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-critical ring-2 ring-[var(--surface)]" />
-          ) : null}
         </button>
 
         <div className="relative" ref={menuRef}>
@@ -112,7 +103,9 @@ export function Header({
                 </p>
                 <p className="truncate text-[12px] text-ink-muted">{user.email}</p>
                 <p className="mt-1 text-[11.5px] text-ink-subtle">
-                  {USER_ROLE_LABELS[user.role]} · {organization.name}
+                  {workspace.active.kind === "organization"
+                    ? `${d.status.role[workspace.active.role]} · ${workspace.active.name}`
+                    : d.nav.personal}
                 </p>
               </div>
               <div className="p-1">
@@ -123,7 +116,7 @@ export function Header({
                   className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-ink-muted hover:bg-surface-muted hover:text-ink"
                 >
                   <UserIcon className="size-4" />
-                  Profile
+                  {d.nav.profile}
                 </Link>
                 <Link
                   href="/settings"
@@ -132,17 +125,18 @@ export function Header({
                   className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-ink-muted hover:bg-surface-muted hover:text-ink"
                 >
                   <SettingsIcon className="size-4" />
-                  Workspace settings
+                  {d.nav.workspaceSettings}
                 </Link>
-                <Link
-                  href="/login"
-                  role="menuitem"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-ink-muted hover:bg-surface-muted hover:text-ink"
-                >
-                  <LogoutIcon className="size-4" />
-                  Sign out
-                </Link>
+                <form action={logoutAction}>
+                  <button
+                    type="submit"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-ink-muted hover:bg-surface-muted hover:text-ink"
+                  >
+                    <LogoutIcon className="size-4" />
+                    {d.nav.signOut}
+                  </button>
+                </form>
               </div>
             </div>
           ) : null}

@@ -1,53 +1,68 @@
-import { mockRequest } from "@/lib/api/client";
-import {
-  aiPreferences,
-  currentUser,
-  organization,
-  securitySettings,
-  team,
-} from "@/lib/mock/seed/org";
-import type {
-  AiPreferences,
-  Organization,
-  SettingsData,
-  User,
-} from "@/lib/types";
+import "server-only";
 
-const state: SettingsData = {
-  user: { ...currentUser },
-  organization: { ...organization },
-  team,
-  ai: { ...aiPreferences },
-  security: { ...securitySettings },
-};
+import { apiFetch, fetchAllPages } from "@/lib/api/http";
+import { toOrganization, toTeamMember } from "@/lib/api/adapters";
+import { getSession } from "@/lib/api/auth.service";
+import type {
+  OrganizationResponse,
+  UserResponse,
+} from "@/lib/api/contracts";
+import type { Organization, SettingsData, TeamMember } from "@/lib/types";
 
 export async function getSettings(): Promise<SettingsData> {
-  return mockRequest(() => state);
+  const [user, organization, team] = await Promise.all([
+    getSession(),
+    apiFetch<OrganizationResponse>("/organizations/current"),
+    fetchAllPages<UserResponse>("/users"),
+  ]);
+
+  return {
+    user,
+    organization: toOrganization(organization),
+    team: team.map(toTeamMember),
+  };
 }
 
-export async function updateProfile(
-  input: Pick<User, "fullName" | "email" | "jobTitle">,
-): Promise<User> {
-  return mockRequest(() => {
-    state.user = { ...state.user, ...input };
-    return state.user;
-  }, 520);
+/**
+ * PATCH /organizations/current. The API takes the organization from the JWT,
+ * so there is no id to pass — and no way for a client to name another tenant.
+ */
+export async function updateOrganization(input: {
+  name?: string;
+  slug?: string;
+}): Promise<Organization> {
+  return toOrganization(
+    await apiFetch<OrganizationResponse>("/organizations/current", {
+      method: "PATCH",
+      body: input,
+    }),
+  );
 }
 
-export async function updateOrganization(
-  input: Pick<Organization, "name" | "industry" | "companySize" | "website">,
-): Promise<Organization> {
-  return mockRequest(() => {
-    state.organization = { ...state.organization, ...input };
-    return state.organization;
-  }, 520);
+/** PATCH /users/:id — the only profile mutation the API exposes. */
+export async function updateTeamMember(
+  id: string,
+  input: { fullName?: string; role?: TeamMember["role"] },
+): Promise<TeamMember> {
+  return toTeamMember(
+    await apiFetch<UserResponse>(`/users/${id}`, {
+      method: "PATCH",
+      body: input,
+    }),
+  );
 }
 
-export async function updateAiPreferences(
-  input: AiPreferences,
-): Promise<AiPreferences> {
-  return mockRequest(() => {
-    state.ai = { ...input };
-    return state.ai;
-  }, 420);
+/** POST /auth/users — creates a teammate inside the caller's organization. */
+export async function inviteUser(input: {
+  fullName: string;
+  email: string;
+  password: string;
+  role: TeamMember["role"];
+}): Promise<TeamMember> {
+  return toTeamMember(
+    await apiFetch<UserResponse>("/auth/users", {
+      method: "POST",
+      body: input,
+    }),
+  );
 }

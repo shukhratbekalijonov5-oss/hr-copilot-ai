@@ -31,7 +31,10 @@ export class R2StorageService extends StorageService {
     super();
     const accountId = configService.getOrThrow<string>('storage.r2.accountId');
     this.bucket = configService.getOrThrow<string>('storage.r2.bucket');
-    this.defaultTtl = configService.get<number>('storage.signedUrlTtlSeconds', 900);
+    this.defaultTtl = configService.get<number>(
+      'storage.signedUrlTtlSeconds',
+      900,
+    );
 
     this.client = new S3Client({
       region: 'auto',
@@ -64,6 +67,17 @@ export class R2StorageService extends StorageService {
       }),
     );
     return { storageKey: input.key, size: input.body.byteLength };
+  }
+
+  async getObject(key: string): Promise<Buffer> {
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    const body = response.Body;
+    if (!body) {
+      throw new Error(`R2 object ${key} returned no body`);
+    }
+    return Buffer.from(await body.transformToByteArray());
   }
 
   async delete(key: string): Promise<void> {

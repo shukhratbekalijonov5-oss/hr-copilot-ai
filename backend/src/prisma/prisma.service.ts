@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client';
+import { describeError } from '../common/errors/describe-error';
 
 /**
  * Prisma 7 connects through a driver adapter rather than a schema-level `url`.
@@ -25,8 +26,21 @@ export class PrismaService
   }
 
   async onModuleInit(): Promise<void> {
+    // With a driver adapter, $connect() does not itself open a socket, so it
+    // succeeds even when the server is unreachable. Issue a real query so the
+    // startup log reflects the actual state rather than claiming a connection
+    // that does not exist.
     await this.$connect();
-    this.logger.log('Database connection established');
+    try {
+      await this.ping();
+      this.logger.log('Database connection established');
+    } catch (error) {
+      // Startup continues: the readiness probe is what reports not-ready, and
+      // the message never includes the connection string.
+      this.logger.warn(
+        `Database unavailable at startup: ${describeError(error)}`,
+      );
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

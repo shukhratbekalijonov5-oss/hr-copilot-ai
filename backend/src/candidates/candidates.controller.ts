@@ -15,8 +15,10 @@ import { UpdateCandidateDto } from './dto/update-candidate.dto';
 import { QueryCandidatesDto } from './dto/query-candidates.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { Role } from '../generated/prisma/enums';
 
+@OrgScoped()
 @Controller('candidates')
 export class CandidatesController {
   constructor(private readonly candidatesService: CandidatesService) {}

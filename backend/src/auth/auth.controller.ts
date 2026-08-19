@@ -1,11 +1,20 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
+import { SwitchOrganizationDto } from './dto/switch-organization.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Role } from '../generated/prisma/enums';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
@@ -35,7 +44,22 @@ export class AuthController {
     return this.authService.currentUser(user);
   }
 
-  /** Creates a teammate inside the caller's own organization. */
+  /**
+   * Activates one of the caller's own organizations. Authenticated but not
+   * @OrgScoped: it must work when the current token has no (or a stale)
+   * organization context.
+   */
+  @HttpCode(HttpStatus.OK)
+  @Post('switch-organization')
+  switchOrganization(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SwitchOrganizationDto,
+  ) {
+    return this.authService.switchOrganization(user, dto.organizationId);
+  }
+
+  /** Adds a teammate to the caller's active organization. */
+  @OrgScoped()
   @Roles(Role.OWNER, Role.HR_ADMIN)
   @Post('users')
   inviteUser(

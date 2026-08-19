@@ -3,13 +3,12 @@
 import { CitationLink } from "@/components/evidence/CitationLink";
 import { Badge } from "@/components/ui/Badge";
 import { EvidenceStatusBadge } from "@/components/ui/StatusBadge";
-import { AlertIcon } from "@/components/ui/icons";
-import { REQUIREMENT_KIND_LABELS } from "@/lib/constants";
+import { REQUIREMENT_PRIORITY_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import type { CandidateEvidence, Citation } from "@/lib/types";
+import type { Citation, RequirementEvidence } from "@/lib/types";
 
 interface EvidenceCardProps {
-  evidence: CandidateEvidence;
+  evidence: RequirementEvidence;
   onSelectCitation?: (citation: Citation) => void;
   activeCitationId?: string | null;
   className?: string;
@@ -21,12 +20,12 @@ export function EvidenceCard({
   activeCitationId,
   className,
 }: EvidenceCardProps) {
-  const missing = evidence.status === "not_found";
+  const missing = evidence.status === "NOT_FOUND";
 
   return (
     <article
       className={cn(
-        "rounded-xl border bg-surface p-3.5 shadow-card",
+        "min-w-0 rounded-xl border bg-surface p-3.5 shadow-card",
         missing ? "border-dashed border-line" : "border-line",
         className,
       )}
@@ -34,13 +33,12 @@ export function EvidenceCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="text-[14px] font-semibold tracking-tight text-ink">
-            {evidence.requirementLabel}
+            {evidence.requirementText}
           </h3>
-          <Badge
-            tone={evidence.requirementKind === "must_have" ? "brand" : "neutral"}
-            className="mt-1"
-          >
-            {REQUIREMENT_KIND_LABELS[evidence.requirementKind]}
+          <Badge tone={evidence.required ? "brand" : "neutral"} className="mt-1">
+            {evidence.required
+              ? REQUIREMENT_PRIORITY_LABELS.required
+              : REQUIREMENT_PRIORITY_LABELS.optional}
           </Badge>
         </div>
         <EvidenceStatusBadge status={evidence.status} />
@@ -69,13 +67,6 @@ export function EvidenceCard({
           not a judgement about the candidate — ask about it in a screen.
         </p>
       )}
-
-      {evidence.note ? (
-        <p className="mt-3 flex gap-2 rounded-lg bg-warning-soft px-2.5 py-2 text-[12.5px] leading-relaxed text-warning">
-          <AlertIcon className="mt-px size-4 shrink-0" />
-          <span>{evidence.note}</span>
-        </p>
-      ) : null}
     </article>
   );
 }

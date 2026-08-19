@@ -15,8 +15,10 @@ import { UpdateApplicationStatusDto } from './dto/update-application-status.dto'
 import { QueryApplicationsDto } from './dto/query-applications.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { Role } from '../generated/prisma/enums';
 
+@OrgScoped()
 @Controller('applications')
 export class ApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
@@ -54,7 +56,11 @@ export class ApplicationsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateApplicationStatusDto,
   ) {
-    return this.applicationsService.updateStatus(organizationId, id, dto.status);
+    return this.applicationsService.updateStatus(
+      organizationId,
+      id,
+      dto.status,
+    );
   }
 
   @Roles(Role.OWNER, Role.HR_ADMIN)

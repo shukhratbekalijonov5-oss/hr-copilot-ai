@@ -19,6 +19,7 @@ import {
 } from './dto/job-requirement.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { Role, VacancyStatus } from '../generated/prisma/enums';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
@@ -26,13 +27,17 @@ import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.
  * Every handler takes organizationId from the JWT via @CurrentUser. No route
  * accepts an organizationId parameter — cross-tenant access is not expressible.
  */
+@OrgScoped()
 @Controller('vacancies')
 export class VacanciesController {
   constructor(private readonly vacanciesService: VacanciesService) {}
 
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Post()
-  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateVacancyDto) {
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateVacancyDto,
+  ) {
     return this.vacanciesService.create(user.organizationId, user.id, dto);
   }
 
@@ -68,7 +73,11 @@ export class VacanciesController {
     @CurrentUser('organizationId') organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.vacanciesService.setStatus(organizationId, id, VacancyStatus.CLOSED);
+    return this.vacanciesService.setStatus(
+      organizationId,
+      id,
+      VacancyStatus.CLOSED,
+    );
   }
 
   @Roles(Role.OWNER, Role.HR_ADMIN)
@@ -77,7 +86,11 @@ export class VacanciesController {
     @CurrentUser('organizationId') organizationId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.vacanciesService.setStatus(organizationId, id, VacancyStatus.ARCHIVED);
+    return this.vacanciesService.setStatus(
+      organizationId,
+      id,
+      VacancyStatus.ARCHIVED,
+    );
   }
 
   @Roles(Role.OWNER, Role.HR_ADMIN)
@@ -132,6 +145,10 @@ export class VacanciesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Param('requirementId', ParseUUIDPipe) requirementId: string,
   ) {
-    return this.vacanciesService.removeRequirement(organizationId, id, requirementId);
+    return this.vacanciesService.removeRequirement(
+      organizationId,
+      id,
+      requirementId,
+    );
   }
 }

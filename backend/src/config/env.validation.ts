@@ -93,6 +93,10 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsUrl({ require_tld: false }, { message: 'AI_SERVICE_URL must be a URL' })
   AI_SERVICE_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  INTERNAL_SERVICE_TOKEN?: string;
 }
 
 /** Fields that must be present and non-empty when STORAGE_DRIVER=r2. */
@@ -103,7 +107,9 @@ const R2_REQUIRED_KEYS = [
   'R2_BUCKET',
 ] as const;
 
-export function validateEnv(raw: Record<string, unknown>): Record<string, unknown> {
+export function validateEnv(
+  raw: Record<string, unknown>,
+): Record<string, unknown> {
   // AI_SERVICE_URL is legitimately empty while the Python service does not
   // exist yet; an empty string would otherwise trip @IsUrl.
   const normalised = { ...raw };
@@ -118,9 +124,23 @@ export function validateEnv(raw: Record<string, unknown>): Record<string, unknow
   if (errors.length > 0) {
     // Report constraint messages and property names only — never the values.
     const details = errors
-      .map((e) => Object.values(e.constraints ?? { unknown: e.property }).join('; '))
+      .map((e) =>
+        Object.values(e.constraints ?? { unknown: e.property }).join('; '),
+      )
       .join('\n  - ');
     throw new Error(`Invalid environment configuration:\n  - ${details}`);
+  }
+
+  // A configured AI service with no service credential would be rejected by
+  // every /internal/* call; fail at boot instead of once per job.
+  const internalToken = raw.INTERNAL_SERVICE_TOKEN;
+  const hasInternalToken =
+    typeof internalToken === 'string' && internalToken.trim().length > 0;
+  if (raw.AI_SERVICE_URL && !hasInternalToken) {
+    throw new Error(
+      'Invalid environment configuration:\n  - AI_SERVICE_URL is set but ' +
+        'INTERNAL_SERVICE_TOKEN is empty',
+    );
   }
 
   if (parsed.STORAGE_DRIVER === StorageDriverEnum.R2) {

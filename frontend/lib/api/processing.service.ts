@@ -1,166 +1,72 @@
-import { matchesSearch, mockRequest } from "@/lib/api/client";
-import {
-  documents,
-  globalProcessingSummary,
-  processingJobs,
-} from "@/lib/mock/store";
-import { PIPELINE_STAGES } from "@/lib/types";
-import { summarizeProcessing } from "@/lib/utils";
+import "server-only";
+
+import { apiFetch, fetchAllPages, type Paginated } from "@/lib/api/http";
+import { summarizeDocumentStatuses, toProcessingJob } from "@/lib/api/adapters";
+import { getAllDocuments } from "@/lib/api/documents.service";
+import { getAllCandidates } from "@/lib/api/candidates.service";
+import type { ProcessingJobResponse } from "@/lib/api/contracts";
 import type {
   ProcessingJob,
-  ProcessingStatus,
+  ProcessingJobStatus,
   ProcessingSummary,
-  UploadItem,
 } from "@/lib/types";
 
-export interface ProcessingJobQuery {
-  search?: string;
-  status?: ProcessingStatus | "all";
-  vacancyId?: string | "all";
-}
-
-export async function getProcessingJobs(
-  query: ProcessingJobQuery = {},
-): Promise<ProcessingJob[]> {
-  return mockRequest(() => {
-    const status = query.status ?? "all";
-    const vacancyId = query.vacancyId ?? "all";
-
-    return processingJobs
-      .filter((job) => (status === "all" ? true : job.status === status))
-      .filter((job) => (vacancyId === "all" ? true : job.vacancyId === vacancyId))
-      .filter((job) =>
-        matchesSearch(
-          query.search ?? "",
-          job.documentName,
-          job.candidateName,
-          job.vacancyTitle,
-        ),
-      )
-      .sort(
-        (a, b) =>
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      );
-  });
-}
-
-export async function getProcessingSummary(): Promise<ProcessingSummary> {
-  return mockRequest(() => globalProcessingSummary);
-}
-
-export async function getDocumentStatuses(): Promise<ProcessingStatus[]> {
-  return mockRequest(() => documents.map((document) => document.status), 0);
-}
-
-/* -------------------------------------------------------------------------- */
-/* Upload + live progress                                                      */
-/* -------------------------------------------------------------------------- */
-
-export interface ProcessingEvent {
-  uploadId: string;
-  status: ProcessingStatus;
-  progress: number;
-  error: string | null;
-}
-
 /**
- * A live feed of pipeline events for a set of uploads.
+ * Processing jobs, enriched with the candidate each document belongs to.
  *
- * The mock drives it with timers. The real implementation opens a WebSocket to
- * the worker and forwards each message to `onEvent` — the component contract
- * does not change.
+ * The API's job payload nests only the document, so the candidate name is
+ * resolved here rather than in the table component.
  */
-export interface ProcessingChannel {
-  close(): void;
+export async function getProcessingJobs(
+  query: { status?: ProcessingJobStatus; page?: number; limit?: number } = {},
+): Promise<{ jobs: ProcessingJob[]; total: number }> {
+  const [response, documents, candidates] = await Promise.all([
+    apiFetch<Paginated<ProcessingJobResponse>>("/processing-jobs", {
+      query: {
+        page: query.page ?? 1,
+        limit: query.limit ?? 100,
+        status: query.status,
+      },
+    }),
+    getAllDocuments(),
+    getAllCandidates(),
+  ]);
+
+  const candidateByDocument = new Map<string, { id: string; fullName: string }>();
+  const candidateById = new Map(candidates.map((c) => [c.id, c]));
+
+  for (const document of documents) {
+    if (!document.candidateId) continue;
+    const candidate = candidateById.get(document.candidateId);
+    if (candidate) {
+      candidateByDocument.set(document.id, {
+        id: candidate.id,
+        fullName: candidate.fullName,
+      });
+    }
+  }
+
+  return {
+    jobs: response.data.map((job) =>
+      toProcessingJob(job, candidateByDocument.get(job.documentId) ?? null),
+    ),
+    total: response.meta.total,
+  };
 }
 
-export interface UploadRequest {
-  files: File[];
-  vacancyId?: string | null;
-}
-
-/** Registers uploads and returns the queue rows the UI renders. */
-export async function uploadResumes(
-  request: UploadRequest,
-): Promise<UploadItem[]> {
-  return mockRequest(
-    () =>
-      request.files.map((file, index) => ({
-        id: `upl-${Date.now().toString(36)}-${index}`,
-        fileName: file.name,
-        sizeBytes: file.size,
-        status: "uploaded" as ProcessingStatus,
-        progress: 0,
-        error: null,
-      })),
-    450,
+export async function getProcessingJob(id: string): Promise<ProcessingJob> {
+  return toProcessingJob(
+    await apiFetch<ProcessingJobResponse>(`/processing-jobs/${id}`),
   );
 }
 
-const STAGE_DURATION_MS: Record<string, [number, number]> = {
-  uploaded: [400, 900],
-  parsing: [900, 2200],
-  chunking: [600, 1400],
-  embedding: [1100, 2600],
-  indexing: [700, 1600],
-};
-
-function randomBetween([min, max]: [number, number]): number {
-  return min + Math.random() * (max - min);
+export async function getAllProcessingJobs(): Promise<ProcessingJob[]> {
+  const rows = await fetchAllPages<ProcessingJobResponse>("/processing-jobs");
+  return rows.map((job) => toProcessingJob(job));
 }
 
-export function openProcessingChannel(
-  items: Pick<UploadItem, "id">[],
-  onEvent: (event: ProcessingEvent) => void,
-): ProcessingChannel {
-  const timers: ReturnType<typeof setTimeout>[] = [];
-  let closed = false;
-
-  const advance = (uploadId: string, stageIndex: number) => {
-    if (closed) return;
-
-    const stage = PIPELINE_STAGES[stageIndex];
-    const progress = Math.round(
-      (stageIndex / (PIPELINE_STAGES.length - 1)) * 100,
-    );
-
-    // ~6% of documents fail during parsing, mirroring unreadable scans.
-    if (stage === "parsing" && Math.random() < 0.06) {
-      onEvent({
-        uploadId,
-        status: "failed",
-        progress,
-        error: "Could not extract text. The file may be a flat scan.",
-      });
-      return;
-    }
-
-    onEvent({ uploadId, status: stage, progress, error: null });
-
-    if (stage === "completed") return;
-
-    timers.push(
-      setTimeout(
-        () => advance(uploadId, stageIndex + 1),
-        randomBetween(STAGE_DURATION_MS[stage] ?? [500, 1200]),
-      ),
-    );
-  };
-
-  items.forEach((item, index) => {
-    // Stagger starts so the queue fills progressively rather than in lockstep.
-    timers.push(setTimeout(() => advance(item.id, 0), index * 180));
-  });
-
-  return {
-    close() {
-      closed = true;
-      timers.forEach(clearTimeout);
-    },
-  };
-}
-
-/** Cumulative stage counts for an in-browser upload queue. */
-export function summarizeUploads(items: UploadItem[]): ProcessingSummary {
-  return summarizeProcessing(items.map((item) => item.status));
+/** Pipeline readout across every document in the organization. */
+export async function getProcessingSummary(): Promise<ProcessingSummary> {
+  const documents = await getAllDocuments();
+  return summarizeDocumentStatuses(documents.map((d) => d.status));
 }

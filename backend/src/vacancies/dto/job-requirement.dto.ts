@@ -1,5 +1,12 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { IsBoolean, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { RequirementType } from '../../generated/prisma/enums';
 
 export class CreateJobRequirementDto {
@@ -17,4 +24,6 @@ export class CreateJobRequirementDto {
   required?: boolean;
 }
 
-export class UpdateJobRequirementDto extends PartialType(CreateJobRequirementDto) {}
+export class UpdateJobRequirementDto extends PartialType(
+  CreateJobRequirementDto,
+) {}

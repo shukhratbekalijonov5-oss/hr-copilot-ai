@@ -1,17 +1,22 @@
+import "server-only";
+
 /**
- * The single entry point components use to reach data.
- *
- * Import `api` rather than any individual service so that swapping the mock
- * transport for HTTP stays a change inside `lib/api`.
+ * The single entry point server components and server actions use to reach the
+ * backend. Client components never import this — they call server actions or
+ * the route handlers under `app/api`, so the JWT stays on the server.
  */
+import * as ai from "@/lib/api/ai.service";
+import * as applications from "@/lib/api/applications.service";
 import * as auth from "@/lib/api/auth.service";
-import * as candidatesService from "@/lib/api/candidates.service";
+import * as candidates from "@/lib/api/candidates.service";
 import * as compare from "@/lib/api/compare.service";
 import * as dashboard from "@/lib/api/dashboard.service";
+import * as documents from "@/lib/api/documents.service";
+import * as evidence from "@/lib/api/evidence.service";
 import * as processing from "@/lib/api/processing.service";
 import * as search from "@/lib/api/search.service";
 import * as settings from "@/lib/api/settings.service";
-import * as vacanciesService from "@/lib/api/vacancies.service";
+import * as vacancies from "@/lib/api/vacancies.service";
 
 export const api = {
   // auth
@@ -19,42 +24,64 @@ export const api = {
   register: auth.register,
   getSession: auth.getSession,
 
-  // dashboard
+  // dashboard & organization
   getDashboard: dashboard.getDashboard,
+  getCurrentOrganization: dashboard.getCurrentOrganization,
 
   // vacancies
-  getVacancies: vacanciesService.getVacancies,
-  getVacancy: vacanciesService.getVacancy,
-  getVacancyCandidates: vacanciesService.getVacancyCandidates,
-  getDepartments: vacanciesService.getDepartments,
-  createVacancy: vacanciesService.createVacancy,
+  getVacancies: vacancies.getVacancies,
+  getAllVacancies: vacancies.getAllVacancies,
+  getVacancy: vacancies.getVacancy,
+  createVacancy: vacancies.createVacancy,
+  updateVacancy: vacancies.updateVacancy,
+  setVacancyStatus: vacancies.setVacancyStatus,
+  addRequirement: vacancies.addRequirement,
+  removeRequirement: vacancies.removeRequirement,
 
-  // candidates
-  getCandidates: candidatesService.getCandidates,
-  getCandidate: candidatesService.getCandidate,
-  getCandidateEvidence: candidatesService.getCandidateEvidence,
-  getCandidateSummary: candidatesService.getCandidateSummary,
-  getInterviewQuestions: candidatesService.getInterviewQuestions,
-  setReviewState: candidatesService.setReviewState,
+  // candidates & applications
+  getCandidates: candidates.getCandidates,
+  getAllCandidates: candidates.getAllCandidates,
+  getCandidate: candidates.getCandidate,
+  createCandidate: candidates.createCandidate,
+  updateCandidate: candidates.updateCandidate,
+  getApplications: applications.getApplications,
+  createApplication: applications.createApplication,
+  setApplicationStatus: applications.setApplicationStatus,
 
-  // search & compare
-  searchCandidates: search.searchCandidates,
-  compareCandidates: compare.compareCandidates,
+  // documents
+  getDocuments: documents.getDocuments,
+  getAllDocuments: documents.getAllDocuments,
+  getDocument: documents.getDocument,
+  getDocumentDownloadUrl: documents.getDocumentDownloadUrl,
+  uploadDocument: documents.uploadDocument,
 
   // processing
   getProcessingJobs: processing.getProcessingJobs,
+  getProcessingJob: processing.getProcessingJob,
   getProcessingSummary: processing.getProcessingSummary,
-  uploadResumes: processing.uploadResumes,
-  openProcessingChannel: processing.openProcessingChannel,
-  summarizeUploads: processing.summarizeUploads,
+
+  // search
+  searchEvidence: search.searchEvidence,
+
+  // grounded AI
+  answerQuestion: ai.answerQuestion,
+  summariseCandidate: ai.summariseCandidate,
+  getInterviewQuestions: ai.getInterviewQuestions,
+  runEvidenceMap: ai.runEvidenceMap,
+  getEvidenceMap: ai.getEvidenceMap,
+
+  // evidence & compare
+  getCandidateEvidence: evidence.getCandidateEvidence,
+  getCandidateRequirementEvidence: evidence.getCandidateRequirementEvidence,
+  countEvidence: evidence.countEvidence,
+  compareCandidates: compare.compareCandidates,
 
   // settings
   getSettings: settings.getSettings,
-  updateProfile: settings.updateProfile,
   updateOrganization: settings.updateOrganization,
-  updateAiPreferences: settings.updateAiPreferences,
+  updateTeamMember: settings.updateTeamMember,
+  inviteUser: settings.inviteUser,
 };
 
-export { ApiError } from "@/lib/api/client";
-export { SEARCH_EXAMPLES } from "@/lib/api/search.service";
-export type { ProcessingChannel, ProcessingEvent } from "@/lib/api/processing.service";
+export { ApiError, errorMessage, toApiError } from "@/lib/api/errors";
+export type { FieldErrors } from "@/lib/api/errors";

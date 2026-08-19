@@ -14,6 +14,8 @@ export interface TabItem {
 interface TabsProps {
   items: TabItem[];
   defaultTabId?: string;
+  /** Accessible name for the tab list. Supplied translated by the caller. */
+  label: string;
   className?: string;
   listClassName?: string;
 }
@@ -21,6 +23,7 @@ interface TabsProps {
 export function Tabs({
   items,
   defaultTabId,
+  label,
   className,
   listClassName,
 }: TabsProps) {
@@ -32,7 +35,7 @@ export function Tabs({
     <div className={className}>
       <div
         role="tablist"
-        aria-label="Candidate sections"
+        aria-label={label}
         className={cn(
           "flex gap-1 overflow-x-auto border-b border-line scrollbar-slim",
           listClassName,

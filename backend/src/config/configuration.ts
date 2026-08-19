@@ -45,6 +45,11 @@ export interface AppConfiguration {
   ai: {
     /** Empty string => the Python AI service is not wired up yet. */
     baseUrl: string;
+    /**
+     * Shared credential for backend->AI calls. Deliberately separate from
+     * SECRET_TOKEN: a user session secret must not double as a service one.
+     */
+    internalToken: string;
     timeoutMs: number;
   };
   throttle: {
@@ -91,7 +96,10 @@ export default (): AppConfiguration => ({
   },
   ai: {
     baseUrl: process.env.AI_SERVICE_URL ?? '',
-    timeoutMs: toInt(process.env.AI_SERVICE_TIMEOUT_MS, 30_000),
+    internalToken: process.env.INTERNAL_SERVICE_TOKEN ?? '',
+    // Embedding a long resume is slower than a typical HTTP call; the queue
+    // worker is the caller, so a generous ceiling is fine.
+    timeoutMs: toInt(process.env.AI_SERVICE_TIMEOUT_MS, 120_000),
   },
   throttle: {
     ttlMs: toInt(process.env.THROTTLE_TTL_MS, 60_000),

@@ -23,8 +23,19 @@ export interface UploadInput {
 export abstract class StorageService {
   abstract upload(input: UploadInput): Promise<StoredObject>;
   abstract delete(key: string): Promise<void>;
+  /**
+   * Reads an object's bytes back into the process.
+   *
+   * Used to stream a document to the AI service over the internal channel.
+   * That deliberately avoids minting a public or signed URL for machine-to-
+   * machine access, and works identically for local disk and R2.
+   */
+  abstract getObject(key: string): Promise<Buffer>;
   /** Time-limited read URL; TTL comes from storage.signedUrlTtlSeconds. */
-  abstract getSignedUrl(key: string, expiresInSeconds?: number): Promise<string>;
+  abstract getSignedUrl(
+    key: string,
+    expiresInSeconds?: number,
+  ): Promise<string>;
   abstract exists(key: string): Promise<boolean>;
 
   /**
@@ -39,11 +50,27 @@ export abstract class StorageService {
     const extension = extname(originalFileName);
     return `org/${organizationId}/documents/${documentId}${extension}`;
   }
+
+  /**
+   * Personal (candidate-owned) objects live in their own namespace, disjoint
+   * from every `org/` prefix — a job seeker's resume is not tenant data.
+   */
+  static buildPersonalKey(
+    candidateAccountId: string,
+    documentId: string,
+    originalFileName: string,
+  ): string {
+    const extension = extname(originalFileName);
+    return `candidate/${candidateAccountId}/documents/${documentId}${extension}`;
+  }
 }
 
 function extname(fileName: string): string {
   const index = fileName.lastIndexOf('.');
   if (index <= 0 || index === fileName.length - 1) return '';
   // Normalise and defend against path segments smuggled in via the filename.
-  return fileName.slice(index).toLowerCase().replace(/[^a-z0-9.]/g, '');
+  return fileName
+    .slice(index)
+    .toLowerCase()
+    .replace(/[^a-z0-9.]/g, '');
 }

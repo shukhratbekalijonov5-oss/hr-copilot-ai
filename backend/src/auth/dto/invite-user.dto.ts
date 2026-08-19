@@ -1,4 +1,10 @@
-import { IsEmail, IsEnum, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { Role } from '../../generated/prisma/enums';
 
 /** Creates an additional user inside the *caller's* organization. */

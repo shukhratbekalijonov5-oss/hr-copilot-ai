@@ -53,15 +53,20 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    if (!payload?.sub || !payload?.org) {
+    if (!payload?.sub) {
       throw new UnauthorizedException('Malformed token payload');
     }
 
+    // The token authenticates the USER only. The `org` claim is carried along
+    // as an unvalidated pointer; OrgContextGuard turns it into a trusted
+    // organizationId + role by checking a live membership row on org-scoped
+    // routes. A candidate-only token legitimately has no org claim.
     const user: AuthenticatedUser = {
       id: payload.sub,
       email: payload.email,
-      role: payload.role,
-      organizationId: payload.org,
+      organizationId: null,
+      role: null,
+      activeOrganizationClaim: payload.org ?? null,
     };
     (request as Request & { user?: AuthenticatedUser }).user = user;
     return true;

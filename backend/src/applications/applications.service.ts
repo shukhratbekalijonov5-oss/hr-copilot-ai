@@ -45,7 +45,9 @@ export class ApplicationsService {
       select: { id: true },
     });
     if (existing) {
-      throw new ConflictException('Candidate is already attached to this vacancy');
+      throw new ConflictException(
+        'Candidate is already attached to this vacancy',
+      );
     }
 
     return this.prisma.application.create({
@@ -83,7 +85,12 @@ export class ApplicationsService {
         include: {
           vacancy: { select: { id: true, title: true, status: true } },
           candidate: {
-            select: { id: true, fullName: true, email: true, currentTitle: true },
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              currentTitle: true,
+            },
           },
         },
       }),

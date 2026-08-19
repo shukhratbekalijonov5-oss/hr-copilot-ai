@@ -1,48 +1,42 @@
-import { ApiError, mockRequest } from "@/lib/api/client";
-import { currentUser, organization } from "@/lib/mock/seed/org";
-import type { AuthSession, LoginInput, RegisterInput } from "@/lib/types";
+import "server-only";
 
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+import { apiFetch } from "@/lib/api/http";
+import { toSessionUser } from "@/lib/api/adapters";
+import type { AuthTokenResponse, MeResponse } from "@/lib/api/contracts";
+import type { LoginInput, RegisterInput, SessionUser } from "@/lib/types";
+
+/** POST /auth/login → { accessToken, user } */
+export function login(input: LoginInput): Promise<AuthTokenResponse> {
+  return apiFetch<AuthTokenResponse>("/auth/login", {
+    method: "POST",
+    body: { email: input.email.trim(), password: input.password },
+    // No cookie exists yet, so no bearer token is attached.
+    token: null,
+  });
+}
+
+/** POST /auth/register → creates the organization and its OWNER. */
+export function register(input: RegisterInput): Promise<AuthTokenResponse> {
+  return apiFetch<AuthTokenResponse>("/auth/register", {
+    method: "POST",
+    body: {
+      organizationName: input.organizationName.trim(),
+      organizationSlug: input.organizationSlug.trim(),
+      fullName: input.fullName.trim(),
+      email: input.email.trim(),
+      password: input.password,
+    },
+    token: null,
+  });
+}
 
 /**
- * Credentials are never validated in the frontend against a real store — the
- * mock only rejects a known-bad address so the error state is reachable.
+ * GET /auth/me — re-reads the user, so a deleted or edited account cannot keep
+ * riding an old token. Throws ApiError(401) when the session is no longer good.
  */
-const REJECTED_EMAIL = "blocked@example.com";
-
-function issueSession(): AuthSession {
-  return {
-    user: currentUser,
-    organization,
-    accessToken: "mock-session-token",
-    expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
-  };
-}
-
-export async function login(input: LoginInput): Promise<AuthSession> {
-  return mockRequest(() => {
-    if (input.email.trim().toLowerCase() === REJECTED_EMAIL) {
-      throw new ApiError("Email or password is incorrect.", 401);
-    }
-    return issueSession();
-  }, 620);
-}
-
-export async function register(input: RegisterInput): Promise<AuthSession> {
-  return mockRequest(() => {
-    if (input.email.trim().toLowerCase() === REJECTED_EMAIL) {
-      throw new ApiError("An account already exists for this email.", 409, {
-        email: "An account already exists for this email.",
-      });
-    }
-    return {
-      ...issueSession(),
-      user: { ...currentUser, fullName: input.fullName, email: input.email },
-      organization: { ...organization, name: input.organizationName },
-    };
-  }, 780);
-}
-
-export async function getSession(): Promise<AuthSession> {
-  return mockRequest(() => issueSession(), 0);
+export async function getSession(token?: string): Promise<SessionUser> {
+  const response = await apiFetch<MeResponse>("/auth/me", {
+    token: token ?? undefined,
+  });
+  return toSessionUser(response);
 }

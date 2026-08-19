@@ -3,6 +3,7 @@ import { IsEnum, IsOptional } from 'class-validator';
 import { ProcessingService } from './processing.service';
 import { PaginationQueryDto } from '../common/dto/pagination.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { ProcessingJobStatus } from '../generated/prisma/enums';
 
 class QueryProcessingJobsDto extends PaginationQueryDto {
@@ -11,6 +12,7 @@ class QueryProcessingJobsDto extends PaginationQueryDto {
   status?: ProcessingJobStatus;
 }
 
+@OrgScoped()
 @Controller('processing-jobs')
 export class ProcessingController {
   constructor(private readonly processingService: ProcessingService) {}

@@ -12,8 +12,10 @@ import { CreateEvidenceDto } from './dto/create-evidence.dto';
 import { QueryEvidenceDto } from './dto/query-evidence.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { Role } from '../generated/prisma/enums';
 
+@OrgScoped()
 @Controller('evidence')
 export class EvidenceController {
   constructor(private readonly evidenceService: EvidenceService) {}
@@ -46,7 +48,11 @@ export class EvidenceController {
     @Param('candidateId', ParseUUIDPipe) candidateId: string,
     @Query() query: QueryEvidenceDto,
   ) {
-    return this.evidenceService.findByCandidate(organizationId, candidateId, query);
+    return this.evidenceService.findByCandidate(
+      organizationId,
+      candidateId,
+      query,
+    );
   }
 
   @Get('by-requirement/:requirementId')

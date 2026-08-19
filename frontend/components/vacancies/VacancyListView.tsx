@@ -9,16 +9,9 @@ import { VacancyStatusBadge } from "@/components/ui/StatusBadge";
 import { VacancyCard } from "@/components/vacancies/VacancyCard";
 import { buttonStyles } from "@/components/ui/Button";
 import { BriefcaseIcon, PlusIcon, SearchIcon } from "@/components/ui/icons";
-import { EMPLOYMENT_TYPE_LABELS, VACANCY_STATUS_LABELS } from "@/lib/constants";
-import { formatDate } from "@/lib/utils";
-import type { Vacancy, VacancyStatus } from "@/lib/types";
-
-const STATUS_OPTIONS = [
-  { value: "all", label: "All statuses" },
-  ...(
-    Object.keys(VACANCY_STATUS_LABELS) as VacancyStatus[]
-  ).map((status) => ({ value: status, label: VACANCY_STATUS_LABELS[status] })),
-];
+import { useI18n } from "@/lib/i18n/context";
+import { VACANCY_STATUSES } from "@/lib/types";
+import type { Vacancy } from "@/lib/types";
 
 interface VacancyListViewProps {
   vacancies: Vacancy[];
@@ -29,9 +22,22 @@ export function VacancyListView({
   vacancies,
   departments,
 }: VacancyListViewProps) {
+  const { d, f, date } = useI18n();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [department, setDepartment] = useState<string>("all");
+
+  // Built inside the component so the labels follow the active locale.
+  const statusOptions = useMemo(
+    () => [
+      { value: "all", label: d.vacancies.allStatuses },
+      ...VACANCY_STATUSES.map((status) => ({
+        value: status,
+        label: d.status.vacancy[status],
+      })),
+    ],
+    [d],
+  );
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -40,8 +46,8 @@ export function VacancyListView({
       if (status !== "all" && vacancy.status !== status) return false;
       if (department !== "all" && vacancy.department !== department) return false;
       if (!needle) return true;
-      return [vacancy.title, vacancy.department, vacancy.location].some((field) =>
-        field.toLowerCase().includes(needle),
+      return [vacancy.title, vacancy.department, vacancy.location].some(
+        (field) => (field ?? "").toLowerCase().includes(needle),
       );
     });
   }, [vacancies, search, status, department]);
@@ -49,7 +55,7 @@ export function VacancyListView({
   const columns: Column<Vacancy>[] = [
     {
       key: "title",
-      header: "Vacancy",
+      header: d.tables.vacancy,
       render: (vacancy) => (
         <div className="min-w-0">
           <Link
@@ -59,45 +65,49 @@ export function VacancyListView({
             {vacancy.title}
           </Link>
           <p className="truncate text-[12.5px] text-ink-muted lg:hidden">
-            {vacancy.department} · {vacancy.location}
+            {vacancy.department ?? d.tables.empty} · {vacancy.location ?? d.tables.empty}
           </p>
         </div>
       ),
     },
     {
       key: "department",
-      header: "Department",
+      header: d.tables.department,
       hideBelow: "lg",
       render: (vacancy) => (
-        <span className="text-ink-muted">{vacancy.department}</span>
+        <span className="text-ink-muted">{vacancy.department ?? d.tables.empty}</span>
       ),
     },
     {
       key: "location",
-      header: "Location",
+      header: d.tables.location,
       hideBelow: "xl",
       render: (vacancy) => (
-        <span className="text-ink-muted">{vacancy.location}</span>
+        <span className="text-ink-muted">{vacancy.location ?? d.tables.empty}</span>
       ),
     },
     {
       key: "employmentType",
-      header: "Type",
+      header: d.tables.type,
       hideBelow: "lg",
       render: (vacancy) => (
         <span className="text-ink-muted">
-          {EMPLOYMENT_TYPE_LABELS[vacancy.employmentType]}
+          {vacancy.employmentType
+            ? (d.employmentType[
+                vacancy.employmentType as keyof typeof d.employmentType
+              ] ?? vacancy.employmentType)
+            : d.tables.empty}
         </span>
       ),
     },
     {
       key: "status",
-      header: "Status",
+      header: d.tables.status,
       render: (vacancy) => <VacancyStatusBadge status={vacancy.status} />,
     },
     {
       key: "candidates",
-      header: "Candidates",
+      header: d.tables.candidates,
       align: "right",
       render: (vacancy) => (
         <span className="tabular-nums text-ink-muted">
@@ -107,12 +117,12 @@ export function VacancyListView({
     },
     {
       key: "createdAt",
-      header: "Created",
+      header: d.tables.created,
       align: "right",
       hideBelow: "md",
       render: (vacancy) => (
         <span className="whitespace-nowrap text-ink-muted">
-          {formatDate(vacancy.createdAt)}
+          {date(vacancy.createdAt)}
         </span>
       ),
     },
@@ -122,18 +132,18 @@ export function VacancyListView({
     <EmptyState
       icon={<BriefcaseIcon className="size-5" />}
       title={
-        vacancies.length === 0 ? "No vacancies yet" : "No vacancies match"
+        vacancies.length === 0 ? d.vacancies.empty : d.vacancies.noMatches
       }
       description={
         vacancies.length === 0
-          ? "Create a vacancy to define the requirements the copilot looks for in each resume."
-          : "Adjust the search or filters to widen the results."
+          ? d.tables.vacanciesEmptyHint
+          : d.tables.vacanciesNoMatchHint
       }
       action={
         vacancies.length === 0 ? (
           <Link href="/vacancies/new" className={buttonStyles("primary", "sm")}>
             <PlusIcon className="size-4" />
-            Create vacancy
+            {d.vacancies.create}
           </Link>
         ) : null
       }
@@ -145,26 +155,26 @@ export function VacancyListView({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <Input
           type="search"
-          placeholder="Search title, department or location"
+          placeholder={d.tables.searchVacancies}
           value={search}
-          aria-label="Search vacancies"
+          aria-label={d.tables.searchVacanciesLabel}
           leading={<SearchIcon className="size-4" />}
           onChange={(event) => setSearch(event.target.value)}
           wrapperClassName="sm:max-w-xs sm:flex-1"
         />
         <div className="flex gap-2">
           <Select
-            aria-label="Filter by status"
+            aria-label={d.tables.filterByStatus}
             value={status}
-            options={STATUS_OPTIONS}
+            options={statusOptions}
             onChange={(event) => setStatus(event.target.value)}
             className="sm:w-40"
           />
           <Select
-            aria-label="Filter by department"
+            aria-label={d.tables.filterByDepartment}
             value={department}
             options={[
-              { value: "all", label: "All departments" },
+              { value: "all", label: d.vacancies.allDepartments },
               ...departments.map((item) => ({ value: item, label: item })),
             ]}
             onChange={(event) => setDepartment(event.target.value)}
@@ -172,7 +182,7 @@ export function VacancyListView({
           />
         </div>
         <p className="text-[12.5px] text-ink-muted sm:ml-auto">
-          {filtered.length} of {vacancies.length}
+          {f(d.common.of, { count: filtered.length, total: vacancies.length })}
         </p>
       </div>
 
@@ -181,7 +191,7 @@ export function VacancyListView({
           columns={columns}
           rows={filtered}
           getRowKey={(vacancy) => vacancy.id}
-          caption="Vacancies"
+          caption={d.tables.captionVacancies}
           empty={empty}
         />
       </div>

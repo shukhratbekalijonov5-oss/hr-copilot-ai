@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ProcessingIoAdapter } from './processing/io.adapter';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -18,7 +19,10 @@ async function bootstrap(): Promise<void> {
    * being hardcoded anywhere in the codebase.
    */
   const port = config.get<number>('app.port', 3001);
-  const frontendUrl = config.get<string>('app.frontendUrl', 'http://localhost:3000');
+  const frontendUrl = config.get<string>(
+    'app.frontendUrl',
+    'http://localhost:3000',
+  );
   const globalPrefix = config.get<string>('app.globalPrefix', 'api');
 
   app.setGlobalPrefix(globalPrefix, {
@@ -49,6 +53,9 @@ async function bootstrap(): Promise<void> {
       transformOptions: { enableImplicitConversion: false },
     }),
   );
+
+  // Ensures an unexpected error never returns a driver message to the client.
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   app.enableShutdownHooks();
 

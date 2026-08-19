@@ -17,7 +17,10 @@ import { ProcessingModule } from '../processing/processing.module';
         // them to StorageService — nothing is written to a temp directory.
         storage: memoryStorage(),
         limits: {
-          fileSize: config.get<number>('storage.maxFileSizeBytes', 10 * 1024 * 1024),
+          fileSize: config.get<number>(
+            'storage.maxFileSizeBytes',
+            10 * 1024 * 1024,
+          ),
           files: 1,
         },
       }),

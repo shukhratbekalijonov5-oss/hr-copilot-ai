@@ -9,20 +9,28 @@ import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { TenantModule } from './common/tenant/tenant.module';
+import { MembershipModule } from './common/membership/membership.module';
 import { StorageModule } from './storage/storage.module';
 import { AiModule } from './ai/ai.module';
 
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
+import { CandidateAccountModule } from './candidate-account/candidate-account.module';
+import { PublicJobsModule } from './public-jobs/public-jobs.module';
+import { UsersModule } from './users/users.module';
+import { OrganizationsModule } from './organizations/organizations.module';
 import { VacanciesModule } from './vacancies/vacancies.module';
 import { CandidatesModule } from './candidates/candidates.module';
 import { ApplicationsModule } from './applications/applications.module';
 import { DocumentsModule } from './documents/documents.module';
 import { EvidenceModule } from './evidence/evidence.module';
+import { SearchModule } from './search/search.module';
+import { EvidenceMapModule } from './evidence-map/evidence-map.module';
 import { ProcessingModule } from './processing/processing.module';
 import { QueueModule } from './queue/queue.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { OrgContextGuard } from './common/guards/org-context.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
 @Module({
@@ -50,23 +58,32 @@ import { RolesGuard } from './common/guards/roles.guard';
     PrismaModule,
     RedisModule,
     TenantModule,
+    MembershipModule,
     StorageModule,
     AiModule,
 
     // Feature modules
     HealthModule,
     AuthModule,
+    CandidateAccountModule,
+    PublicJobsModule,
+    UsersModule,
+    OrganizationsModule,
     VacanciesModule,
     CandidatesModule,
     ApplicationsModule,
     DocumentsModule,
     EvidenceModule,
+    SearchModule,
+    EvidenceMapModule,
     ProcessingModule,
     QueueModule,
   ],
   providers: [
-    // Order matters: authenticate, then check role, then rate limit.
+    // Order matters: authenticate, then resolve+verify the active
+    // organization membership, then check role, then rate limit.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: OrgContextGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],

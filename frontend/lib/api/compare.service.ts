@@ -1,63 +1,84 @@
-import { ApiError, mockRequest } from "@/lib/api/client";
-import { buildEvidence, findCandidate, findVacancy } from "@/lib/mock/store";
+import "server-only";
+
+import { getVacancy } from "@/lib/api/vacancies.service";
+import { getCandidate } from "@/lib/api/candidates.service";
+import { getCandidateEvidence } from "@/lib/api/evidence.service";
+import { buildRequirementEvidence } from "@/lib/api/adapters";
 import { MAX_COMPARE_CANDIDATES } from "@/lib/constants";
+import { ApiError } from "@/lib/api/errors";
 import type { ComparisonResult, ComparisonRow } from "@/lib/types";
 
+/**
+ * Requirement-by-requirement comparison built from real evidence.
+ *
+ * It reports what each candidate's documents support and nothing else: no
+ * ranking, no winner, no recommendation.
+ */
 export async function compareCandidates(
   vacancyId: string,
   candidateIds: string[],
 ): Promise<ComparisonResult> {
-  return mockRequest(() => {
-    const vacancy = findVacancy(vacancyId);
-    if (!vacancy) {
-      throw new ApiError(`Vacancy ${vacancyId} was not found.`, 404);
-    }
-    if (candidateIds.length > MAX_COMPARE_CANDIDATES) {
-      throw new ApiError(
-        `Compare up to ${MAX_COMPARE_CANDIDATES} candidates at a time.`,
-        422,
-      );
-    }
-
-    const selected = candidateIds
-      .map((id) => findCandidate(id))
-      .filter((candidate) => candidate !== null);
-
-    const evidenceByCandidate = new Map(
-      selected.map((candidate) => [
-        candidate.id,
-        buildEvidence(candidate.id, vacancyId),
-      ]),
+  if (candidateIds.length > MAX_COMPARE_CANDIDATES) {
+    throw new ApiError(
+      `Compare up to ${MAX_COMPARE_CANDIDATES} candidates at a time.`,
+      400,
+      "validation",
     );
+  }
 
-    const rows: ComparisonRow[] = vacancy.requirements.map((requirement) => ({
-      requirementId: requirement.id,
-      requirementLabel: requirement.label,
-      requirementKind: requirement.kind,
-      cells: selected.map((candidate) => {
-        const evidence = evidenceByCandidate
-          .get(candidate.id)
-          ?.find((item) => item.requirementId === requirement.id);
+  const vacancy = await getVacancy(vacancyId);
 
-        return {
-          candidateId: candidate.id,
-          status: evidence?.status ?? "not_found",
-          citation: evidence?.citations[0] ?? null,
-        };
-      }),
-    }));
+  const perCandidate = await Promise.all(
+    candidateIds.map(async (candidateId) => {
+      const [candidate, evidence] = await Promise.all([
+        getCandidate(candidateId),
+        getCandidateEvidence(candidateId, vacancyId),
+      ]);
 
-    return {
-      vacancyId,
-      vacancyTitle: vacancy.title,
-      candidates: selected.map((candidate) => ({
-        id: candidate.id,
-        fullName: candidate.fullName,
-        currentTitle: candidate.currentTitle,
-        yearsOfExperience: candidate.yearsOfExperience,
-        location: candidate.location,
-      })),
-      rows,
-    };
-  }, 520);
+      const documentNames = new Map(
+        candidate.documents.map((document) => [
+          document.id,
+          document.originalFileName,
+        ]),
+      );
+
+      return {
+        candidate,
+        rows: buildRequirementEvidence(
+          vacancy.requirements,
+          evidence,
+          documentNames,
+        ),
+      };
+    }),
+  );
+
+  const rows: ComparisonRow[] = vacancy.requirements.map((requirement) => ({
+    requirementId: requirement.id,
+    requirementText: requirement.text,
+    required: requirement.required,
+    cells: perCandidate.map(({ candidate, rows: requirementRows }) => {
+      const match = requirementRows.find(
+        (row) => row.requirementId === requirement.id,
+      );
+      return {
+        candidateId: candidate.id,
+        status: match?.status ?? "NOT_FOUND",
+        citation: match?.citations[0] ?? null,
+      };
+    }),
+  }));
+
+  return {
+    vacancyId,
+    vacancyTitle: vacancy.title,
+    candidates: perCandidate.map(({ candidate }) => ({
+      id: candidate.id,
+      fullName: candidate.fullName,
+      currentTitle: candidate.currentTitle,
+      totalExperienceYears: candidate.totalExperienceYears,
+      location: candidate.location,
+    })),
+    rows,
+  };
 }

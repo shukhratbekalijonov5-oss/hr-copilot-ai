@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import { VacancyStatus } from '../generated/prisma/enums';
+import { buildPublicSlug } from './vacancy-slug.util';
 import type { Prisma } from '../generated/prisma/client';
 import type { CreateVacancyDto } from './dto/create-vacancy.dto';
 import type { UpdateVacancyDto } from './dto/update-vacancy.dto';
@@ -19,16 +20,39 @@ export class VacanciesService {
     private readonly tenant: TenantService,
   ) {}
 
-  create(organizationId: string, createdById: string, dto: CreateVacancyDto) {
-    return this.prisma.vacancy.create({
-      data: {
-        ...dto,
-        status: dto.status ?? VacancyStatus.DRAFT,
-        organizationId,
-        createdById,
-      },
-      include: { requirements: true },
-    });
+  async create(
+    organizationId: string,
+    createdById: string,
+    dto: CreateVacancyDto,
+  ) {
+    const organization = this.tenant.assertFound(
+      await this.prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { slug: true },
+      }),
+      'Organization',
+    );
+
+    // The random suffix makes a collision vanishingly rare; the retry exists
+    // so that even that case never surfaces to the caller.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.prisma.vacancy.create({
+          data: {
+            ...dto,
+            status: dto.status ?? VacancyStatus.DRAFT,
+            publicSlug: buildPublicSlug(dto.title, organization.slug),
+            organizationId,
+            createdById,
+          },
+          include: { requirements: true },
+        });
+      } catch (error) {
+        if (attempt >= 3 || !isUniqueViolation(error, 'publicSlug')) {
+          throw error;
+        }
+      }
+    }
   }
 
   async findAll(
@@ -57,7 +81,9 @@ export class VacanciesService {
         skip: query.skip,
         take: query.limit,
         orderBy: { createdAt: 'desc' },
-        include: { _count: { select: { applications: true, requirements: true } } },
+        include: {
+          _count: { select: { applications: true, requirements: true } },
+        },
       }),
       this.prisma.vacancy.count({ where }),
     ]);
@@ -174,4 +200,14 @@ export class VacanciesService {
     });
     return this.tenant.assertFound(requirement, 'Job requirement');
   }
+}
+
+/** True when a Prisma P2002 unique violation involves the given column. */
+function isUniqueViolation(error: unknown, column: string): boolean {
+  const e = error as { code?: string; meta?: { target?: string[] | string } };
+  if (e?.code !== 'P2002') return false;
+  const target = e.meta?.target;
+  return Array.isArray(target)
+    ? target.includes(column)
+    : typeof target === 'string' && target.includes(column);
 }

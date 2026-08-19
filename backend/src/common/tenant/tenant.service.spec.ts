@@ -20,7 +20,9 @@ describe('TenantService', () => {
 
     it('rejects an entity owned by a different organization', () => {
       const foreign = { organizationId: ORG_B, id: '1' };
-      expect(() => tenant.assertOwned(foreign, ORG_A)).toThrow(NotFoundException);
+      expect(() => tenant.assertOwned(foreign, ORG_A)).toThrow(
+        NotFoundException,
+      );
     });
 
     it('reports cross-tenant access as 404, never 403', () => {
@@ -33,13 +35,17 @@ describe('TenantService', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(NotFoundException);
         expect((error as NotFoundException).getStatus()).toBe(404);
-        expect((error as NotFoundException).message).toBe('Candidate not found');
+        expect((error as NotFoundException).message).toBe(
+          'Candidate not found',
+        );
       }
     });
 
     it('rejects null and undefined', () => {
       expect(() => tenant.assertOwned(null, ORG_A)).toThrow(NotFoundException);
-      expect(() => tenant.assertOwned(undefined, ORG_A)).toThrow(NotFoundException);
+      expect(() => tenant.assertOwned(undefined, ORG_A)).toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -52,8 +58,12 @@ describe('TenantService', () => {
     });
 
     it('throws for null and undefined', () => {
-      expect(() => tenant.assertFound(null, 'Vacancy')).toThrow('Vacancy not found');
-      expect(() => tenant.assertFound(undefined, 'Vacancy')).toThrow(NotFoundException);
+      expect(() => tenant.assertFound(null, 'Vacancy')).toThrow(
+        'Vacancy not found',
+      );
+      expect(() => tenant.assertFound(undefined, 'Vacancy')).toThrow(
+        NotFoundException,
+      );
     });
   });
 });
