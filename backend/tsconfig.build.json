@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "node_modules",
+    "test",
+    "dist",
+    "**/*spec.ts",
+    // Tooling-only config, executed by the Prisma CLI via ts-node. Compiling it
+    // would pull the project root into rootDir and emit dist/src/main.js,
+    // breaking `node dist/main`.
+    "prisma.config.ts",
+    "prisma/seed.ts"
+  ]
+}

@@ -1,0 +1,182 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/* Design tokens                                                       */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --canvas: #f6f7f9;
+  --surface: #ffffff;
+  --surface-muted: #f2f4f7;
+  --line: #e3e7ed;
+  --line-strong: #cdd4de;
+
+  --ink: #101828;
+  --ink-muted: #5a6478;
+  --ink-subtle: #8b93a4;
+  --ink-inverted: #ffffff;
+
+  --brand: #3f4ce0;
+  --brand-hover: #3540c4;
+  --brand-soft: #edeeff;
+  --brand-ink: #2f39b0;
+
+  --positive: #067647;
+  --positive-soft: #e7f6ee;
+  --warning: #a15c07;
+  --warning-soft: #fdf3e2;
+  --critical: #b42318;
+  --critical-soft: #fdecea;
+  --info: #175cd3;
+  --info-soft: #e8f0fd;
+  --neutral-soft: #f0f2f5;
+
+  --ring: #97a0ff;
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-pop: 0 12px 32px -8px rgb(16 24 40 / 0.18);
+}
+
+.theme-dark,
+:root:not(.theme-light) {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light) {
+    --canvas: #0b0d12;
+    --surface: #12151c;
+    --surface-muted: #181c25;
+    --line: #242a35;
+    --line-strong: #333a48;
+
+    --ink: #e7eaf0;
+    --ink-muted: #98a1b2;
+    --ink-subtle: #6f7889;
+    --ink-inverted: #0b0d12;
+
+    --brand: #7b84ff;
+    --brand-hover: #949bff;
+    --brand-soft: #1c1f36;
+    --brand-ink: #aeb4ff;
+
+    --positive: #4ade9b;
+    --positive-soft: #10241c;
+    --warning: #f0b34e;
+    --warning-soft: #261e10;
+    --critical: #f97066;
+    --critical-soft: #2a1414;
+    --info: #6ba5f7;
+    --info-soft: #101c2e;
+    --neutral-soft: #1b1f28;
+
+    --ring: #5b64c9;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.6);
+
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+  --color-ink-inverted: var(--ink-inverted);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-ink: var(--brand-ink);
+
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-critical: var(--critical);
+  --color-critical-soft: var(--critical-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-neutral-soft: var(--neutral-soft);
+
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+}
+
+/* ------------------------------------------------------------------ */
+/* Base                                                                */
+/* ------------------------------------------------------------------ */
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--brand-soft);
+    color: var(--brand-ink);
+  }
+}
+
+@layer utilities {
+  .skeleton {
+    background-image: linear-gradient(
+      90deg,
+      var(--surface-muted) 0%,
+      var(--line) 50%,
+      var(--surface-muted) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
+
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

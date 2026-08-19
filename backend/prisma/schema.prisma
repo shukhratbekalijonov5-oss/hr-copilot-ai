@@ -1,0 +1,296 @@
+// HR Copilot AI — backend datamodel
+//
+// Every organization-scoped table carries `organizationId` and is indexed on it.
+// The application layer is responsible for always filtering on the *authenticated*
+// user's organizationId (see src/common/tenant) — the schema makes that cheap,
+// it does not enforce it by itself.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  runtime      = "nodejs"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  OWNER
+  HR_ADMIN
+  RECRUITER
+  INTERVIEWER
+}
+
+enum VacancyStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+enum RequirementType {
+  SKILL
+  EXPERIENCE
+  EDUCATION
+  LANGUAGE
+  OTHER
+}
+
+/// Application status is human-controlled. Nothing in this system may advance,
+/// hire or reject an application automatically.
+enum ApplicationStatus {
+  NEW
+  REVIEWING
+  INTERVIEW
+  OFFER
+  HIRED
+  REJECTED
+  WITHDRAWN
+}
+
+enum DocumentType {
+  RESUME
+  PORTFOLIO
+  JOB_DESCRIPTION
+  HR_DOCUMENT
+}
+
+enum DocumentStatus {
+  UPLOADED
+  QUEUED
+  PARSING
+  CHUNKING
+  EMBEDDING
+  INDEXING
+  COMPLETED
+  FAILED
+}
+
+enum EvidenceType {
+  SKILL
+  EXPERIENCE
+  EDUCATION
+  LANGUAGE
+  CERTIFICATION
+  OTHER
+}
+
+enum ProcessingJobType {
+  PROCESS_DOCUMENT
+}
+
+enum ProcessingJobStatus {
+  PENDING
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy root
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  vacancies      Vacancy[]
+  candidates     Candidate[]
+  documents      Document[]
+  evidence       CandidateEvidence[]
+  processingJobs ProcessingJob[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  passwordHash   String
+  fullName       String
+  role           Role     @default(RECRUITER)
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdVacancies Vacancy[]    @relation("VacancyCreatedBy")
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Hiring
+// ---------------------------------------------------------------------------
+
+model Vacancy {
+  id              String        @id @default(uuid())
+  organizationId  String
+  title           String
+  department      String?
+  location        String?
+  employmentType  String?
+  description     String?
+  experienceLevel String?
+  status          VacancyStatus @default(DRAFT)
+  createdById     String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User                @relation("VacancyCreatedBy", fields: [createdById], references: [id])
+  requirements JobRequirement[]
+  applications Application[]
+  evidence     CandidateEvidence[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@map("vacancies")
+}
+
+model JobRequirement {
+  id        String          @id @default(uuid())
+  vacancyId String
+  text      String
+  type      RequirementType @default(SKILL)
+  required  Boolean         @default(true)
+
+  vacancy  Vacancy             @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  evidence CandidateEvidence[]
+
+  @@index([vacancyId])
+  @@map("job_requirements")
+}
+
+model Candidate {
+  id                   String   @id @default(uuid())
+  organizationId       String
+  fullName             String
+  email                String?
+  phone                String?
+  location             String?
+  currentTitle         String?
+  totalExperienceYears Float?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  applications Application[]
+  documents    Document[]
+  evidence     CandidateEvidence[]
+
+  @@index([organizationId])
+  @@index([organizationId, fullName])
+  @@map("candidates")
+}
+
+model Application {
+  id          String            @id @default(uuid())
+  vacancyId   String
+  candidateId String
+  status      ApplicationStatus @default(NEW)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  vacancy   Vacancy   @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([vacancyId, candidateId])
+  @@index([vacancyId])
+  @@index([candidateId])
+  @@map("applications")
+}
+
+// ---------------------------------------------------------------------------
+// Documents & async processing
+// ---------------------------------------------------------------------------
+
+model Document {
+  id               String         @id @default(uuid())
+  organizationId   String
+  candidateId      String?
+  type             DocumentType   @default(RESUME)
+  originalFileName String
+  storageKey       String         @unique
+  mimeType         String
+  fileSize         Int
+  status           DocumentStatus @default(UPLOADED)
+  pageCount        Int?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate      Candidate?          @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  evidence       CandidateEvidence[]
+  processingJobs ProcessingJob[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([candidateId])
+  @@map("documents")
+}
+
+/// Evidence is written by the (future) AI service via the backend — never
+/// invented by backend business logic. Each row points back at the exact
+/// document/page it was extracted from so a human can verify it.
+model CandidateEvidence {
+  id             String       @id @default(uuid())
+  organizationId String
+  candidateId    String
+  vacancyId      String?
+  requirementId  String?
+  documentId     String
+  pageNumber     Int?
+  section        String?
+  text           String
+  evidenceType   EvidenceType @default(OTHER)
+  createdAt      DateTime     @default(now())
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate    Candidate       @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  vacancy      Vacancy?        @relation(fields: [vacancyId], references: [id], onDelete: SetNull)
+  requirement  JobRequirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  document     Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, candidateId])
+  @@index([organizationId, vacancyId])
+  @@index([requirementId])
+  @@index([documentId])
+  @@map("candidate_evidence")
+}
+
+model ProcessingJob {
+  id             String              @id @default(uuid())
+  organizationId String
+  documentId     String
+  bullmqJobId    String?
+  type           ProcessingJobType   @default(PROCESS_DOCUMENT)
+  status         ProcessingJobStatus @default(PENDING)
+  progress       Int                 @default(0)
+  attempts       Int                 @default(0)
+  errorMessage   String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document     Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([documentId])
+  @@index([bullmqJobId])
+  @@map("processing_jobs")
+}
