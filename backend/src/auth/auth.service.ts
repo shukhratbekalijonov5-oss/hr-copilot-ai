@@ -10,6 +10,8 @@ import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembershipService } from '../common/membership/membership.service';
+import { AuthSessionService } from './auth-session.service';
+import { AUTH_ERROR_CODES, authUnauthorized } from './auth-errors';
 import { Locale, Role } from '../generated/prisma/enums';
 import type {
   AuthenticatedUser,
@@ -36,9 +38,20 @@ export interface AuthTokenResponse {
   };
 }
 
+/** Login/register/refresh: a session credential travels with the tokens. */
+export interface AuthSessionResponse extends AuthTokenResponse {
+  refreshToken: string;
+}
+
 interface ActiveMembership {
   organizationId: string;
   role: Role;
+}
+
+/** Transport-neutral request context captured at session creation. */
+export interface SessionContext {
+  userAgent?: string | null;
+  deviceName?: string | null;
 }
 
 @Injectable()
@@ -46,6 +59,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly memberships: MembershipService,
+    private readonly sessions: AuthSessionService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
@@ -58,7 +72,10 @@ export class AuthService {
    *  - Job seeking: no organization fields. Creates a bare user; a
    *    CandidateAccount is created separately via /candidate-account.
    */
-  async register(dto: RegisterDto): Promise<AuthTokenResponse> {
+  async register(
+    dto: RegisterDto,
+    context: SessionContext = {},
+  ): Promise<AuthSessionResponse> {
     const email = normaliseEmail(dto.email);
     const wantsOrganization =
       dto.organizationName !== undefined || dto.organizationSlug !== undefined;
@@ -94,7 +111,7 @@ export class AuthService {
 
     if (!wantsOrganization) {
       const user = await this.prisma.user.create({ data: userData });
-      return this.buildTokenResponse(user, null);
+      return this.openSession(user, null, dto.deviceName, context);
     }
 
     // No orphaned users or organizations on failure: one transaction.
@@ -113,10 +130,13 @@ export class AuthService {
       return { user: created, membership: member };
     });
 
-    return this.buildTokenResponse(user, membership);
+    return this.openSession(user, membership, dto.deviceName, context);
   }
 
-  async login(dto: LoginDto): Promise<AuthTokenResponse> {
+  async login(
+    dto: LoginDto,
+    context: SessionContext = {},
+  ): Promise<AuthSessionResponse> {
     const user = await this.prisma.user.findUnique({
       where: { email: normaliseEmail(dto.email) },
       include: {
@@ -134,15 +154,95 @@ export class AuthService {
     if (!user || !matches) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    return this.buildTokenResponse(user, user.memberships[0] ?? null);
+    return this.openSession(
+      user,
+      user.memberships[0] ?? null,
+      dto.deviceName,
+      context,
+    );
+  }
+
+  /**
+   * Rotates a refresh token: validates the session, replaces the secret and
+   * returns a fresh short-lived access token. The new access token's `org`
+   * claim comes from the SESSION's persisted context, re-checked against a
+   * live membership — a revoked membership silently degrades the session to
+   * organization-less instead of failing the refresh, because the user is
+   * still a perfectly valid user (and possibly a job seeker).
+   */
+  async refresh(rawRefreshToken: string): Promise<AuthSessionResponse> {
+    const { session, refreshToken } =
+      await this.sessions.rotate(rawRefreshToken);
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: session.userId },
+    });
+    if (!user) {
+      // The account was deleted after the session was issued.
+      await this.sessions.revoke(session.id);
+      throw authUnauthorized(
+        AUTH_ERROR_CODES.INVALID_REFRESH_TOKEN,
+        'Invalid refresh token',
+      );
+    }
+
+    let active: ActiveMembership | null = null;
+    if (session.activeOrganizationId) {
+      active = await this.memberships.findMembership(
+        user.id,
+        session.activeOrganizationId,
+      );
+      if (!active) {
+        await this.sessions.setActiveOrganization(session.id, null);
+      }
+    }
+
+    return {
+      ...(await this.buildTokenResponse(user, active, session.id)),
+      refreshToken,
+    };
+  }
+
+  /** Revokes the CURRENT session; other devices stay signed in. Idempotent. */
+  async logout(actor: AuthenticatedUser): Promise<{ loggedOut: boolean }> {
+    if (actor.sessionId) {
+      await this.sessions.revoke(actor.sessionId);
+    }
+    return { loggedOut: true };
+  }
+
+  /** Signs the user out everywhere (lost device / security event). */
+  async logoutAll(
+    actor: AuthenticatedUser,
+  ): Promise<{ loggedOut: boolean; revokedSessions: number }> {
+    const revokedSessions = await this.sessions.revokeAllForUser(actor.id);
+    return { loggedOut: true, revokedSessions };
+  }
+
+  /** The caller's live sessions, the current one flagged. Safe fields only. */
+  listSessions(actor: AuthenticatedUser) {
+    return this.sessions.listForUser(actor.id, actor.sessionId);
+  }
+
+  /** Revokes one of the caller's OWN sessions; foreign/unknown ids are 404. */
+  async revokeSession(actor: AuthenticatedUser, sessionId: string) {
+    await this.sessions.revokeOwned(actor.id, sessionId);
+    return { id: sessionId, revoked: true };
   }
 
   /**
    * Activates another organization the caller belongs to, by returning a new
-   * token whose `org` claim names it. The claim is only a pointer — every
-   * org-scoped request re-verifies the membership row — but it is still only
-   * issued against a real membership. A guessed/foreign organization id gets
-   * 404 without confirming whether that organization exists.
+   * access token whose `org` claim names it. The claim is only a pointer —
+   * every org-scoped request re-verifies the membership row — but it is still
+   * only issued against a real membership. A guessed/foreign organization id
+   * gets 404 without confirming whether that organization exists.
+   *
+   * The refresh session is NOT rotated: the session authenticates the
+   * user/device, while the active organization is per-device CONTEXT. The
+   * choice is persisted on the session so a later refresh keeps minting
+   * tokens for the same workspace. Rotating here would add token churn with
+   * zero security gain — authorization is re-derived from the live membership
+   * on every request regardless of what any token says.
    */
   async switchOrganization(
     actor: AuthenticatedUser,
@@ -165,7 +265,18 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException('User no longer exists');
 
-    const response = await this.buildTokenResponse(user, membership);
+    if (actor.sessionId) {
+      await this.sessions.setActiveOrganization(
+        actor.sessionId,
+        organizationId,
+      );
+    }
+
+    const response = await this.buildTokenResponse(
+      user,
+      membership,
+      actor.sessionId,
+    );
     return {
       ...response,
       activeOrganization: {
@@ -288,6 +399,32 @@ export class AuthService {
     return bcrypt.hash(plain, rounds);
   }
 
+  /** Login/registration tail: persist a session, then mint both tokens. */
+  private async openSession(
+    user: {
+      id: string;
+      email: string;
+      fullName: string;
+      preferredLocale: Locale;
+    },
+    active: ActiveMembership | null,
+    deviceName: string | undefined,
+    context: SessionContext,
+  ): Promise<AuthSessionResponse> {
+    const { session, refreshToken } = await this.sessions.createSession(
+      user.id,
+      {
+        activeOrganizationId: active?.organizationId ?? null,
+        userAgent: context.userAgent ?? null,
+        deviceName: deviceName ?? context.deviceName ?? null,
+      },
+    );
+    return {
+      ...(await this.buildTokenResponse(user, active, session.id)),
+      refreshToken,
+    };
+  }
+
   private async buildTokenResponse(
     user: {
       id: string;
@@ -296,11 +433,13 @@ export class AuthService {
       preferredLocale: Locale;
     },
     active: ActiveMembership | null,
+    sessionId: string | null,
   ): Promise<AuthTokenResponse> {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       ...(active ? { org: active.organizationId } : {}),
+      ...(sessionId ? { sid: sessionId } : {}),
     };
     const accessToken = await this.jwtService.signAsync(payload, {
       secret: this.configService.getOrThrow<string>('auth.secretToken'),

@@ -67,6 +67,7 @@ export class JwtAuthGuard implements CanActivate {
       organizationId: null,
       role: null,
       activeOrganizationClaim: payload.org ?? null,
+      sessionId: payload.sid ?? null,
     };
     (request as Request & { user?: AuthenticatedUser }).user = user;
     return true;

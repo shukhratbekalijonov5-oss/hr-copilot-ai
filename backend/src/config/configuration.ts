@@ -20,7 +20,10 @@ export interface AppConfiguration {
   auth: {
     /** Backend auth signing secret. The project standardises on SECRET_TOKEN. */
     secretToken: string;
+    /** ACCESS token lifetime. Short by design — sessions live in the DB. */
     tokenTtl: string;
+    /** Absolute refresh-session lifetime in days (rotation never extends it). */
+    refreshTtlDays: number;
     bcryptRounds: number;
   };
   database: {
@@ -73,7 +76,10 @@ export default (): AppConfiguration => ({
   },
   auth: {
     secretToken: process.env.SECRET_TOKEN ?? '',
-    tokenTtl: process.env.TOKEN_TTL ?? '1d',
+    // 15 minutes: an access token is a bearer credential that cannot be
+    // revoked individually, so its blast radius is capped by its lifetime.
+    tokenTtl: process.env.TOKEN_TTL ?? '15m',
+    refreshTtlDays: toInt(process.env.REFRESH_TOKEN_TTL_DAYS, 30),
     bcryptRounds: toInt(process.env.BCRYPT_ROUNDS, 12),
   },
   database: {

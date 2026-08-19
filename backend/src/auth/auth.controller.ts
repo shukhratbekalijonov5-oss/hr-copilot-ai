@@ -1,15 +1,20 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { RefreshDto } from './dto/refresh.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
 import { SwitchOrganizationDto } from './dto/switch-organization.dto';
 import { Public } from '../common/decorators/public.decorator';
@@ -27,16 +32,62 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  register(
+    @Body() dto: RegisterDto,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    return this.authService.register(dto, { userAgent });
   }
 
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  login(@Body() dto: LoginDto, @Headers('user-agent') userAgent?: string) {
+    return this.authService.login(dto, { userAgent });
+  }
+
+  /**
+   * Rotates the refresh token. Public route: the refresh token itself is the
+   * credential (an expired access token must not block a refresh). Throttled
+   * tighter than the default — a legitimate client refreshes once per access
+   * token lifetime, not dozens of times a minute.
+   */
+  @Public()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('refresh')
+  refresh(@Body() dto: RefreshDto) {
+    return this.authService.refresh(dto.refreshToken);
+  }
+
+  /** Revokes the CURRENT session only; other devices stay signed in. */
+  @HttpCode(HttpStatus.OK)
+  @Post('logout')
+  logout(@CurrentUser() user: AuthenticatedUser) {
+    return this.authService.logout(user);
+  }
+
+  /** Signs out everywhere: revokes every live session of the caller. */
+  @HttpCode(HttpStatus.OK)
+  @Post('logout-all')
+  logoutAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.authService.logoutAll(user);
+  }
+
+  /** The caller's own live sessions; the current one is flagged. */
+  @Get('sessions')
+  sessions(@CurrentUser() user: AuthenticatedUser) {
+    return this.authService.listSessions(user);
+  }
+
+  /** Remote sign-out of ONE own session. Foreign/unknown ids are 404. */
+  @Delete('sessions/:id')
+  revokeSession(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.authService.revokeSession(user, id);
   }
 
   @Get('me')

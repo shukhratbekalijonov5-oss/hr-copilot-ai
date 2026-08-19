@@ -33,7 +33,7 @@ describe('JwtAuthGuard', () => {
 
   it('accepts a valid token and attaches the authenticated user', async () => {
     const token = jwtService.sign(
-      { sub: 'user-1', email: 'a@b.test', org: 'org-1' },
+      { sub: 'user-1', email: 'a@b.test', org: 'org-1', sid: 'session-1' },
       { secret: SECRET },
     );
     const context = contextWith({ authorization: `Bearer ${token}` });
@@ -49,6 +49,7 @@ describe('JwtAuthGuard', () => {
       organizationId: null,
       role: null,
       activeOrganizationClaim: 'org-1',
+      sessionId: 'session-1',
     });
   });
 
@@ -104,6 +105,7 @@ describe('JwtAuthGuard', () => {
       organizationId: null,
       role: null,
       activeOrganizationClaim: null,
+      sessionId: null,
     });
   });
 

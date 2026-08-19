@@ -29,8 +29,12 @@ describe("backend capability flags", () => {
     expect(BACKEND_CAPABILITIES.savedJobs).toBe(false);
   });
 
+  it("enables application provenance now that the API returns it", () => {
+    // Verified live: POST /api/applications responds with source MANUAL_UPLOAD.
+    expect(BACKEND_CAPABILITIES.applicationSource).toBe(true);
+  });
+
   it("keeps flags off for routes the API still does not expose", () => {
-    expect(BACKEND_CAPABILITIES.applicationSource).toBe(false);
     expect(BACKEND_CAPABILITIES.integrations).toBe(false);
     expect(BACKEND_CAPABILITIES.processingRetry).toBe(false);
   });

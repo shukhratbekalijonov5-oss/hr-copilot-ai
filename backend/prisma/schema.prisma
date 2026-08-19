@@ -177,8 +177,45 @@ model User {
   memberships      OrganizationMember[]
   candidateAccount CandidateAccount?
   createdVacancies Vacancy[]            @relation("VacancyCreatedBy")
+  authSessions     AuthSession[]
 
   @@map("users")
+}
+
+/// One refresh-token session — a logged-in device/browser. The session id is
+/// embedded in every access token (`sid`) and in the opaque refresh token.
+///
+/// The refresh token itself is NEVER stored: only the SHA-256 hash of its
+/// random secret half. `previousTokenHash` keeps the immediately superseded
+/// hash so a replay of a just-rotated token can be POSITIVELY identified (and
+/// the session revoked) while a random wrong secret stays a plain 401 — a
+/// guesser must not be able to revoke someone's session by spraying garbage.
+///
+/// `activeOrganizationId` is DEVICE CONTEXT, not authorization: it only decides
+/// which org claim freshly minted access tokens point at. Authorization is
+/// always the live OrganizationMember row, checked per request. It is a plain
+/// column (no FK) so deleting an organization can never delete a login session.
+model AuthSession {
+  id                   String    @id @default(uuid())
+  userId               String
+  refreshTokenHash     String
+  previousTokenHash    String?
+  activeOrganizationId String?
+  userAgent            String?
+  deviceName           String?
+  /// Absolute lifetime, fixed at login. Rotation deliberately does NOT extend
+  /// it: a stolen refresh token can be replayed at most until this instant.
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  lastUsedAt           DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
 }
 
 /// One user's role inside one organization. THE source of organization

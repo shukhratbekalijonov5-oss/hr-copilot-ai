@@ -223,6 +223,55 @@ Roles (organization-scoped, on the membership row): `OWNER`, `HR_ADMIN`,
 `RECRUITER`, `INTERVIEWER`. A CandidateAccount grants no organization access of
 any kind.
 
+### Sessions and refresh tokens
+
+Authentication is a two-token system, transport-neutral (web cookies today, a
+React Native client later — both are just bearer credentials to the API):
+
+- **Access token** — JWT `{sub, email, org?, sid}`, **15 minutes**
+  (`TOKEN_TTL`). Deliberately carries no role and no membership list; it is an
+  identity + pointers, and org-scoped authorization is re-derived from the
+  live `OrganizationMember` row on every request. `sid` names the session it
+  was minted under.
+- **Refresh token** — opaque `<sessionId>.<256-bit random secret>`, backed by
+  an `auth_sessions` row with a **30-day absolute lifetime**
+  (`REFRESH_TOKEN_TTL_DAYS`). The database stores **only the SHA-256 hash** of
+  the secret (high-entropy secrets need no key-stretching, and the hash is
+  checked on every refresh); the raw token exists only in the client.
+
+Lifecycle rules, all enforced in `AuthSessionService`:
+
+- **Rotation**: every `POST /auth/refresh` replaces the secret; the previous
+  hash is retained. Rotation never extends `expiresAt`.
+- **Reuse = theft**: presenting the immediately superseded token revokes the
+  whole session (`AUTH_REFRESH_TOKEN_REUSED`) — fail-secure for both the thief
+  and the victim, who simply logs in again. A *wrong* secret is a plain 401
+  and changes nothing, so session ids cannot be revoke-DoS'ed by guessing.
+  Clients must serialize refreshes.
+- **Logout** revokes only the current session (`sid`); **logout-all** revokes
+  every session of the user. `GET /auth/sessions` lists live sessions (safe
+  fields only, current one flagged); `DELETE /auth/sessions/:id` is remote
+  sign-out — foreign/unknown ids are a uniform 404.
+- **Organization switching** never rotates the refresh token: a session
+  authenticates the user/device, while the active organization is per-session
+  CONTEXT (`activeOrganizationId`), persisted so later refreshes keep minting
+  tokens for the switched workspace. If that membership disappears, refresh
+  degrades to an organization-less token instead of failing — the person may
+  still be a job seeker or belong to other organizations.
+- **Cleanup**: live queries exclude revoked/expired rows via indexed columns;
+  `AuthSessionService.pruneExpired()` exists for a future scheduled job. No
+  background subsystem was added.
+- Auth failures carry stable codes (`AUTH_INVALID_REFRESH_TOKEN`,
+  `AUTH_REFRESH_TOKEN_EXPIRED`, `AUTH_REFRESH_TOKEN_REUSED`,
+  `AUTH_SESSION_REVOKED`, `AUTH_SESSION_NOT_FOUND`) so the four product
+  locales localize on `code`, never on the English `message`.
+
+Known property (documented tradeoff): revocation stops **refresh** instantly,
+while an already-issued access token stays cryptographically valid for its
+remaining ≤15 minutes on non-org routes; org-scoped routes hit the live
+membership check regardless. Raw tokens and hashes never appear in logs or
+responses.
+
 ### Storage
 
 `StorageService` is an abstract class with `upload()`, `delete()`,
@@ -368,6 +417,11 @@ token except those marked public.
 | ------ | --------------------------------------------------- | ------------------------- |
 | POST   | `/api/auth/register`                                | public — hiring (org + OWNER membership) or job seeker (no org fields) |
 | POST   | `/api/auth/login`                                   | public                    |
+| POST   | `/api/auth/refresh`                                 | public — rotates the refresh token |
+| POST   | `/api/auth/logout`                                  | revokes the CURRENT session |
+| POST   | `/api/auth/logout-all`                              | revokes every session of the caller |
+| GET    | `/api/auth/sessions`                                | own live sessions, current flagged |
+| DELETE | `/api/auth/sessions/:id`                            | remote sign-out (own sessions only) |
 | GET    | `/api/auth/me`                                      | session contract (memberships, active org, candidate flag) |
 | POST   | `/api/auth/switch-organization`                     | activates one of the caller's memberships |
 | POST   | `/api/auth/users`                                   | OWNER, HR_ADMIN — existing emails become members |

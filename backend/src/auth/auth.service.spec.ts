@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
+import { AuthSessionService } from './auth-session.service';
 import { MembershipService } from '../common/membership/membership.service';
 import { Locale, Role } from '../generated/prisma/enums';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -42,6 +43,21 @@ function createPrismaMock() {
   };
 }
 
+function createSessionsMock() {
+  return {
+    createSession: jest.fn().mockResolvedValue({
+      session: { id: 'sess-1' },
+      refreshToken: 'sess-1.raw-refresh-secret',
+    }),
+    rotate: jest.fn(),
+    revoke: jest.fn().mockResolvedValue(undefined),
+    revokeAllForUser: jest.fn().mockResolvedValue(2),
+    revokeOwned: jest.fn().mockResolvedValue(undefined),
+    listForUser: jest.fn().mockResolvedValue([]),
+    setActiveOrganization: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 const actor = (
   overrides: Partial<AuthenticatedUser> = {},
 ): AuthenticatedUser => ({
@@ -50,22 +66,26 @@ const actor = (
   organizationId: null,
   role: null,
   activeOrganizationClaim: null,
+  sessionId: 'sess-1',
   ...overrides,
 });
 
 describe('AuthService', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
+  let sessions: ReturnType<typeof createSessionsMock>;
   let jwtService: JwtService;
   let service: AuthService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
+    sessions = createSessionsMock();
     jwtService = new JwtService({
       secret: CONFIG['auth.secretToken'] as string,
     });
     service = new AuthService(
       prisma as unknown as PrismaService,
       new MembershipService(prisma as unknown as PrismaService),
+      sessions as unknown as AuthSessionService,
       jwtService,
       createConfigMock(),
     );
@@ -121,8 +141,24 @@ describe('AuthService', () => {
       });
       expect(decoded.sub).toBe('user-1');
       expect(decoded.org).toBe('org-1');
+      expect(decoded.sid).toBe('sess-1');
       // Roles are organization-scoped and resolved live; never a token claim.
       expect(decoded.role).toBeUndefined();
+    });
+
+    it('opens a refresh session and returns its raw token once', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.organization.findUnique.mockResolvedValue(null);
+      mockRegisterTransaction();
+
+      const result = await service.register(registerDto);
+
+      expect(sessions.createSession).toHaveBeenCalledWith('user-1', {
+        activeOrganizationId: 'org-1',
+        userAgent: null,
+        deviceName: null,
+      });
+      expect(result.refreshToken).toBe('sess-1.raw-refresh-secret');
     });
 
     it('normalises the email to lowercase before storing it', async () => {
@@ -465,6 +501,135 @@ describe('AuthService', () => {
       await expect(
         service.currentUser(actor({ id: 'ghost' })),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe('refresh', () => {
+    const rotated = (activeOrganizationId: string | null) => ({
+      session: { id: 'sess-1', userId: 'user-1', activeOrganizationId },
+      refreshToken: 'sess-1.NEW-secret',
+    });
+    const dbUser = {
+      id: 'user-1',
+      email: 'dana@northwind-labs.test',
+      fullName: 'Dana Whitfield',
+      preferredLocale: Locale.en,
+    };
+
+    it('returns a new access token and the ROTATED refresh token', async () => {
+      sessions.rotate.mockResolvedValue(rotated('org-1'));
+      prisma.user.findUnique.mockResolvedValue(dbUser);
+      prisma.organizationMember.findUnique.mockResolvedValue({
+        organizationId: 'org-1',
+        role: Role.RECRUITER,
+      });
+
+      const result = await service.refresh('sess-1.OLD-secret');
+
+      expect(result.refreshToken).toBe('sess-1.NEW-secret');
+      const decoded = jwtService.verify(result.accessToken, {
+        secret: CONFIG['auth.secretToken'] as string,
+      });
+      expect(decoded.sub).toBe('user-1');
+      expect(decoded.sid).toBe('sess-1');
+      // The session's persisted workspace context survives the refresh…
+      expect(decoded.org).toBe('org-1');
+      // …but the role is looked up live, never signed into the token.
+      expect(decoded.role).toBeUndefined();
+      expect(result.user.role).toBe(Role.RECRUITER);
+    });
+
+    it('degrades to an organization-less token when the membership was revoked', async () => {
+      sessions.rotate.mockResolvedValue(rotated('org-gone'));
+      prisma.user.findUnique.mockResolvedValue(dbUser);
+      prisma.organizationMember.findUnique.mockResolvedValue(null);
+
+      const result = await service.refresh('sess-1.OLD-secret');
+
+      const decoded = jwtService.verify(result.accessToken, {
+        secret: CONFIG['auth.secretToken'] as string,
+      });
+      expect(decoded.org).toBeUndefined();
+      expect(result.user.role).toBeNull();
+      expect(sessions.setActiveOrganization).toHaveBeenCalledWith(
+        'sess-1',
+        null,
+      );
+    });
+
+    it('revokes the session and rejects when the user was deleted', async () => {
+      sessions.rotate.mockResolvedValue(rotated(null));
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.refresh('sess-1.OLD-secret')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(sessions.revoke).toHaveBeenCalledWith('sess-1');
+    });
+  });
+
+  describe('logout / logout-all / session management', () => {
+    it('logout revokes exactly the CURRENT session', async () => {
+      await expect(service.logout(actor())).resolves.toEqual({
+        loggedOut: true,
+      });
+      expect(sessions.revoke).toHaveBeenCalledWith('sess-1');
+      expect(sessions.revokeAllForUser).not.toHaveBeenCalled();
+    });
+
+    it('logout without a session claim is a harmless no-op', async () => {
+      await expect(service.logout(actor({ sessionId: null }))).resolves.toEqual(
+        { loggedOut: true },
+      );
+      expect(sessions.revoke).not.toHaveBeenCalled();
+    });
+
+    it('logout-all revokes every live session of the user', async () => {
+      await expect(service.logoutAll(actor())).resolves.toEqual({
+        loggedOut: true,
+        revokedSessions: 2,
+      });
+      expect(sessions.revokeAllForUser).toHaveBeenCalledWith('user-1');
+    });
+
+    it('session listing and revocation are scoped to the CALLER', async () => {
+      await service.listSessions(actor());
+      expect(sessions.listForUser).toHaveBeenCalledWith('user-1', 'sess-1');
+
+      await service.revokeSession(actor(), 'sess-2');
+      expect(sessions.revokeOwned).toHaveBeenCalledWith('user-1', 'sess-2');
+    });
+  });
+
+  describe('switchOrganization × sessions', () => {
+    it('persists the choice on the session WITHOUT rotating the refresh token', async () => {
+      prisma.organizationMember.findUnique.mockResolvedValue({
+        id: 'm-2',
+        userId: 'user-1',
+        organizationId: 'org-2',
+        role: Role.INTERVIEWER,
+        organization: { id: 'org-2', name: 'Acme', slug: 'acme' },
+      });
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'dana@northwind-labs.test',
+        fullName: 'Dana Whitfield',
+        preferredLocale: Locale.en,
+      });
+
+      const result = await service.switchOrganization(actor(), 'org-2');
+
+      expect(sessions.setActiveOrganization).toHaveBeenCalledWith(
+        'sess-1',
+        'org-2',
+      );
+      expect(sessions.rotate).not.toHaveBeenCalled();
+      expect(result).not.toHaveProperty('refreshToken');
+      const decoded = jwtService.verify(result.accessToken, {
+        secret: CONFIG['auth.secretToken'] as string,
+      });
+      expect(decoded.org).toBe('org-2');
+      expect(decoded.sid).toBe('sess-1');
     });
   });
 });

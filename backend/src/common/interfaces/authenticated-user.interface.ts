@@ -26,16 +26,24 @@ export interface AuthenticatedUser {
    * confirmed a membership row exists.
    */
   activeOrganizationClaim: string | null;
+  /**
+   * The AuthSession this access token was minted under. Used to identify the
+   * CURRENT session (logout, session listing) — never as an authorization
+   * grant by itself.
+   */
+  sessionId: string | null;
 }
 
 /**
  * JWT payload we sign. Deliberately minimal — no PII beyond the email, no role
  * (roles are organization-scoped and always resolved from the database), and
  * no membership list (memberships change; long-lived tokens must not cache
- * them). `org` names the active organization and is re-verified per request.
+ * them). `org` names the active organization and is re-verified per request;
+ * `sid` names the refresh session this SHORT-LIVED access token belongs to.
  */
 export interface JwtPayload {
   sub: string;
   email: string;
   org?: string;
+  sid?: string;
 }

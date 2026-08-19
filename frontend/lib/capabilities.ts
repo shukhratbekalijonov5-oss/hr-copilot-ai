@@ -68,8 +68,12 @@ export const BACKEND_CAPABILITIES = {
   directApplication: false,
   /** No saved-jobs/favourites model. */
   savedJobs: false,
-  /** Application has no `source` column, so provenance cannot be shown. */
-  applicationSource: false,
+  /**
+   * Application.source — live. The API returns a provenance value on every
+   * application (MANUAL_UPLOAD for one created in-app), so the badge shows a
+   * real source rather than a guess.
+   */
+  applicationSource: true,
   /** No email or job-board integration endpoints. */
   integrations: false,
 } as const;

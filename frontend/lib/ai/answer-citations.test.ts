@@ -101,3 +101,51 @@ describe("hasInlineCitations", () => {
     ).toBe(false);
   });
 });
+
+describe("segmentAnswer — marker shapes the model actually emits", () => {
+  it("expands several ids inside one bracket", () => {
+    const segments = segmentAnswer(`Both hold [${A}, ${B}].`, citations);
+    const indexes = segments
+      .filter((s) => s.kind === "citation")
+      .map((s) => (s.kind === "citation" ? s.index : 0));
+    expect(indexes).toEqual([1, 2]);
+    expect(segments.map((s) => (s.kind === "text" ? s.text : "")).join("")).toBe(
+      "Both hold .",
+    );
+  });
+
+  it("handles a semicolon-separated bracket", () => {
+    const segments = segmentAnswer(`Both [${A}; ${B}] apply.`, citations);
+    expect(segments.filter((s) => s.kind === "citation")).toHaveLength(2);
+  });
+
+  it("handles adjacent brackets", () => {
+    const segments = segmentAnswer(`Claim [${A}][${B}].`, citations);
+    expect(segments.filter((s) => s.kind === "citation")).toHaveLength(2);
+  });
+
+  it("removes a bare chunk id emitted without brackets", () => {
+    // A raw identifier is never meaningful to a reader, bracketed or not.
+    const segments = segmentAnswer(`Used Redis ${A} in production.`, citations);
+    expect(segments.filter((s) => s.kind === "citation")).toHaveLength(1);
+    expect(
+      segments.map((s) => (s.kind === "text" ? s.text : "")).join(""),
+    ).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
+  });
+
+  it("leaves no raw chunk id in the rendered text, whatever the shape", () => {
+    const unknown = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const answer = `a [${A}] b [${A}, ${unknown}] c ${unknown} d [${B}][${A}]`;
+    const text = segmentAnswer(answer, citations)
+      .map((s) => (s.kind === "text" ? s.text : ""))
+      .join("");
+    expect(text).not.toMatch(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}/);
+  });
+
+  it("still leaves ordinary bracketed prose untouched", () => {
+    const segments = segmentAnswer("Ran [the migration] in 2024.", citations);
+    expect(segments).toEqual([
+      { kind: "text", text: "Ran [the migration] in 2024." },
+    ]);
+  });
+});

@@ -62,6 +62,12 @@ export class EnvironmentVariables {
 
   @IsOptional()
   @IsInt()
+  @Min(1)
+  @Max(365)
+  REFRESH_TOKEN_TTL_DAYS?: number;
+
+  @IsOptional()
+  @IsInt()
   @Min(4)
   @Max(15)
   BCRYPT_ROUNDS?: number;

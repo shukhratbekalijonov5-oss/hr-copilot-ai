@@ -55,4 +55,10 @@ export class RegisterDto {
   @IsOptional()
   @IsEnum(Locale)
   preferredLocale?: Locale;
+
+  /** Optional friendly label for the session ("Pixel 9", "Work laptop"). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  deviceName?: string;
 }

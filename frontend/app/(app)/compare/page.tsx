@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
+import { aiReadiness } from "@/lib/api/adapters";
 import { requireSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CompareWorkspace } from "@/components/compare/CompareWorkspace";
@@ -31,11 +32,14 @@ export default async function ComparePage(props: PageProps<"/compare">) {
 
   // The default selection and its comparison are resolved here so the table is
   // present on first paint instead of appearing after a client round-trip.
+  // Mirrors `poolFor` in CompareWorkspace: any application to this vacancy, and
+  // at least one indexed document.
   const pool = selectedVacancy
     ? candidates.filter(
         (candidate) =>
-          candidate.primaryVacancyId === selectedVacancy.id &&
-          candidate.processingStatus === "COMPLETED",
+          candidate.applications.some(
+            (application) => application.vacancyId === selectedVacancy.id,
+          ) && aiReadiness(candidate.documents) === "ready",
       )
     : [];
   const initialSelected = pool.slice(0, 3).map((candidate) => candidate.id);

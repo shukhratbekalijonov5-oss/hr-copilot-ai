@@ -3,7 +3,49 @@
 Written for the frontend session so the backend never has to be reverse
 engineered. Everything below is live behaviour, covered by unit + e2e tests.
 Base path: `/api`. Auth stays bearer-token based (the Next.js layer keeps
-storing it in the httpOnly cookie and forwarding it as `Authorization: Bearer`).
+storing tokens in httpOnly cookies and forwarding the access token as
+`Authorization: Bearer`); the contract is transport-neutral so a future
+mobile app can store the same credentials in secure storage.
+
+## 0. Sessions & refresh tokens (NEW — action required in the web layer)
+
+Access tokens now live **15 minutes**; a login/registration additionally
+returns a **refresh token** backed by a server-side session (30-day absolute
+lifetime). The web layer must store BOTH (separate httpOnly cookies) and
+refresh when the access token expires.
+
+```
+POST /auth/login | /auth/register   -> { accessToken, refreshToken, user{...} }
+POST /auth/refresh {refreshToken}   -> { accessToken, refreshToken, user{...} }   (rotated!)
+POST /auth/logout                    (bearer) -> revokes THIS session only
+POST /auth/logout-all                (bearer) -> revokes every session
+GET  /auth/sessions                  (bearer) -> [{id, createdAt, lastUsedAt,
+                                                  expiresAt, userAgent,
+                                                  deviceName, current}]
+DELETE /auth/sessions/:id            (bearer) -> remote sign-out of one OWN
+                                                 session (foreign ids: 404)
+```
+
+Rules the client MUST follow:
+
+- **Every refresh rotates the token.** Persist the returned `refreshToken`
+  and discard the old one. Reusing an old refresh token is treated as theft:
+  the whole session is revoked (`401 AUTH_REFRESH_TOKEN_REUSED`) and the user
+  must log in again. **Serialize refreshes** — never fire two concurrent
+  refreshes with the same token.
+- Rotation never extends the 30-day session lifetime; after it, re-login.
+- `POST /auth/switch-organization` does NOT touch the refresh token. It
+  persists the workspace on the session, so tokens minted by later refreshes
+  keep pointing at the switched organization.
+- If the active organization's membership was revoked, refresh still succeeds
+  but degrades to an organization-less token (`user.role: null`) — show the
+  workspace picker.
+- Login/register/refresh accept optional `deviceName` (login/register body)
+  and record the `User-Agent` for the sessions list.
+- Auth failures carry stable machine-readable codes for localization
+  (en/ko/ru/uz): `AUTH_INVALID_REFRESH_TOKEN`, `AUTH_REFRESH_TOKEN_EXPIRED`,
+  `AUTH_REFRESH_TOKEN_REUSED`, `AUTH_SESSION_REVOKED`,
+  `AUTH_SESSION_NOT_FOUND`. Localize on `code`, never on `message`.
 
 ## 1. The identity model
 
@@ -139,7 +181,9 @@ the frontend.
 
 ## 11. Mobile note (future)
 
-The API is plain bearer-token over HTTP — nothing is cookie-bound server-side,
-so a future mobile client can use the same endpoints by storing the token in
-secure storage. Token refresh/rotation is not implemented yet; that (plus
-device-scoped revocation) is the main auth work before mobile ships.
+The API is plain bearer-token over HTTP — nothing is cookie-bound server-side.
+A React Native / Expo client uses exactly the endpoints in §0: store the
+refresh token in SecureStore/Keychain, keep the access token in memory,
+refresh on 401/expiry (serialized), pass `deviceName` at login so the user
+recognizes the device in `GET /auth/sessions`, and call `DELETE
+/auth/sessions/:id` for remote sign-out. Nothing else is needed server-side.

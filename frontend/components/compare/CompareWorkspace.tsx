@@ -7,6 +7,7 @@ import {
   mapMissingCandidatesAction,
 } from "@/app/(app)/compare/actions";
 import { AiFailureNotice } from "@/components/ai/AiFailureNotice";
+import { aiReadiness } from "@/lib/api/adapters";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Select } from "@/components/ui/Field";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -37,12 +38,27 @@ interface CompareWorkspaceProps {
   initialResult: ComparisonResult | null;
 }
 
-/** Candidates whose documents have finished indexing, for one vacancy. */
+/** True when the candidate applied to this vacancy, whichever application it is. */
+function appliedTo(candidate: Candidate, vacancyId: string): boolean {
+  // Not `primaryVacancyId`: a candidate can hold several applications, and
+  // comparing them on a vacancy they applied to second is perfectly ordinary.
+  return candidate.applications.some(
+    (application) => application.vacancyId === vacancyId,
+  );
+}
+
+/**
+ * Candidates on this vacancy with at least one indexed document.
+ *
+ * `aiReadiness` rather than `processingStatus === "COMPLETED"`: the latter is
+ * the worst-case state across every file, so one failed upload would exclude a
+ * candidate whose other resume is indexed and perfectly comparable.
+ */
 function poolFor(candidates: Candidate[], vacancyId: string): Candidate[] {
   return candidates.filter(
     (candidate) =>
-      candidate.primaryVacancyId === vacancyId &&
-      candidate.processingStatus === "COMPLETED",
+      appliedTo(candidate, vacancyId) &&
+      aiReadiness(candidate.documents) === "ready",
   );
 }
 
@@ -82,8 +98,8 @@ export function CompareWorkspace({
     () =>
       candidates.filter(
         (candidate) =>
-          candidate.primaryVacancyId === vacancyId &&
-          candidate.processingStatus !== "COMPLETED",
+          appliedTo(candidate, vacancyId) &&
+          aiReadiness(candidate.documents) !== "ready",
       ).length,
     [candidates, vacancyId],
   );
