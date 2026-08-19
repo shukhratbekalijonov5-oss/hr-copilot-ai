@@ -2,17 +2,22 @@ import "server-only";
 
 import { getVacancy } from "@/lib/api/vacancies.service";
 import { getCandidate } from "@/lib/api/candidates.service";
-import { getCandidateEvidence } from "@/lib/api/evidence.service";
-import { buildRequirementEvidence } from "@/lib/api/adapters";
+import { getEvidenceMap, runEvidenceMap } from "@/lib/api/ai.service";
 import { MAX_COMPARE_CANDIDATES } from "@/lib/constants";
 import { ApiError } from "@/lib/api/errors";
-import type { ComparisonResult, ComparisonRow } from "@/lib/types";
+import type { Locale } from "@/lib/i18n/locales";
+import type { ComparisonResult, ComparisonRow, EvidenceMap } from "@/lib/types";
 
 /**
- * Requirement-by-requirement comparison built from real evidence.
+ * Requirement-by-requirement comparison built from real mapped evidence.
+ *
+ * It reads each candidate's stored evidence map — the same rows the candidate
+ * page shows — so a cell here and a cell there can never disagree. Reading is a
+ * plain database call with no LLM in the path, so the table still builds while
+ * generation is unavailable.
  *
  * It reports what each candidate's documents support and nothing else: no
- * ranking, no winner, no recommendation.
+ * ranking, no total, no winner, no recommendation.
  */
 export async function compareCandidates(
   vacancyId: string,
@@ -30,26 +35,11 @@ export async function compareCandidates(
 
   const perCandidate = await Promise.all(
     candidateIds.map(async (candidateId) => {
-      const [candidate, evidence] = await Promise.all([
+      const [candidate, map] = await Promise.all([
         getCandidate(candidateId),
-        getCandidateEvidence(candidateId, vacancyId),
+        getEvidenceMap(candidateId, vacancyId),
       ]);
-
-      const documentNames = new Map(
-        candidate.documents.map((document) => [
-          document.id,
-          document.originalFileName,
-        ]),
-      );
-
-      return {
-        candidate,
-        rows: buildRequirementEvidence(
-          vacancy.requirements,
-          evidence,
-          documentNames,
-        ),
-      };
+      return { candidate, map };
     }),
   );
 
@@ -57,14 +47,19 @@ export async function compareCandidates(
     requirementId: requirement.id,
     requirementText: requirement.text,
     required: requirement.required,
-    cells: perCandidate.map(({ candidate, rows: requirementRows }) => {
-      const match = requirementRows.find(
-        (row) => row.requirementId === requirement.id,
+    cells: perCandidate.map(({ candidate, map }) => {
+      const mapping = map.requirements.find(
+        (item) => item.requirementId === requirement.id,
       );
+
       return {
         candidateId: candidate.id,
-        status: match?.status ?? "NOT_FOUND",
-        citation: match?.citations[0] ?? null,
+        // A requirement the map does not mention has not been checked for this
+        // candidate, which is NOT_RUN rather than "no evidence found".
+        status: mapping?.status ?? "NOT_RUN",
+        // One citation per cell keeps the table readable; the candidate page
+        // shows every passage behind the same status.
+        citation: mapping?.citations[0] ?? null,
       };
     }),
   }));
@@ -80,5 +75,41 @@ export async function compareCandidates(
       location: candidate.location,
     })),
     rows,
+    unmappedCandidateIds: perCandidate
+      .filter(({ map }) => !map.hasRun)
+      .map(({ candidate }) => candidate.id),
   };
+}
+
+/**
+ * Runs the mapping for every candidate that has none, then rebuilds the table.
+ *
+ * Candidates are mapped one at a time rather than in parallel: each run is a
+ * retrieval-heavy backend operation, and firing five at once would queue them
+ * behind each other anyway while making a partial failure harder to attribute.
+ * A candidate whose run fails keeps its NOT_RUN cells instead of failing the
+ * whole comparison.
+ */
+export async function mapMissingCandidates(
+  vacancyId: string,
+  candidateIds: string[],
+  locale: Locale,
+): Promise<ComparisonResult> {
+  for (const candidateId of candidateIds) {
+    let existing: EvidenceMap;
+    try {
+      existing = await getEvidenceMap(candidateId, vacancyId);
+    } catch {
+      continue;
+    }
+    if (existing.hasRun) continue;
+
+    try {
+      await runEvidenceMap(candidateId, vacancyId, locale);
+    } catch {
+      // Left unmapped; the rebuilt table reports it as NOT_RUN.
+    }
+  }
+
+  return compareCandidates(vacancyId, candidateIds);
 }

@@ -4,28 +4,30 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { UnavailableState } from "@/components/ui/UnavailableState";
 import { FileIcon } from "@/components/ui/icons";
 import { BACKEND_CAPABILITIES } from "@/lib/capabilities";
+import { getTranslations } from "@/lib/i18n/server";
 
-export const metadata: Metadata = { title: "Saved jobs" };
+export async function generateMetadata(): Promise<Metadata> {
+  const d = await getTranslations();
+  return { title: d.personal.savedJobs };
+}
 
 export default async function SavedJobsPage() {
   await requirePersonalWorkspace();
+  const d = await getTranslations();
 
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
-        title="Saved jobs"
-        description="Roles you want to come back to."
+        title={d.personal.savedJobs}
+        description={d.personal.savedJobsDescription}
       />
 
       {!BACKEND_CAPABILITIES.savedJobs ? (
         <UnavailableState
           icon={<FileIcon className="size-5" />}
-          title="Saving jobs is not available yet"
-          description="Saved roles need to belong to your account so they follow you across devices — and to the mobile app later. Keeping them in this browser's storage would look like it works until you sign in somewhere else."
-          requires={[
-            "A saved-jobs collection on the CandidateAccount",
-            "Endpoints to save, list and remove a saved vacancy",
-          ]}
+          title={d.personal.savedJobsUnavailable}
+          description={d.personal.savedJobsUnavailableHint}
+          requires={d.personal.savedJobsRequires}
         />
       ) : null}
     </div>

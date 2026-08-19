@@ -94,13 +94,15 @@ export class ProcessingService {
         : []),
     ]);
 
-    this.gateway.emitProgress(document.organizationId, {
-      jobId: job?.id ?? null,
-      documentId,
-      status: ProcessingJobStatus.RUNNING,
-      documentStatus,
-      progress,
-    });
+    if (document.organizationId) {
+      this.gateway.emitProgress(document.organizationId, {
+        jobId: job?.id ?? null,
+        documentId,
+        status: ProcessingJobStatus.RUNNING,
+        documentStatus,
+        progress,
+      });
+    }
     return document;
   }
 
@@ -132,13 +134,17 @@ export class ProcessingService {
         : []),
     ]);
 
-    this.gateway.emitCompleted(document.organizationId, {
-      jobId: job?.id ?? null,
-      documentId,
-      status: ProcessingJobStatus.COMPLETED,
-      documentStatus: DocumentStatus.COMPLETED,
-      progress: 100,
-    });
+    // Personal (org-less) documents are never processed, so this branch is
+    // always taken in practice; the guard keeps the nullable column honest.
+    if (document.organizationId) {
+      this.gateway.emitCompleted(document.organizationId, {
+        jobId: job?.id ?? null,
+        documentId,
+        status: ProcessingJobStatus.COMPLETED,
+        documentStatus: DocumentStatus.COMPLETED,
+        progress: 100,
+      });
+    }
     return document;
   }
 
@@ -173,14 +179,16 @@ export class ProcessingService {
     ]);
 
     this.logger.warn(`Processing failed for document ${documentId}`);
-    this.gateway.emitFailed(document.organizationId, {
-      jobId: job?.id ?? null,
-      documentId,
-      status: ProcessingJobStatus.FAILED,
-      documentStatus: DocumentStatus.FAILED,
-      progress: job?.progress ?? 0,
-      errorMessage: errorMessage.slice(0, 500),
-    });
+    if (document.organizationId) {
+      this.gateway.emitFailed(document.organizationId, {
+        jobId: job?.id ?? null,
+        documentId,
+        status: ProcessingJobStatus.FAILED,
+        documentStatus: DocumentStatus.FAILED,
+        progress: job?.progress ?? 0,
+        errorMessage: errorMessage.slice(0, 500),
+      });
+    }
     return document;
   }
 

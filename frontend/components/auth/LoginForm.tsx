@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { loginAction } from "@/lib/auth/actions";
 import { hasErrors, validateLogin } from "@/lib/validation";
+import { useI18n } from "@/lib/i18n/context";
 import type { FieldErrors } from "@/lib/api/errors";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/icons";
 
 export function LoginForm() {
+  const { d } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -29,7 +31,7 @@ export function LoginForm() {
     if (pending) return;
 
     setFormError(null);
-    const validationErrors = validateLogin({ email, password });
+    const validationErrors = validateLogin({ email, password }, d);
     setErrors(validationErrors);
     if (hasErrors(validationErrors)) return;
 
@@ -37,7 +39,7 @@ export function LoginForm() {
       // On success the action sets the session cookie and redirects, so
       // control never returns here.
       const result = await loginAction({ email, password });
-      setFormError(result.message ?? "Could not sign in.");
+      setFormError(result.message ?? d.auth.couldNotSignIn);
       setErrors(result.fieldErrors ?? {});
     });
   }
@@ -46,10 +48,10 @@ export function LoginForm() {
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">
-          Sign in
+          {d.auth.signIn}
         </h1>
         <p className="mt-1 text-[13.5px] text-ink-muted">
-          Use your work account to reach your organization&rsquo;s pipeline.
+          {d.auth.signInSubtitle}
         </p>
       </div>
 
@@ -64,11 +66,11 @@ export function LoginForm() {
       ) : null}
 
       <Input
-        label="Email"
+        label={d.auth.email}
         type="email"
         name="email"
         autoComplete="email"
-        placeholder="you@company.com"
+        placeholder={d.auth.emailPlaceholder}
         required
         value={email}
         disabled={pending}
@@ -78,7 +80,7 @@ export function LoginForm() {
       />
 
       <Input
-        label="Password"
+        label={d.auth.password}
         type={showPassword ? "text" : "password"}
         name="password"
         autoComplete="current-password"
@@ -93,7 +95,7 @@ export function LoginForm() {
           <button
             type="button"
             onClick={() => setShowPassword((visible) => !visible)}
-            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-label={showPassword ? d.auth.hidePassword : d.auth.showPassword}
             className="rounded p-1.5 text-ink-subtle hover:bg-surface-muted hover:text-ink"
           >
             {showPassword ? (
@@ -106,13 +108,13 @@ export function LoginForm() {
       />
 
       <Button type="submit" size="lg" loading={pending}>
-        {pending ? "Signing in" : "Sign in"}
+        {pending ? d.auth.signingIn : d.auth.signIn}
       </Button>
 
       <p className="text-center text-[13px] text-ink-muted">
-        No account yet?{" "}
+        {d.auth.noAccount}{" "}
         <Link href="/register" className="font-medium text-brand hover:underline">
-          Create one
+          {d.auth.createOne}
         </Link>
       </p>
     </form>

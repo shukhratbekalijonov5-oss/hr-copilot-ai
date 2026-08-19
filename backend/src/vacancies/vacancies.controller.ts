@@ -38,7 +38,7 @@ export class VacanciesController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateVacancyDto,
   ) {
-    return this.vacanciesService.create(user.organizationId, user.id, dto);
+    return this.vacanciesService.create(user.organizationId!, user.id, dto);
   }
 
   @Get()

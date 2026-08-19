@@ -1,5 +1,21 @@
+import en from "@/lib/i18n/dictionaries/en";
+import { format } from "@/lib/i18n/format";
+import type { Dictionary } from "@/lib/i18n/dictionary";
 import type { FieldErrors } from "@/lib/api/errors";
 import type { LoginInput, RegisterInput } from "@/lib/types";
+
+/**
+ * Messages come from the caller's dictionary.
+ *
+ * The parameter defaults to English so this module stays usable from plain
+ * unit tests, and so a caller that forgets to pass one gets readable text
+ * rather than a raw key on screen. Components always pass the active
+ * dictionary from `useI18n()`.
+ *
+ * The English dictionary is imported directly rather than through the locale
+ * registry, so importing a validator never pulls all four locales into a
+ * bundle.
+ */
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -28,52 +44,59 @@ export function isConsumerEmail(value: string): boolean {
   return domain ? CONSUMER_DOMAINS.has(domain) : false;
 }
 
-export function validateLogin(values: LoginInput): FieldErrors {
+export function validateLogin(
+  values: LoginInput,
+  d: Dictionary = en,
+): FieldErrors {
   const errors: FieldErrors = {};
 
   if (!values.email.trim()) {
-    errors.email = "Email is required.";
+    errors.email = d.validation.emailRequired;
   } else if (!isValidEmail(values.email)) {
-    errors.email = "Enter a valid email address.";
+    errors.email = d.validation.emailInvalid;
   }
 
   if (!values.password) {
-    errors.password = "Password is required.";
+    errors.password = d.validation.passwordRequired;
   }
 
   return errors;
 }
 
-export function validateRegister(values: RegisterInput): FieldErrors {
+export function validateRegister(
+  values: RegisterInput,
+  d: Dictionary = en,
+): FieldErrors {
   const errors: FieldErrors = {};
 
   if (!values.fullName.trim()) {
-    errors.fullName = "Full name is required.";
+    errors.fullName = d.validation.fullNameRequired;
   } else if (values.fullName.trim().length < 2) {
-    errors.fullName = "Enter your full name.";
+    errors.fullName = d.validation.fullNameShort;
   }
 
   if (!values.email.trim()) {
-    errors.email = "Work email is required.";
+    errors.email = d.validation.workEmailRequired;
   } else if (!isValidEmail(values.email)) {
-    errors.email = "Enter a valid email address.";
+    errors.email = d.validation.emailInvalid;
   }
 
   if (!values.organizationName.trim()) {
-    errors.organizationName = "Company or organization name is required.";
+    errors.organizationName = d.validation.organizationNameRequired;
   }
 
   if (!values.password) {
-    errors.password = "Password is required.";
+    errors.password = d.validation.passwordRequired;
   } else if (values.password.length < MIN_PASSWORD_LENGTH) {
-    errors.password = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+    errors.password = format(d.validation.passwordMinLength, {
+      min: MIN_PASSWORD_LENGTH,
+    });
   }
 
   if (!values.organizationSlug.trim()) {
-    errors.organizationSlug = "Workspace URL is required.";
+    errors.organizationSlug = d.validation.slugRequired;
   } else if (!SLUG_PATTERN.test(values.organizationSlug.trim())) {
-    errors.organizationSlug =
-      "Use lowercase letters, numbers and hyphens only.";
+    errors.organizationSlug = d.validation.slugPattern;
   }
 
   return errors;

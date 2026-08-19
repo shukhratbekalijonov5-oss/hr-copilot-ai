@@ -3,18 +3,25 @@ import { api } from "@/lib/api";
 import { requireSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SettingsWorkspace } from "@/components/settings/SettingsWorkspace";
+import { getTranslations } from "@/lib/i18n/server";
 
-export const metadata: Metadata = { title: "Settings" };
+export async function generateMetadata(): Promise<Metadata> {
+  const d = await getTranslations();
+  return { title: d.settings.title };
+}
 
 export default async function SettingsPage() {
   await requireSession();
-  const settings = await api.getSettings();
+  const [settings, d] = await Promise.all([
+    api.getSettings(),
+    getTranslations(),
+  ]);
 
   return (
     <div className="mx-auto max-w-4xl">
       <PageHeader
-        title="Settings"
-        description="Your profile, the organization, and who has access."
+        title={d.settings.title}
+        description={d.settings.description}
       />
       <SettingsWorkspace settings={settings} />
     </div>

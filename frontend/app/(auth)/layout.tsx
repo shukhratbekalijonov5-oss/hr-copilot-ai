@@ -1,14 +1,10 @@
 import Link from "next/link";
-import { APP_NAME } from "@/lib/constants";
 import { CheckIcon, SparkIcon } from "@/components/ui/icons";
+import { getTranslations } from "@/lib/i18n/server";
 
-const POINTS = [
-  "Every extracted claim links back to the page it came from.",
-  "Search resumes in plain language across your whole pipeline.",
-  "Shortlisting and rejection stay human decisions, always.",
-];
+export default async function AuthLayout({ children }: LayoutProps<"/">) {
+  const d = await getTranslations();
 
-export default function AuthLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1fr_minmax(0,30rem)]">
       <section className="hidden flex-col justify-between border-r border-line bg-surface p-10 lg:flex">
@@ -19,15 +15,15 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
           <span className="flex size-7 items-center justify-center rounded-lg bg-brand text-white">
             <SparkIcon className="size-4" />
           </span>
-          {APP_NAME}
+          {d.meta.appName}
         </Link>
 
         <div className="max-w-md">
           <h2 className="text-[26px] font-semibold leading-tight tracking-tight text-ink">
-            Read every resume properly, without reading every resume.
+            {d.auth.heroTitle}
           </h2>
           <ul className="mt-6 flex flex-col gap-3">
-            {POINTS.map((point) => (
+            {d.auth.heroPoints.map((point) => (
               <li key={point} className="flex gap-2.5 text-[13.5px] text-ink-muted">
                 <CheckIcon className="mt-0.5 size-4 shrink-0 text-positive" />
                 {point}
@@ -37,7 +33,7 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
         </div>
 
         <p className="text-[12px] text-ink-subtle">
-          © {new Date().getFullYear()} {APP_NAME}
+          © {new Date().getFullYear()} {d.meta.appName}
         </p>
       </section>
 
@@ -50,7 +46,7 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
             <span className="flex size-7 items-center justify-center rounded-lg bg-brand text-white">
               <SparkIcon className="size-4" />
             </span>
-            {APP_NAME}
+            {d.meta.appName}
           </Link>
           {children}
         </div>

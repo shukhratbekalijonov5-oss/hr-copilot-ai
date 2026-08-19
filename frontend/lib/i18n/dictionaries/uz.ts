@@ -18,6 +18,31 @@ const uz: Dictionary = {
       "Dalilga asoslangan ishga qabul tahlili: rezyumelarni oddiy tilda qidiring, har bir maʼlumotni manbagacha kuzating, qaror esa insonda qolsin.",
   },
 
+  datetime: {
+    months: [
+      "yan", "fev", "mar", "apr", "may", "iyn",
+      "iyl", "avg", "sen", "okt", "noy", "dek",
+    ],
+    date: "{day}-{month}, {year}",
+    dateTime: "{day}-{month}, {time}",
+    time: "{hour}:{minute}",
+    justNow: "hozirgina",
+    minutesAgo: {
+      one: "{count} daqiqa oldin",
+      other: "{count} daqiqa oldin",
+    },
+    hoursAgo: {
+      one: "{count} soat oldin",
+      other: "{count} soat oldin",
+    },
+    daysAgo: {
+      one: "{count} kun oldin",
+      other: "{count} kun oldin",
+    },
+    groupSeparator: "\u00A0",
+    decimalSeparator: ",",
+  },
+
   common: {
     save: "Oʻzgarishlarni saqlash",
     saved: "Saqlandi",
@@ -613,7 +638,7 @@ const uz: Dictionary = {
     languageHint:
       "Interfeys tilini va AI javoblari yoziladigan tilni belgilaydi. Iqtibos keltirilgan rezyume parchalari asl tilida qoladi.",
     languageStoredLocally:
-      "Tanlovingiz shu brauzerda saqlanadi. API’da foydalanuvchining afzal tili maydoni hali yoʻq, shuning uchun u boshqa qurilmaga oʻtmaydi.",
+      "Tanlovingiz shu brauzerda saqlanadi. Hisobingizda saqlangan til bor va u ushbu sozlamani koʻrmagan qurilmada ishlatiladi, ammo API’da bu tilni oʻzgartiradigan maydon yoʻq — shuning uchun bu yerdagi oʻzgarish boshqa qurilmaga oʻtmaydi.",
   },
 
   personal: {

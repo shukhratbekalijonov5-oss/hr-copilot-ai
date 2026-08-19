@@ -15,7 +15,10 @@ import {
   ApplicationStatus,
   DocumentType,
 } from '../generated/prisma/enums';
-import { validateUploadedFile, type ValidatableFile } from '../documents/file-validation';
+import {
+  validateUploadedFile,
+  type ValidatableFile,
+} from '../documents/file-validation';
 import type { Prisma } from '../generated/prisma/client';
 import type { PaginationQueryDto } from '../common/dto/pagination.dto';
 import type { UpsertCandidateAccountDto } from './dto/upsert-candidate-account.dto';

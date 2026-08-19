@@ -1,10 +1,17 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { api, ApiError } from "@/lib/api";
+import { aiFailureReason } from "@/lib/api/ai-failure";
 import { requireSession } from "@/lib/auth/session";
+import { getTranslations } from "@/lib/i18n/server";
 import { CandidateWorkspace } from "@/components/candidates/CandidateWorkspace";
 import { PageHeader } from "@/components/layout/PageHeader";
-import type { Candidate, RequirementEvidence, Vacancy } from "@/lib/types";
+import type {
+  AiFailureReason,
+  Candidate,
+  EvidenceMap,
+  Vacancy,
+} from "@/lib/types";
 
 export async function generateMetadata(
   props: PageProps<"/candidates/[id]">,
@@ -14,14 +21,16 @@ export async function generateMetadata(
     const candidate = await api.getCandidate(id);
     return { title: candidate.fullName };
   } catch {
-    return { title: "Candidate" };
+    const d = await getTranslations();
+    return { title: d.tables.candidate };
   }
 }
 
 export default async function CandidateDetailPage(
   props: PageProps<"/candidates/[id]">,
 ) {
-  await requireSession();
+  const session = await requireSession();
+  const d = await getTranslations();
   const { id } = await props.params;
 
   let candidate: Candidate;
@@ -33,14 +42,27 @@ export default async function CandidateDetailPage(
   }
 
   let vacancy: Vacancy | null = null;
-  let evidence: RequirementEvidence[] = [];
+  let evidenceMap: EvidenceMap | null = null;
+  let evidenceMapFailure: AiFailureReason | null = null;
 
   if (candidate.primaryVacancyId) {
     vacancy = await api.getVacancy(candidate.primaryVacancyId);
-    evidence = await api.getCandidateRequirementEvidence(
-      candidate.id,
-      candidate.primaryVacancyId,
-    );
+
+    /**
+     * The stored map is read here so the requirement table is present on first
+     * paint rather than after a client round-trip. This is a plain read with no
+     * LLM in the path, so it still succeeds while generation is unavailable —
+     * and when even retrieval is down, the reason is carried into the panel
+     * instead of the whole page failing.
+     */
+    try {
+      evidenceMap = await api.getEvidenceMap(
+        candidate.id,
+        candidate.primaryVacancyId,
+      );
+    } catch (error) {
+      evidenceMapFailure = aiFailureReason(error, "retrieval");
+    }
   }
 
   return (
@@ -48,7 +70,7 @@ export default async function CandidateDetailPage(
       <PageHeader
         className="mb-4"
         breadcrumbs={[
-          { label: "Candidates", href: "/candidates" },
+          { label: d.candidates.title, href: "/candidates" },
           { label: candidate.fullName },
         ]}
         title={<span className="sr-only">{candidate.fullName}</span>}
@@ -56,7 +78,9 @@ export default async function CandidateDetailPage(
       <CandidateWorkspace
         candidate={candidate}
         vacancy={vacancy}
-        evidence={evidence}
+        evidenceMap={evidenceMap}
+        evidenceMapFailure={evidenceMapFailure}
+        role={session.role}
       />
     </div>
   );

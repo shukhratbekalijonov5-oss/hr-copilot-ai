@@ -6,11 +6,16 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { buttonStyles } from "@/components/ui/Button";
 import { PlusIcon } from "@/components/ui/icons";
 import { VacancyListView } from "@/components/vacancies/VacancyListView";
+import { getTranslations } from "@/lib/i18n/server";
 
-export const metadata: Metadata = { title: "Vacancies" };
+export async function generateMetadata(): Promise<Metadata> {
+  const d = await getTranslations();
+  return { title: d.vacancies.title };
+}
 
 export default async function VacanciesPage() {
   await requireSession();
+  const d = await getTranslations();
 
   const vacancies = await api.getAllVacancies();
 
@@ -27,12 +32,12 @@ export default async function VacanciesPage() {
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
-        title="Vacancies"
-        description="Every role you are hiring for, and the requirements each resume is checked against."
+        title={d.vacancies.title}
+        description={d.vacancies.description}
         actions={
           <Link href="/vacancies/new" className={buttonStyles("primary", "md")}>
             <PlusIcon className="size-4" />
-            Create vacancy
+            {d.vacancies.create}
           </Link>
         }
       />

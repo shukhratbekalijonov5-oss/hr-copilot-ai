@@ -434,6 +434,16 @@ export class AiServiceClient {
           `AI service did not respond within ${this.timeoutMs}ms`,
         );
       }
+      // fetch() surfaces network faults (connection refused, DNS failure,
+      // reset) as TypeError. That is a dependency being unreachable — a 503 —
+      // not an internal error, and the raw cause (which may embed the AI
+      // service URL) is logged here rather than returned to the client.
+      if (error instanceof TypeError) {
+        this.logger.error(
+          `AI service is unreachable: ${(error as Error & { cause?: Error }).cause?.message ?? error.message}`,
+        );
+        throw new ServiceUnavailableException('AI service is unreachable');
+      }
       throw error;
     } finally {
       clearTimeout(timer);

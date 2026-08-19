@@ -169,13 +169,37 @@ src/
   generated/prisma/       generated Prisma client (gitignored)
 ```
 
+### Identity model
+
+```
+User (account: email, fullName, preferredLocale en|ko|ru|uz)
+├── CandidateAccount   0..1   personal job-seeker profile — NOT a role,
+│                             belongs to no organization
+└── OrganizationMember 0..n   one row per organization, each with its own
+                              role (OWNER | HR_ADMIN | RECRUITER | INTERVIEWER)
+```
+
+The same person may simultaneously be a job seeker, a RECRUITER in one
+organization and an INTERVIEWER in another. There is no global role and no
+CANDIDATE/EMPLOYEE role. Recruiter-side `Candidate` rows are organization
+records; they optionally link to a `CandidateAccount` when the person applied
+through HR Copilot directly (manual/imported candidates have no account, which
+is correct). Full API contracts: `docs/identity-contracts.md`.
+
 ### Multi-tenancy
 
 This is the most important invariant in the codebase.
 
-- `organizationId` is taken **only** from the verified JWT, surfaced as
-  `@CurrentUser('organizationId')`. It is never read from a request body,
-  query string or header.
+- The JWT identifies the **user** and carries an active-organization pointer
+  (`org` claim) — never a role. On routes marked `@OrgScoped()`,
+  `OrgContextGuard` validates a LIVE `OrganizationMember` row on every request
+  and only then fills `organizationId` and `role`; a removed or demoted member
+  changes behaviour on their next request, whatever their token says.
+  `POST /auth/switch-organization` re-points the claim after re-verifying the
+  membership.
+- `organizationId` is therefore taken **only** from the validated membership
+  context, surfaced as `@CurrentUser('organizationId')`. It is never read from
+  a request body, query string or header.
 - No DTO declares an `organizationId` field, and the global `ValidationPipe`
   runs with `forbidNonWhitelisted: true` — a client that tries to send one gets
   a `400`, not silent acceptance.
@@ -190,10 +214,14 @@ This is the most important invariant in the codebase.
 ### Authentication and roles
 
 JWT bearer tokens signed with `SECRET_TOKEN`; passwords hashed with bcrypt.
-`JwtAuthGuard` and `RolesGuard` are registered globally, so routes are private
-by default and must opt out with `@Public()`.
+`JwtAuthGuard`, `OrgContextGuard` and `RolesGuard` are registered globally (in
+that order), so routes are private by default and must opt out with
+`@Public()`; recruiter routes additionally opt IN to organization context with
+`@OrgScoped()`.
 
-Roles: `OWNER`, `HR_ADMIN`, `RECRUITER`, `INTERVIEWER`.
+Roles (organization-scoped, on the membership row): `OWNER`, `HR_ADMIN`,
+`RECRUITER`, `INTERVIEWER`. A CandidateAccount grants no organization access of
+any kind.
 
 ### Storage
 
@@ -338,10 +366,11 @@ token except those marked public.
 
 | Method | Path                                                | Notes                     |
 | ------ | --------------------------------------------------- | ------------------------- |
-| POST   | `/api/auth/register`                                | public — creates org + OWNER |
+| POST   | `/api/auth/register`                                | public — hiring (org + OWNER membership) or job seeker (no org fields) |
 | POST   | `/api/auth/login`                                   | public                    |
-| GET    | `/api/auth/me`                                      |                           |
-| POST   | `/api/auth/users`                                   | OWNER, HR_ADMIN           |
+| GET    | `/api/auth/me`                                      | session contract (memberships, active org, candidate flag) |
+| POST   | `/api/auth/switch-organization`                     | activates one of the caller's memberships |
+| POST   | `/api/auth/users`                                   | OWNER, HR_ADMIN — existing emails become members |
 | GET    | `/api/users`, `/api/users/:id`                      | own organization only     |
 | PATCH  | `/api/users/:id`                                    | OWNER, HR_ADMIN           |
 | DELETE | `/api/users/:id`                                    | OWNER                     |
@@ -368,6 +397,14 @@ token except those marked public.
 | POST   | `/api/documents/:id/reprocess`                      | requeue a failed document |
 | POST   | `/api/search/evidence`                              | semantic evidence search  |
 | GET    | `/api/processing-jobs`, `/api/processing-jobs/:id`  |                           |
+| GET    | `/api/public/jobs`, `/api/public/jobs/:slug`        | public — OPEN vacancies, safe fields only |
+| POST   | `/api/public/jobs/:slug/apply`                      | candidate account required — direct application |
+| POST   | `/api/candidate-account`                            | create own job-seeker profile |
+| GET/PATCH | `/api/candidate-account/me`                      | own profile only          |
+| POST/GET | `/api/candidate-account/me/resume`                | personal resume (upload / signed URL) |
+| GET    | `/api/candidate-account/me/applications(/:id)`      | own DIRECT applications   |
+| POST   | `/api/candidate-account/me/applications/:id/withdraw` | only candidate status mutation |
+| GET/POST/DELETE | `/api/candidate-account/me/saved-jobs(/:slug)` | bookmarks (OPEN jobs)  |
 | POST   | `/api/internal/processing/progress`                 | AI service only (service token) |
 | GET    | `/health/live`, `/health/ready`                     | public                    |
 

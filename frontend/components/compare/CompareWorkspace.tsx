@@ -2,39 +2,31 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { compareCandidatesAction } from "@/app/(app)/compare/actions";
-import { Badge } from "@/components/ui/Badge";
+import {
+  compareCandidatesAction,
+  mapMissingCandidatesAction,
+} from "@/app/(app)/compare/actions";
+import { AiFailureNotice } from "@/components/ai/AiFailureNotice";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Select } from "@/components/ui/Field";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { CitationLink } from "@/components/evidence/CitationLink";
-import { AlertIcon, CompareIcon } from "@/components/ui/icons";
+import { Button } from "@/components/ui/Button";
+import { EvidenceStatusBadge } from "@/components/ui/StatusBadge";
+import { AlertIcon, CompareIcon, SparkIcon } from "@/components/ui/icons";
 import {
   MAX_COMPARE_CANDIDATES,
   MIN_COMPARE_CANDIDATES,
-  REQUIREMENT_PRIORITY_LABELS,
 } from "@/lib/constants";
-import { cn, pluralize } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/context";
+import { cn } from "@/lib/utils";
 import type {
+  AiFailureReason,
   Candidate,
   ComparisonResult,
-  EvidenceStatus,
   Vacancy,
 } from "@/lib/types";
-
-/** Compact cell labels — the legend below the table spells them out. */
-const CELL_LABELS: Record<EvidenceStatus, string> = {
-  FOUND: "Found",
-  NOT_FOUND: "Not found",
-  NEEDS_REVIEW: "Review",
-};
-
-const CELL_TONES = {
-  FOUND: "positive",
-  NOT_FOUND: "neutral",
-  NEEDS_REVIEW: "warning",
-} as const;
 
 interface CompareWorkspaceProps {
   /** Only vacancies that have candidates — the rest cannot be compared. */
@@ -65,11 +57,17 @@ export function CompareWorkspace({
   initialSelected,
   initialResult,
 }: CompareWorkspaceProps) {
+  const { d, f, p } = useI18n();
+
   const [vacancyId, setVacancyId] = useState(initialVacancyId);
   const [selected, setSelected] = useState<string[]>(initialSelected);
   const [result, setResult] = useState<ComparisonResult | null>(initialResult);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [mapping, setMapping] = useState(false);
+  const [failure, setFailure] = useState<{
+    reason: AiFailureReason;
+    message?: string;
+  } | null>(null);
 
   // Guards against an earlier request resolving after a later one.
   const requestRef = useRef(0);
@@ -101,19 +99,39 @@ export function CompareWorkspace({
     }
 
     setLoading(true);
-    setError(null);
+    setFailure(null);
     try {
       const next = await compareCandidatesAction(nextVacancyId, ids);
       if (requestRef.current !== requestId) return;
-      if (next.ok) setResult(next.result);
+      if (next.ok) setResult(next.data);
       else {
         setResult(null);
-        setError(next.message);
+        setFailure({ reason: next.reason, message: next.message });
       }
     } finally {
       if (requestRef.current === requestId) setLoading(false);
     }
   }, []);
+
+  /**
+   * Fills the columns of candidates that have never been mapped.
+   *
+   * `mapping` disables the control for the whole round trip, so a second click
+   * cannot start a duplicate set of runs.
+   */
+  const runMissingMappings = useCallback(async () => {
+    if (mapping || !vacancyId || selected.length < MIN_COMPARE_CANDIDATES) return;
+
+    setMapping(true);
+    setFailure(null);
+    try {
+      const next = await mapMissingCandidatesAction(vacancyId, selected);
+      if (next.ok) setResult(next.data);
+      else setFailure({ reason: next.reason, message: next.message });
+    } finally {
+      setMapping(false);
+    }
+  }, [mapping, vacancyId, selected]);
 
   function changeVacancy(nextVacancyId: string) {
     const nextSelection = defaultSelection(poolFor(candidates, nextVacancyId));
@@ -139,8 +157,8 @@ export function CompareWorkspace({
       <Card>
         <EmptyState
           icon={<CompareIcon className="size-5" />}
-          title="Nothing to compare yet"
-          description="Once a vacancy has candidates with indexed resumes, you can line their requirement evidence up side by side."
+          title={d.compare.nothingToCompare}
+          description={d.compare.nothingToCompareHint}
         />
       </Card>
     );
@@ -150,21 +168,30 @@ export function CompareWorkspace({
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader
-          title="Select candidates"
-          description={`Pick ${MIN_COMPARE_CANDIDATES}–${MAX_COMPARE_CANDIDATES} candidates from one vacancy.`}
+          title={d.compare.selectTitle}
+          description={f(d.compare.selectDescription, {
+            min: MIN_COMPARE_CANDIDATES,
+            max: MAX_COMPARE_CANDIDATES,
+          })}
           action={
             <span className="text-[12.5px] text-ink-muted tabular-nums">
-              {selected.length} / {MAX_COMPARE_CANDIDATES}
+              {f(d.compare.selectedCount, {
+                count: selected.length,
+                max: MAX_COMPARE_CANDIDATES,
+              })}
             </span>
           }
         />
         <CardBody className="flex flex-col gap-3">
           <Select
-            label="Vacancy"
+            label={d.compare.vacancy}
             value={vacancyId}
             options={vacancies.map((vacancy) => ({
               value: vacancy.id,
-              label: `${vacancy.title} (${vacancy.candidateCount} ${pluralize(vacancy.candidateCount, "candidate")})`,
+              label: f(d.compare.vacancyOption, {
+                title: vacancy.title,
+                count: p(d.common.candidates, vacancy.candidateCount),
+              }),
             }))}
             onChange={(event) => changeVacancy(event.target.value)}
             className="sm:max-w-md"
@@ -172,15 +199,16 @@ export function CompareWorkspace({
 
           {pool.length === 0 ? (
             <p className="rounded-lg bg-surface-muted px-3 py-2.5 text-[13px] text-ink-muted">
-              No candidate on this vacancy has finished processing yet.
+              {d.compare.noneProcessed}
             </p>
           ) : (
             <>
               {pendingCount > 0 ? (
                 <p className="text-[12.5px] text-ink-muted">
-                  {pool.length} of {pool.length + pendingCount} candidates on this
-                  vacancy have finished processing. The rest appear here once
-                  their documents are indexed.
+                  {f(d.compare.processedRatio, {
+                    ready: pool.length,
+                    total: pool.length + pendingCount,
+                  })}
                 </p>
               ) : null}
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -212,7 +240,7 @@ export function CompareWorkspace({
                           {candidate.fullName}
                         </span>
                         <span className="block truncate text-[12px] text-ink-muted">
-                          {candidate.currentTitle ?? "Title not set"}
+                          {candidate.currentTitle ?? d.common.notSet}
                         </span>
                       </span>
                     </label>
@@ -224,34 +252,63 @@ export function CompareWorkspace({
         </CardBody>
       </Card>
 
-      {error ? (
-        <p
-          role="alert"
-          className="flex items-center gap-2 rounded-lg bg-critical-soft px-3 py-2 text-[13px] text-critical"
-        >
-          <AlertIcon className="size-4 shrink-0" />
-          {error}
-        </p>
+      {failure ? (
+        <AiFailureNotice reason={failure.reason} message={failure.message} />
       ) : null}
 
-      {loading ? <SkeletonTable rows={6} columns={4} /> : null}
+      {loading || mapping ? (
+        <>
+          {mapping ? (
+            <p
+              role="status"
+              aria-live="polite"
+              className="text-[12.5px] text-ink-muted"
+            >
+              {d.compare.mappingRunning}
+            </p>
+          ) : null}
+          <SkeletonTable rows={6} columns={4} />
+        </>
+      ) : null}
 
-      {!loading && selected.length < MIN_COMPARE_CANDIDATES ? (
+      {!loading && !mapping && selected.length < MIN_COMPARE_CANDIDATES ? (
         <Card>
           <EmptyState
             icon={<CompareIcon className="size-5" />}
-            title={`Select at least ${MIN_COMPARE_CANDIDATES} candidates`}
-            description="The comparison lines up requirement evidence from each candidate's documents."
+            title={f(d.compare.selectAtLeast, { min: MIN_COMPARE_CANDIDATES })}
+            description={d.compare.selectAtLeastHint}
           />
         </Card>
       ) : null}
 
-      {!loading && result ? (
+      {!loading && !mapping && result ? (
         <>
+          {result.unmappedCandidateIds.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] text-ink-muted">
+              <span>
+                {f(d.compare.unmappedNote, {
+                  count: result.unmappedCandidateIds.length,
+                })}
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="ml-auto"
+                loading={mapping}
+                disabled={mapping}
+                onClick={() => void runMissingMappings()}
+                icon={<SparkIcon className="size-4" />}
+              >
+                {d.compare.runMapping}
+              </Button>
+            </div>
+          ) : null}
+
           <div className="overflow-x-auto rounded-xl border border-line bg-surface shadow-card scrollbar-slim">
             <table className="w-full min-w-[640px] border-collapse text-sm">
               <caption className="sr-only">
-                Requirement evidence for {result.vacancyTitle}
+                {f(d.compare.tableCaption, { vacancy: result.vacancyTitle })}
               </caption>
               <thead>
                 <tr className="border-b border-line bg-surface-muted">
@@ -259,7 +316,7 @@ export function CompareWorkspace({
                     scope="col"
                     className="sticky left-0 z-10 bg-surface-muted px-4 py-2.5 text-left text-[11.5px] font-semibold uppercase tracking-wide text-ink-subtle"
                   >
-                    Requirement
+                    {d.compare.columnRequirement}
                   </th>
                   {result.candidates.map((candidate) => (
                     <th
@@ -274,7 +331,7 @@ export function CompareWorkspace({
                         {candidate.fullName}
                       </Link>
                       <span className="block truncate text-[11.5px] font-normal normal-case text-ink-muted">
-                        {candidate.currentTitle ?? "Title not set"}
+                        {candidate.currentTitle ?? d.common.notSet}
                       </span>
                     </th>
                   ))}
@@ -295,8 +352,8 @@ export function CompareWorkspace({
                       </span>
                       <span className="mt-0.5 block text-[11.5px] font-normal text-ink-subtle">
                         {row.required
-                          ? REQUIREMENT_PRIORITY_LABELS.required
-                          : REQUIREMENT_PRIORITY_LABELS.optional}
+                          ? d.status.requirementPriority.required
+                          : d.status.requirementPriority.optional}
                       </span>
                     </th>
                     {row.cells.map((cell) => (
@@ -304,9 +361,7 @@ export function CompareWorkspace({
                         key={`${row.requirementId}-${cell.candidateId}`}
                         className="px-4 py-3 align-top"
                       >
-                        <Badge tone={CELL_TONES[cell.status]}>
-                          {CELL_LABELS[cell.status]}
-                        </Badge>
+                        <EvidenceStatusBadge status={cell.status} short />
                         {cell.citation ? (
                           <div className="mt-1.5">
                             <CitationLink
@@ -325,29 +380,31 @@ export function CompareWorkspace({
 
           <div className="flex flex-col gap-2 rounded-lg border border-line bg-surface px-3.5 py-3">
             <p className="text-[12px] font-semibold uppercase tracking-wide text-ink-subtle">
-              What the cells mean
+              {d.compare.legendTitle}
             </p>
             <ul className="flex flex-col gap-1.5 text-[12.5px] text-ink-muted">
-              <li className="flex items-center gap-2">
-                <Badge tone="positive">Found</Badge>
-                A passage in the documents supports this requirement.
+              <li className="flex flex-wrap items-center gap-2">
+                <EvidenceStatusBadge status="FOUND" short />
+                {d.compare.legendFound}
               </li>
-              <li className="flex items-center gap-2">
-                <Badge tone="neutral">Not found</Badge>
-                Nothing in the documents mentions it. Absence of evidence, not
-                evidence of absence.
+              <li className="flex flex-wrap items-center gap-2">
+                <EvidenceStatusBadge status="NOT_FOUND" short />
+                {d.compare.legendNotFound}
               </li>
-              <li className="flex items-center gap-2">
-                <Badge tone="warning">Review</Badge>
-                Something related was found, but it needs a person to judge it.
+              <li className="flex flex-wrap items-center gap-2">
+                <EvidenceStatusBadge status="NEEDS_REVIEW" short />
+                {d.compare.legendReview}
+              </li>
+              <li className="flex flex-wrap items-center gap-2">
+                <EvidenceStatusBadge status="NOT_RUN" short />
+                {d.compare.legendNotRun}
               </li>
             </ul>
           </div>
 
           <p className="flex gap-2 rounded-lg bg-warning-soft px-3 py-2.5 text-[12.5px] leading-relaxed text-warning">
             <AlertIcon className="mt-px size-4 shrink-0" />
-            This table compares what the documents contain. It does not rank
-            candidates or recommend a hire — that decision stays with you.
+            {d.compare.noWinner}
           </p>
         </>
       ) : null}

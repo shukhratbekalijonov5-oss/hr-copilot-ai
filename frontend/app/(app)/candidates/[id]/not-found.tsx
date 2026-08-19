@@ -1,12 +1,15 @@
 import { NotFoundState } from "@/components/ui/NotFoundState";
+import { getTranslations } from "@/lib/i18n/server";
 
-export default function CandidateNotFound() {
+export default async function CandidateNotFound() {
+  const d = await getTranslations();
+
   return (
     <NotFoundState
-      title="Candidate not found"
-      description="This candidate may have been removed, or the link is wrong."
+      title={d.candidates.notFound}
+      description={d.vacancyDetail.candidateRemovedOrWrongLink}
       backHref="/candidates"
-      backLabel="Back to candidates"
+      backLabel={d.candidates.backToCandidates}
     />
   );
 }

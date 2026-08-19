@@ -5,55 +5,14 @@ export function cn(
   return values.filter(Boolean).join(" ");
 }
 
-export function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-export function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-export function formatRelativeTime(
-  value: string,
-  now: number = Date.now(),
-): string {
-  const diffMs = now - new Date(value).getTime();
-  const minutes = Math.round(diffMs / 60_000);
-
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-
-  const days = Math.round(hours / 24);
-  if (days < 30) return `${days}d ago`;
-
-  return formatDate(value);
-}
-
-export function formatMonthYear(value: string): string {
-  return new Date(value).toLocaleDateString("en-US", {
-    month: "short",
-    year: "numeric",
-  });
-}
-
-export function formatDateRange(
-  start: string,
-  end: string | null,
-): string {
-  return `${formatMonthYear(start)} — ${end ? formatMonthYear(end) : "Present"}`;
-}
+/**
+ * Date, time and number formatting lives in `lib/i18n/format.ts`.
+ *
+ * The `en-US` helpers that used to sit here were removed with the i18n work:
+ * they were untranslatable, and because they read the host's ICU tables they
+ * were also a hydration-mismatch source between the Node render and the
+ * browser. Nothing here may format a date again.
+ */
 
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -68,10 +27,6 @@ export function initialsOf(name: string): string {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
-}
-
-export function pluralize(count: number, singular: string, plural?: string) {
-  return count === 1 ? singular : (plural ?? `${singular}s`);
 }
 
 /**

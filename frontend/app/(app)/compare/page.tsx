@@ -4,12 +4,17 @@ import { requireSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CompareWorkspace } from "@/components/compare/CompareWorkspace";
 import { MIN_COMPARE_CANDIDATES } from "@/lib/constants";
+import { getTranslations } from "@/lib/i18n/server";
 import type { ComparisonResult } from "@/lib/types";
 
-export const metadata: Metadata = { title: "Compare" };
+export async function generateMetadata(): Promise<Metadata> {
+  const d = await getTranslations();
+  return { title: d.nav.compare };
+}
 
 export default async function ComparePage(props: PageProps<"/compare">) {
   await requireSession();
+  const d = await getTranslations();
 
   const [vacancies, candidates, searchParams] = await Promise.all([
     api.getAllVacancies(),
@@ -46,8 +51,8 @@ export default async function ComparePage(props: PageProps<"/compare">) {
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
-        title="Compare candidates"
-        description="Line up requirement evidence side by side, with the source passage behind every cell."
+        title={d.compare.title}
+        description={d.compare.description}
       />
       <CompareWorkspace
         vacancies={comparable}

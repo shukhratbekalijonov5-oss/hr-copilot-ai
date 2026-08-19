@@ -52,10 +52,11 @@ export function I18nProvider({
       d: dictionary,
       f: format,
       p: (forms, count, values) => plural(forms, count, locale, values),
-      n: (value) => formatNumber(value, locale),
-      date: (value) => formatDateFor(value, locale),
-      dateTime: (value) => formatDateTimeFor(value, locale),
-      relativeTime: (value, now) => formatRelativeTimeFor(value, locale, now),
+      n: (value) => formatNumber(value, dictionary),
+      date: (value) => formatDateFor(value, dictionary),
+      dateTime: (value) => formatDateTimeFor(value, dictionary),
+      relativeTime: (value, now) =>
+        formatRelativeTimeFor(value, dictionary, locale, now),
     }),
     [locale, dictionary],
   );

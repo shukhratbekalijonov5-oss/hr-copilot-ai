@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { buttonStyles } from "@/components/ui/Button";
-import { APP_NAME } from "@/lib/constants";
+import { format } from "@/lib/i18n/format";
+import { getTranslations } from "@/lib/i18n/server";
 
-export default function NotFound() {
+export default async function NotFound() {
+  const d = await getTranslations();
+
   return (
     <main className="flex min-h-dvh items-center justify-center px-5">
       <div className="max-w-md text-center">
@@ -10,17 +13,16 @@ export default function NotFound() {
           404
         </p>
         <h1 className="mt-2 text-xl font-semibold tracking-tight text-ink">
-          Page not found
+          {d.errors.notFoundTitle}
         </h1>
         <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
-          The page you were looking for is not part of {APP_NAME}, or it has
-          moved.
+          {format(d.errors.notFoundHint, { app: d.meta.appName })}
         </p>
         <Link
           href="/dashboard"
           className={buttonStyles("secondary", "md", "mt-4")}
         >
-          Go to dashboard
+          {d.errors.goToDashboard}
         </Link>
       </div>
     </main>

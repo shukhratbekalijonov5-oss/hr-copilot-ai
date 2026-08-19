@@ -11,15 +11,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/LoadingSkeleton";
 import { UnavailableState } from "@/components/ui/UnavailableState";
 import { AlertIcon, FileIcon, SearchIcon, SparkIcon } from "@/components/ui/icons";
-import { pluralize } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/context";
 import type { EvidenceSearchResult } from "@/lib/types";
-
-const EXAMPLES = [
-  "Production Kubernetes experience",
-  "Redis Pub/Sub for event fan-out",
-  "Designed a GraphQL schema for internal services",
-  "Led a migration from a monolith to services",
-];
 
 /**
  * Evidence search.
@@ -29,6 +22,7 @@ const EXAMPLES = [
  * matching passage — never scored, ranked by quality, or recommended.
  */
 export function SearchWorkspace() {
+  const { d, f, p } = useI18n();
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<EvidenceSearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +61,7 @@ export function SearchWorkspace() {
             className="flex flex-col gap-3"
           >
             <label htmlFor="evidence-search" className="sr-only">
-              Search resume evidence
+              {d.search.label}
             </label>
             <textarea
               id="evidence-search"
@@ -81,28 +75,26 @@ export function SearchWorkspace() {
                   run(query);
                 }
               }}
-              placeholder="Describe what you are looking for — e.g. ran Kubernetes in production and owned the on-call rotation"
+              placeholder={d.search.placeholder}
               className="min-h-24 w-full resize-none rounded-lg border border-line bg-surface px-3.5 py-3 text-[15px] leading-relaxed text-ink placeholder:text-ink-subtle disabled:opacity-60"
             />
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <p className="text-[12px] text-ink-subtle">
-                Enter to search · Shift + Enter for a new line
-              </p>
+              <p className="text-[12px] text-ink-subtle">{d.search.hint}</p>
               <Button
                 type="submit"
                 loading={pending}
                 icon={<SearchIcon className="size-4" />}
                 className="sm:ml-auto"
               >
-                Search
+                {d.search.submit}
               </Button>
             </div>
           </form>
 
           {!result && !pending ? (
             <div className="flex flex-wrap gap-1.5 border-t border-line pt-3">
-              {EXAMPLES.map((example) => (
+              {d.search.examples.map((example) => (
                 <button
                   key={example}
                   type="button"
@@ -123,8 +115,8 @@ export function SearchWorkspace() {
       {unavailable ? (
         <UnavailableState
           icon={<SparkIcon className="size-5" />}
-          title="Search is temporarily unavailable"
-          description="The retrieval service behind search is not reachable right now, so there are no results to show. This is not the same as finding nothing — try again shortly."
+          title={d.search.unavailable}
+          description={d.search.unavailableHint}
         />
       ) : null}
 
@@ -148,16 +140,15 @@ export function SearchWorkspace() {
       {!pending && result ? (
         <>
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] text-ink-muted">
-            <span>
-              <span className="font-semibold text-ink">
-                {result.candidates.length}
-              </span>{" "}
-              {pluralize(result.candidates.length, "candidate")} with matching
-              passages
-            </span>
-            {result.reranked ? <Badge tone="neutral">Reranked</Badge> : null}
+            <span>{p(d.search.resultsCount, result.candidates.length)}</span>
+            {result.reranked ? (
+              <Badge tone="neutral">{d.search.reranked}</Badge>
+            ) : null}
             <span className="ml-auto tabular-nums text-ink-subtle">
-              {result.totalConsidered} considered · {result.durationMs}ms
+              {f(d.search.considered, {
+                count: result.totalConsidered,
+                ms: result.durationMs,
+              })}
             </span>
           </div>
 
@@ -165,8 +156,8 @@ export function SearchWorkspace() {
             <Card>
               <EmptyState
                 icon={<SearchIcon className="size-5" />}
-                title="No supporting passages found"
-                description="Nothing in the indexed documents matches that description. Try different wording, or check that the resumes have finished processing."
+                title={d.search.noResults}
+                description={d.search.noResultsHint}
               />
             </Card>
           ) : (
@@ -175,17 +166,17 @@ export function SearchWorkspace() {
                 <li key={candidate.candidateId}>
                   <Card className="p-4">
                     <div className="flex flex-wrap items-center gap-3">
-                      <Avatar name={candidate.candidateName} />
+                      <Avatar name={candidate.candidateName ?? d.search.unnamedCandidate} />
                       <div className="min-w-0 flex-1">
                         <Link
                           href={`/candidates/${candidate.candidateId}`}
                           className="text-[15px] font-semibold tracking-tight text-ink hover:text-brand"
                         >
-                          {candidate.candidateName}
+                          {candidate.candidateName ??
+                            d.search.unnamedCandidate}
                         </Link>
                         <p className="text-[12.5px] text-ink-muted">
-                          {candidate.passages.length}{" "}
-                          {pluralize(candidate.passages.length, "matching passage")}
+                          {p(d.common.passages, candidate.passages.length)}
                         </p>
                       </div>
                     </div>
@@ -202,10 +193,12 @@ export function SearchWorkspace() {
                           <p className="mt-2 flex flex-wrap items-center gap-1.5 pl-3 text-[12px] text-ink-subtle">
                             <FileIcon className="size-3.5" />
                             <span className="font-medium text-ink-muted">
-                              {passage.documentName}
+                              {passage.documentName ?? d.search.sourceDocument}
                             </span>
                             {passage.page !== null ? (
-                              <span>· page {passage.page}</span>
+                              <span>
+                                · {d.common.page} {passage.page}
+                              </span>
                             ) : null}
                             {passage.section ? (
                               <span>· {passage.section}</span>
@@ -221,9 +214,7 @@ export function SearchWorkspace() {
           )}
 
           <p className="text-[12px] leading-relaxed text-ink-subtle">
-            Candidates appear in the order of their strongest matching passage.
-            That reflects how closely text matched your query — it is not a score
-            of the person, and it is not a hiring recommendation.
+            {d.search.orderingNote}
           </p>
         </>
       ) : null}

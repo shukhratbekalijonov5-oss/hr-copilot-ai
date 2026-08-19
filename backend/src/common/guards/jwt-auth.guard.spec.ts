@@ -31,9 +31,9 @@ describe('JwtAuthGuard', () => {
     guard = new JwtAuthGuard(jwtService, configService, reflector);
   });
 
-  it('accepts a valid token and attaches the trusted user', async () => {
+  it('accepts a valid token and attaches the authenticated user', async () => {
     const token = jwtService.sign(
-      { sub: 'user-1', email: 'a@b.test', role: Role.RECRUITER, org: 'org-1' },
+      { sub: 'user-1', email: 'a@b.test', org: 'org-1' },
       { secret: SECRET },
     );
     const context = contextWith({ authorization: `Bearer ${token}` });
@@ -44,8 +44,11 @@ describe('JwtAuthGuard', () => {
     expect(request.user).toEqual({
       id: 'user-1',
       email: 'a@b.test',
-      role: Role.RECRUITER,
-      organizationId: 'org-1',
+      // Not yet trusted: OrgContextGuard fills these after a live membership
+      // check. The claim is carried along as a pointer only.
+      organizationId: null,
+      role: null,
+      activeOrganizationClaim: 'org-1',
     });
   });
 
@@ -87,14 +90,31 @@ describe('JwtAuthGuard', () => {
     ).rejects.toThrow('Invalid or expired token');
   });
 
-  it('rejects a token with no organization claim', async () => {
+  it('accepts a token with no organization claim (candidate-only session)', async () => {
     const noOrg = jwtService.sign(
-      { sub: 'user-1', email: 'a@b.test', role: Role.OWNER },
+      { sub: 'user-1', email: 'a@b.test' },
+      { secret: SECRET },
+    );
+    const context = contextWith({ authorization: `Bearer ${noOrg}` });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(context.switchToHttp().getRequest().user).toEqual({
+      id: 'user-1',
+      email: 'a@b.test',
+      organizationId: null,
+      role: null,
+      activeOrganizationClaim: null,
+    });
+  });
+
+  it('rejects a token with no subject', async () => {
+    const noSub = jwtService.sign(
+      { email: 'a@b.test', org: 'org-1' },
       { secret: SECRET },
     );
 
     await expect(
-      guard.canActivate(contextWith({ authorization: `Bearer ${noOrg}` })),
+      guard.canActivate(contextWith({ authorization: `Bearer ${noSub}` })),
     ).rejects.toThrow('Malformed token payload');
   });
 

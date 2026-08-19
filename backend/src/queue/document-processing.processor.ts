@@ -84,7 +84,10 @@ export class DocumentProcessingProcessor extends WorkerHost {
       // callbacks while this call is in flight.
       const result = await this.ai.processDocument({
         documentId: document.id,
-        organizationId: document.organizationId,
+        // The job payload's organizationId — the document was fetched under
+        // it, so they are equal, and (unlike the nullable column) it is
+        // guaranteed set: personal (org-less) documents are never enqueued.
+        organizationId,
         candidateId: document.candidateId,
         fileName: document.originalFileName,
         documentType: document.type,

@@ -3,12 +3,14 @@ import { Reflector } from '@nestjs/core';
 import { RolesGuard } from './roles.guard';
 import { Role } from '../../generated/prisma/enums';
 
-function contextWithRole(role?: Role): ExecutionContext {
+function contextWithRole(role?: Role | null): ExecutionContext {
   return {
     getType: () => 'http',
     switchToHttp: () => ({
       getRequest: () =>
-        role ? { user: { id: 'u1', role, organizationId: 'org-1' } } : {},
+        role !== undefined
+          ? { user: { id: 'u1', role, organizationId: role ? 'org-1' : null } }
+          : {},
     }),
     getHandler: () => ({}),
     getClass: () => ({}),
@@ -47,6 +49,15 @@ describe('RolesGuard', () => {
   it('blocks an unauthenticated request', () => {
     requireRoles([Role.OWNER]);
     expect(() => guard.canActivate(contextWithRole())).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('blocks a user with no organization context (candidate-only account)', () => {
+    // A CandidateAccount is NOT a role: without a validated membership the
+    // request carries role=null and every @Roles route must refuse it.
+    requireRoles([Role.OWNER, Role.HR_ADMIN, Role.RECRUITER, Role.INTERVIEWER]);
+    expect(() => guard.canActivate(contextWithRole(null))).toThrow(
       ForbiddenException,
     );
   });

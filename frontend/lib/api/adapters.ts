@@ -64,6 +64,8 @@ export function toSessionUser(response: MeResponse): SessionUser {
     fullName: response.fullName,
     email: response.email,
     role: response.role,
+    // Absent on an older API build; null rather than a guessed default.
+    preferredLocale: response.preferredLocale ?? null,
     organization: response.organization,
   };
 }
@@ -251,6 +253,32 @@ export function aggregateDocumentStatus(
   }
 
   return result;
+}
+
+/**
+ * Whether the AI features have anything to read, and why not when they do not.
+ *
+ * Deliberately different from `aggregateDocumentStatus`, which reports the
+ * worst-case state so a candidate is never shown as "ready" while a file is
+ * still being read. That is the right headline, but the wrong gate here: the AI
+ * service reads whatever is indexed, so one failed upload alongside two indexed
+ * resumes must not hide a summary the model can genuinely produce.
+ */
+export type AiReadiness = "ready" | "no_documents" | "processing" | "failed";
+
+export function aiReadiness(
+  documents: { status: DocumentStatus }[],
+): AiReadiness {
+  if (documents.length === 0) return "no_documents";
+  if (documents.some((document) => document.status === "COMPLETED")) {
+    return "ready";
+  }
+  // Nothing is indexed. Still moving through the pipeline beats "failed", so a
+  // candidate mid-upload is not reported as broken.
+  if (documents.some((document) => document.status !== "FAILED")) {
+    return "processing";
+  }
+  return "failed";
 }
 
 /* -------------------------------------------------------------------------- */

@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { setApplicationStatusAction } from "@/app/(app)/candidates/[id]/actions";
+import { AnswerPanel } from "@/components/ai/AnswerPanel";
+import { EvidenceMapPanel } from "@/components/ai/EvidenceMapPanel";
+import { InterviewQuestionsPanel } from "@/components/ai/InterviewQuestionsPanel";
+import { SummaryPanel } from "@/components/ai/SummaryPanel";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -16,61 +20,50 @@ import {
 } from "@/components/ui/StatusBadge";
 import { DocumentViewer } from "@/components/candidates/DocumentViewer";
 import { ResumeUploader } from "@/components/upload/ResumeUploader";
-import { EvidenceCard } from "@/components/evidence/EvidenceCard";
 import { ApplicationSourceBadge } from "@/components/candidates/ApplicationSourceBadge";
-import {
-  ActivityIcon,
-  AlertIcon,
-  MailIcon,
-  MapPinIcon,
-  SparkIcon,
-} from "@/components/ui/icons";
-import {
-  APPLICATION_STATUS_LABELS,
-  DOCUMENT_TYPE_LABELS,
-} from "@/lib/constants";
+import { AlertIcon, MailIcon, MapPinIcon } from "@/components/ui/icons";
+import { aiReadiness } from "@/lib/api/adapters";
+import { useI18n } from "@/lib/i18n/context";
 import { APPLICATION_STATUSES } from "@/lib/types";
-import { BACKEND_CAPABILITIES } from "@/lib/capabilities";
-import { formatDate, pluralize } from "@/lib/utils";
 import type {
+  AiFailureReason,
   ApplicationStatus,
   Candidate,
   Citation,
-  RequirementEvidence,
+  EvidenceMap,
+  Role,
   Vacancy,
 } from "@/lib/types";
 
 interface CandidateWorkspaceProps {
   candidate: Candidate;
+  /** The candidate's primary application's vacancy, or null. */
   vacancy: Vacancy | null;
-  evidence: RequirementEvidence[];
+  /** Stored requirement mapping, read server-side. Null when never run. */
+  evidenceMap: EvidenceMap | null;
+  evidenceMapFailure: AiFailureReason | null;
+  role: Role;
 }
 
-/** Shown where a feature depends on a backend route that does not exist yet. */
-function NotAvailableYet({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <Card>
-      <EmptyState
-        icon={<SparkIcon className="size-5" />}
-        title={title}
-        description={description}
-      />
-    </Card>
-  );
-}
-
+/**
+ * The candidate screen: the document on the left, everything read out of it on
+ * the right.
+ *
+ * Citations from any panel — requirement mapping, summary, interview questions,
+ * a grounded answer — drive the same viewer, so a claim is always one click
+ * from the page it came from. The page number used is the backend's, never one
+ * derived here.
+ */
 export function CandidateWorkspace({
   candidate,
   vacancy,
-  evidence,
+  evidenceMap,
+  evidenceMapFailure,
+  role,
 }: CandidateWorkspaceProps) {
   const router = useRouter();
+  const { d, f, p, date } = useI18n();
+
   const [activeDocumentId, setActiveDocumentId] = useState(
     candidate.documents[0]?.id ?? null,
   );
@@ -81,6 +74,33 @@ export function CandidateWorkspace({
 
   const application = candidate.applications[0] ?? null;
 
+  /**
+   * Which vacancy the AI panels work against.
+   *
+   * Evidence mapping and interview questions are defined per (candidate,
+   * vacancy), so a candidate applying to several roles needs to say which one.
+   * Defaulting to the first application and hiding the rest would quietly show
+   * one role's requirements while claiming to describe the candidate.
+   */
+  const vacancyOptions = candidate.applications
+    .map((item) => item.vacancy)
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  const [selectedVacancyId, setSelectedVacancyId] = useState(
+    vacancy?.id ?? vacancyOptions[0]?.id ?? null,
+  );
+
+  const selectedVacancy =
+    vacancyOptions.find((item) => item.id === selectedVacancyId) ??
+    (vacancy ? { id: vacancy.id, title: vacancy.title, status: vacancy.status } : null);
+
+  /**
+   * Opens the passage behind a citation.
+   *
+   * `citation.page` comes from the backend response and is used as-is. A page
+   * number computed on the client would look authoritative while pointing at
+   * the wrong part of the file.
+   */
   function openCitation(citation: Citation) {
     setActiveCitation(citation);
     setActiveDocumentId(citation.documentId);
@@ -96,43 +116,78 @@ export function CandidateWorkspace({
         candidate.id,
         status,
       );
-      if (!result.ok) setStatusError(result.message ?? "Update failed.");
+      if (!result.ok) setStatusError(result.message ?? d.candidates.updateFailed);
       else router.refresh();
     });
   }
 
-  const analysisReady = candidate.processingStatus === "COMPLETED";
-  const found = evidence.filter((item) => item.status === "FOUND").length;
+  /**
+   * The AI panels read whatever is indexed, so one document is enough. This is
+   * intentionally more permissive than the headline status badge, which reports
+   * the worst-case state across every file.
+   */
+  const readiness = aiReadiness(candidate.documents);
+  const analysisReady = readiness === "ready";
+
+  /**
+   * Why the AI panels have nothing to read yet.
+   *
+   * Each case is distinct on purpose: no documents at all, documents still
+   * moving through the pipeline, and a pipeline that failed outright are three
+   * different situations, and a single "nothing here" would hide which applies.
+   */
+  const notReady: { title: string; description: string } | null =
+    readiness === "ready"
+      ? null
+      : readiness === "no_documents"
+        ? { title: d.ai.notProcessed, description: d.ai.notProcessedHint }
+        : readiness === "failed"
+          ? {
+              title: d.ai.processingFailed,
+              description: d.ai.processingFailedHint,
+            }
+          : {
+              title: d.ai.stillProcessing,
+              description: d.ai.stillProcessingHint,
+            };
 
   const overview = (
     <div className="flex flex-col gap-4">
       <Card>
-        <CardHeader title="Candidate overview" />
+        <CardHeader title={d.candidates.overview} />
         <CardBody>
           <dl className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
             <div>
-              <dt className="text-[12px] text-ink-muted">Current title</dt>
+              <dt className="text-[12px] text-ink-muted">
+                {d.candidates.currentTitle}
+              </dt>
               <dd className="text-[13.5px] text-ink">
-                {candidate.currentTitle ?? "Not recorded"}
+                {candidate.currentTitle ?? d.common.notRecorded}
               </dd>
             </div>
             <div>
-              <dt className="text-[12px] text-ink-muted">Experience</dt>
+              <dt className="text-[12px] text-ink-muted">
+                {d.candidates.experience}
+              </dt>
               <dd className="text-[13.5px] text-ink">
                 {candidate.totalExperienceYears === null
-                  ? "Not recorded"
-                  : `${candidate.totalExperienceYears} ${pluralize(candidate.totalExperienceYears, "year")}`}
+                  ? d.common.notRecorded
+                  : p(d.common.years, candidate.totalExperienceYears)}
               </dd>
             </div>
             <div>
-              <dt className="text-[12px] text-ink-muted">Location</dt>
+              <dt className="text-[12px] text-ink-muted">
+                {d.candidates.location}
+              </dt>
               <dd className="flex items-center gap-1.5 text-[13.5px] text-ink">
                 <MapPinIcon className="size-3.5 text-ink-subtle" />
-                {candidate.location ?? "Not recorded"}
+                {candidate.location ?? d.common.notRecorded}
               </dd>
             </div>
             <div>
-              <dt className="text-[12px] text-ink-muted">Email</dt>
+              <dt className="text-[12px] text-ink-muted">
+                {d.candidates.email}
+              </dt>
               <dd className="flex items-center gap-1.5 truncate text-[13.5px] text-ink">
                 <MailIcon className="size-3.5 shrink-0 text-ink-subtle" />
                 {candidate.email ? (
@@ -143,20 +198,24 @@ export function CandidateWorkspace({
                     {candidate.email}
                   </a>
                 ) : (
-                  "Not recorded"
+                  d.common.notRecorded
                 )}
               </dd>
             </div>
             {candidate.phone ? (
               <div>
-                <dt className="text-[12px] text-ink-muted">Phone</dt>
+                <dt className="text-[12px] text-ink-muted">
+                  {d.candidates.phone}
+                </dt>
                 <dd className="text-[13.5px] text-ink">{candidate.phone}</dd>
               </div>
             ) : null}
             <div>
-              <dt className="text-[12px] text-ink-muted">Added</dt>
+              <dt className="text-[12px] text-ink-muted">
+                {d.candidates.added}
+              </dt>
               <dd className="text-[13.5px] text-ink">
-                {formatDate(candidate.createdAt)}
+                {date(candidate.createdAt)}
               </dd>
             </div>
           </dl>
@@ -165,8 +224,11 @@ export function CandidateWorkspace({
 
       <Card>
         <CardHeader
-          title="Documents"
-          description={`${candidate.documents.length} ${pluralize(candidate.documents.length, "file")} uploaded`}
+          title={d.candidates.documents}
+          description={p(
+            d.candidates.documentsUploaded,
+            candidate.documents.length,
+          )}
         />
         {candidate.documents.length > 0 ? (
           <ul className="divide-y divide-[var(--line)]">
@@ -188,8 +250,8 @@ export function CandidateWorkspace({
                     {document.originalFileName}
                   </span>
                   <span className="block text-[12px] text-ink-muted">
-                    {DOCUMENT_TYPE_LABELS[document.type]} ·{" "}
-                    {formatDate(document.createdAt)}
+                    {d.status.documentType[document.type]} ·{" "}
+                    {date(document.createdAt)}
                   </span>
                 </button>
                 <DocumentStatusBadge status={document.status} />
@@ -198,11 +260,14 @@ export function CandidateWorkspace({
           </ul>
         ) : null}
 
-        <CardBody className={candidate.documents.length > 0 ? "border-t border-line" : undefined}>
+        <CardBody
+          className={
+            candidate.documents.length > 0 ? "border-t border-line" : undefined
+          }
+        >
           {candidate.documents.length === 0 ? (
             <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-              Upload a resume to have it parsed, indexed and checked against
-              this vacancy&rsquo;s requirements.
+              {d.candidates.uploadPrompt}
             </p>
           ) : null}
           {/* Documents attach to this candidate, which is what links them to
@@ -213,13 +278,13 @@ export function CandidateWorkspace({
 
       <Card>
         <CardHeader
-          title="Applications"
-          description="Stage changes are recorded against the person who made them."
+          title={d.candidates.applications}
+          description={d.candidates.applicationsHint}
         />
         {candidate.applications.length === 0 ? (
           <EmptyState
-            title="Not attached to a vacancy"
-            description="Attach this candidate to a vacancy to check their documents against its requirements."
+            title={d.candidates.notAttached}
+            description={d.candidates.notAttachedHint}
           />
         ) : (
           <ul className="divide-y divide-[var(--line)]">
@@ -230,10 +295,10 @@ export function CandidateWorkspace({
                     href={`/vacancies/${item.vacancyId}`}
                     className="block truncate text-[13.5px] font-medium text-ink hover:text-brand"
                   >
-                    {item.vacancy?.title ?? "Vacancy"}
+                    {item.vacancy?.title ?? d.candidates.vacancy}
                   </Link>
                   <span className="block text-[12px] text-ink-muted">
-                    Applied {formatDate(item.createdAt)}
+                    {f(d.candidates.appliedOn, { date: date(item.createdAt) })}
                   </span>
                 </div>
                 <ApplicationSourceBadge source={item.source} />
@@ -246,96 +311,118 @@ export function CandidateWorkspace({
     </div>
   );
 
-  const evidenceTab = !vacancy ? (
+  /** The server-rendered map only applies to the vacancy the page read. */
+  const initialMapForSelection =
+    evidenceMap && evidenceMap.vacancyId === selectedVacancyId
+      ? evidenceMap
+      : null;
+
+  const vacancyPicker =
+    vacancyOptions.length > 1 ? (
+      <Select
+        aria-label={d.candidates.filterVacancy}
+        value={selectedVacancyId ?? ""}
+        options={vacancyOptions.map((item) => ({
+          value: item.id,
+          label: item.title,
+        }))}
+        onChange={(event) => setSelectedVacancyId(event.target.value)}
+        className="mb-3 sm:max-w-md"
+      />
+    ) : null;
+
+  const evidenceTab = !selectedVacancy ? (
     <Card>
       <EmptyState
-        title="No vacancy attached"
-        description="Attach this candidate to a vacancy to check their documents against its requirements."
+        title={d.evidence.noVacancy}
+        description={d.evidence.noVacancyHint}
       />
     </Card>
   ) : candidate.documents.length === 0 ? (
     <Card>
       <EmptyState
-        title="No documents to read"
-        description="Requirement evidence comes from uploaded files. Upload a resume to begin."
-      />
-    </Card>
-  ) : !analysisReady ? (
-    <Card>
-      <EmptyState
-        icon={<ActivityIcon className="size-5" />}
-        title={
-          candidate.processingStatus === "FAILED"
-            ? "Document processing failed"
-            : "Analysis still running"
-        }
-        description={
-          candidate.processingStatus === "FAILED"
-            ? "This candidate's documents could not be processed, so there is no evidence to show. Check the processing queue for the reason."
-            : "Requirement evidence appears once every document finishes indexing."
-        }
+        title={d.evidence.noDocuments}
+        description={d.evidence.noDocumentsHint}
       />
     </Card>
   ) : (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] text-ink-muted">
-        <span>
-          <span className="font-semibold text-ink">{found}</span> of{" "}
-          {evidence.length} requirements have supporting evidence
-        </span>
-        <span className="ml-auto">Checked against {vacancy.title}</span>
-      </div>
-
-      {evidence.length === 0 ? (
-        <Card>
-          <EmptyState
-            title="This vacancy has no requirements yet"
-            description="Add requirements to the vacancy and each one will be checked against the candidate's documents."
-          />
-        </Card>
-      ) : (
-        evidence.map((item) => (
-          <EvidenceCard
-            key={item.requirementId}
-            evidence={item}
-            onSelectCitation={openCitation}
-            activeCitationId={activeCitation?.id ?? null}
-          />
-        ))
-      )}
-    </div>
+    <>
+      {vacancyPicker}
+      <EvidenceMapPanel
+        // Remounts on a vacancy change so the panel reloads for the new pair.
+        key={selectedVacancy.id}
+        candidateId={candidate.id}
+        vacancyId={selectedVacancy.id}
+        vacancyTitle={selectedVacancy.title}
+        initialMap={initialMapForSelection}
+        initialFailure={initialMapForSelection ? evidenceMapFailure : null}
+        role={role}
+        onSelectCitation={openCitation}
+        activeCitationId={activeCitation?.id ?? null}
+      />
+    </>
   );
 
+  const mappedFound =
+    initialMapForSelection?.requirements.filter(
+      (item) => item.status === "FOUND",
+    ).length ?? 0;
+  const mappedTotal = initialMapForSelection?.requirements.length ?? 0;
+
   const tabs: TabItem[] = [
-    { id: "overview", label: "Overview", content: overview },
+    { id: "overview", label: d.candidates.tabOverview, content: overview },
     {
       id: "evidence",
-      label: "JD Evidence",
+      label: d.candidates.tabEvidence,
       badge:
-        vacancy && analysisReady && evidence.length > 0 ? (
+        initialMapForSelection?.hasRun && mappedTotal > 0 ? (
           <Badge tone="neutral">
-            {found}/{evidence.length}
+            {mappedFound}/{mappedTotal}
           </Badge>
         ) : null,
       content: evidenceTab,
     },
     {
       id: "summary",
-      label: "AI Summary",
-      content: BACKEND_CAPABILITIES.aiSummary ? null : (
-        <NotAvailableYet
-          title="Summaries are not available yet"
-          description="A grounded summary is generated by the AI service once it indexes a candidate's documents. The API does not expose that route yet, so there is nothing to show — rather than a guess."
+      label: d.candidates.tabSummary,
+      content: (
+        <SummaryPanel
+          candidateId={candidate.id}
+          ready={analysisReady}
+          notReady={notReady}
+          onSelectCitation={openCitation}
+          activeCitationId={activeCitation?.id ?? null}
         />
       ),
     },
     {
       id: "questions",
-      label: "Interview Questions",
-      content: BACKEND_CAPABILITIES.interviewQuestions ? null : (
-        <NotAvailableYet
-          title="Interview questions are not available yet"
-          description="Questions are drafted from requirement evidence by the AI service. That route is not exposed by the API yet."
+      label: d.candidates.tabQuestions,
+      content: (
+        <>
+          {vacancyPicker}
+          <InterviewQuestionsPanel
+            candidateId={candidate.id}
+            vacancyId={selectedVacancy?.id ?? null}
+            ready={analysisReady}
+            notReady={notReady}
+            onSelectCitation={openCitation}
+            activeCitationId={activeCitation?.id ?? null}
+          />
+        </>
+      ),
+    },
+    {
+      id: "ask",
+      label: d.candidates.tabAsk,
+      content: (
+        <AnswerPanel
+          candidateId={candidate.id}
+          vacancyId={selectedVacancy?.id}
+          ready={analysisReady}
+          notReady={notReady}
+          onSelectCitation={openCitation}
+          activeCitationId={activeCitation?.id ?? null}
         />
       ),
     },
@@ -351,7 +438,7 @@ export function CandidateWorkspace({
               {candidate.fullName}
             </h1>
             <p className="text-[13.5px] text-ink-muted">
-              {candidate.currentTitle ?? "Title not recorded"}
+              {candidate.currentTitle ?? d.common.notSet}
               {candidate.location ? ` · ${candidate.location}` : ""}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -370,12 +457,12 @@ export function CandidateWorkspace({
           {application ? (
             <div className="flex flex-col items-end gap-1.5">
               <Select
-                aria-label="Application stage"
+                aria-label={d.candidates.applicationStage}
                 value={application.status}
                 disabled={pending}
                 options={APPLICATION_STATUSES.map((status) => ({
                   value: status,
-                  label: APPLICATION_STATUS_LABELS[status],
+                  label: d.status.application[status],
                 }))}
                 onChange={(event) =>
                   changeStatus(event.target.value as ApplicationStatus)
@@ -383,7 +470,7 @@ export function CandidateWorkspace({
                 className="w-44"
               />
               <span className="text-[11.5px] text-ink-subtle">
-                Human decision required
+                {d.common.humanDecision}
               </span>
             </div>
           ) : null}
@@ -415,7 +502,11 @@ export function CandidateWorkspace({
           className="min-w-0 lg:sticky lg:top-18 lg:h-[calc(100dvh-7rem)]"
         />
 
-        <Tabs items={tabs} className="min-w-0" />
+        <Tabs
+          items={tabs}
+          label={d.candidates.title}
+          className="min-w-0"
+        />
       </div>
     </div>
   );

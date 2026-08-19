@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { registerAction } from "@/lib/auth/actions";
 import { MIN_PASSWORD_LENGTH, hasErrors, validateRegister } from "@/lib/validation";
 import type { FieldErrors } from "@/lib/api/errors";
+import { useI18n } from "@/lib/i18n/context";
 import { slugify } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/icons";
 
 export function RegisterForm() {
+  const { d, f } = useI18n();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [organizationName, setOrganizationName] = useState("");
@@ -48,13 +50,13 @@ export function RegisterForm() {
       organizationSlug,
       password,
     };
-    const validationErrors = validateRegister(values);
+    const validationErrors = validateRegister(values, d);
     setErrors(validationErrors);
     if (hasErrors(validationErrors)) return;
 
     startTransition(async () => {
       const result = await registerAction(values);
-      setFormError(result.message ?? "Could not create the workspace.");
+      setFormError(result.message ?? d.auth.couldNotRegister);
       setErrors(result.fieldErrors ?? {});
     });
   }
@@ -63,10 +65,10 @@ export function RegisterForm() {
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">
-          Create your workspace
+          {d.auth.createAccount}
         </h1>
         <p className="mt-1 text-[13.5px] text-ink-muted">
-          Sets up your organization and makes you its owner.
+          {d.register.subtitle}
         </p>
       </div>
 
@@ -81,10 +83,10 @@ export function RegisterForm() {
       ) : null}
 
       <Input
-        label="Full name"
+        label={d.auth.fullName}
         name="fullName"
         autoComplete="name"
-        placeholder="Jane Doe"
+        placeholder={d.register.fullNamePlaceholder}
         required
         value={fullName}
         disabled={pending}
@@ -94,11 +96,11 @@ export function RegisterForm() {
       />
 
       <Input
-        label="Work email"
+        label={d.register.workEmail}
         type="email"
         name="email"
         autoComplete="email"
-        placeholder="jane@company.com"
+        placeholder={d.register.workEmailPlaceholder}
         required
         value={email}
         disabled={pending}
@@ -108,10 +110,10 @@ export function RegisterForm() {
       />
 
       <Input
-        label="Company or organization"
+        label={d.register.organizationLabel}
         name="organizationName"
         autoComplete="organization"
-        placeholder="Northwind Talent"
+        placeholder={d.register.organizationPlaceholder}
         required
         value={organizationName}
         disabled={pending}
@@ -121,14 +123,14 @@ export function RegisterForm() {
       />
 
       <Input
-        label="Workspace URL"
+        label={d.register.slugLabel}
         name="organizationSlug"
-        placeholder="northwind-talent"
+        placeholder={d.register.slugPlaceholder}
         required
         value={organizationSlug}
         disabled={pending}
         error={errors.organizationSlug}
-        hint="Lowercase letters, numbers and hyphens. Must be unique."
+        hint={d.register.slugHint}
         onChange={(event) => {
           setSlugTouched(true);
           setOrganizationSlug(event.target.value);
@@ -136,23 +138,23 @@ export function RegisterForm() {
       />
 
       <Input
-        label="Password"
+        label={d.auth.password}
         type={showPassword ? "text" : "password"}
         name="password"
         autoComplete="new-password"
-        placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+        placeholder={f(d.register.passwordPlaceholder, { min: MIN_PASSWORD_LENGTH })}
         required
         value={password}
         disabled={pending}
         leading={<LockIcon className="size-4" />}
         error={errors.password}
-        hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
+        hint={f(d.register.passwordHint, { min: MIN_PASSWORD_LENGTH })}
         onChange={(event) => setPassword(event.target.value)}
         trailing={
           <button
             type="button"
             onClick={() => setShowPassword((visible) => !visible)}
-            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-label={showPassword ? d.auth.hidePassword : d.auth.showPassword}
             className="rounded p-1.5 text-ink-subtle hover:bg-surface-muted hover:text-ink"
           >
             {showPassword ? (
@@ -165,13 +167,13 @@ export function RegisterForm() {
       />
 
       <Button type="submit" size="lg" loading={pending}>
-        {pending ? "Creating workspace" : "Create workspace"}
+        {pending ? d.register.submitting : d.register.submit}
       </Button>
 
       <p className="text-center text-[13px] text-ink-muted">
-        Already have an account?{" "}
+        {d.auth.haveAccount}{" "}
         <Link href="/login" className="font-medium text-brand hover:underline">
-          Sign in
+          {d.auth.signInInstead}
         </Link>
       </p>
     </form>

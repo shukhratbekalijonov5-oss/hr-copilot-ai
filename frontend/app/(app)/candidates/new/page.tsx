@@ -3,13 +3,18 @@ import { api } from "@/lib/api";
 import { requireSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CandidateForm } from "@/components/candidates/CandidateForm";
+import { getTranslations } from "@/lib/i18n/server";
 
-export const metadata: Metadata = { title: "Add candidate" };
+export async function generateMetadata(): Promise<Metadata> {
+  const d = await getTranslations();
+  return { title: d.candidates.add };
+}
 
 export default async function NewCandidatePage(
   props: PageProps<"/candidates/new">,
 ) {
   await requireSession();
+  const d = await getTranslations();
 
   const [vacancies, searchParams] = await Promise.all([
     api.getAllVacancies(),
@@ -21,11 +26,11 @@ export default async function NewCandidatePage(
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
-        title="Add candidate"
-        description="Create the person first, then upload their resume on the next screen."
+        title={d.candidates.add}
+        description={d.vacancyDetail.newCandidateHint}
         breadcrumbs={[
-          { label: "Candidates", href: "/candidates" },
-          { label: "New" },
+          { label: d.candidates.title, href: "/candidates" },
+          { label: d.vacancyDetail.breadcrumbNew },
         ]}
       />
       <CandidateForm

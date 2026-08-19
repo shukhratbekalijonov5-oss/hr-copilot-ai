@@ -30,6 +30,47 @@ const en = {
       "Evidence-first recruitment intelligence: search resumes in plain language, trace every claim back to its source, and keep hiring decisions with people.",
   },
 
+  /**
+   * Date, time and number formatting data.
+   *
+   * Held in the dictionary rather than taken from `Intl.DateTimeFormat`,
+   * `Intl.RelativeTimeFormat` or `Intl.NumberFormat` because those read the
+   * host's ICU tables, and Node's and the browser's disagree — Chrome has no
+   * Uzbek date patterns and renders "2026 M08 20" where Node renders
+   * "20-avg, 2026". A server/client disagreement here is a React hydration
+   * mismatch, which silently breaks event handlers on the page.
+   *
+   * `Intl.PluralRules` is *not* replaced: its output is identical in both
+   * runtimes for all four locales, so `plural()` still uses it.
+   *
+   * Timestamps are rendered in UTC so a server in one zone and a reader in
+   * another produce the same string.
+   */
+  datetime: {
+    months: [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ],
+    date: "{month} {day}, {year}",
+    dateTime: "{month} {day}, {time}",
+    time: "{hour}:{minute}",
+    justNow: "just now",
+    minutesAgo: {
+      one: "{count} minute ago",
+      other: "{count} minutes ago",
+    } as Plural,
+    hoursAgo: {
+      one: "{count} hour ago",
+      other: "{count} hours ago",
+    } as Plural,
+    daysAgo: {
+      one: "{count} day ago",
+      other: "{count} days ago",
+    } as Plural,
+    groupSeparator: ",",
+    decimalSeparator: ".",
+  },
+
   common: {
     save: "Save changes",
     saved: "Saved",
@@ -624,7 +665,7 @@ const en = {
     languageHint:
       "Sets the interface language and the language AI answers are written in. Quoted resume passages stay in their original language.",
     languageStoredLocally:
-      "Your choice is kept in this browser. The API has no preferred-language field on a user yet, so it does not follow you to another device.",
+      "Your choice is kept in this browser. Your account carries a stored language that seeds it on a device that has not seen this setting, but the API exposes no field to update that language — so a change made here does not follow you.",
   },
 
   personal: {

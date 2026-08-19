@@ -23,33 +23,38 @@ import {
   UploadIcon,
   UsersIcon,
 } from "@/components/ui/icons";
-import { formatRelativeTime, pluralize } from "@/lib/utils";
+import { getI18n } from "@/lib/i18n/server";
+import { formatRelativeTimeFor, plural } from "@/lib/i18n/format";
 
-export const metadata: Metadata = { title: "Dashboard" };
-
-const QUICK_ACTIONS = [
-  {
-    href: "/vacancies/new",
-    label: "Create vacancy",
-    description: "Define requirements the copilot will look for.",
-    icon: PlusIcon,
-  },
-  {
-    href: "/candidates/new",
-    label: "Add candidate",
-    description: "Create a person, then upload their resume.",
-    icon: UsersIcon,
-  },
-  {
-    href: "/processing",
-    label: "Upload resumes",
-    description: "Drop PDFs or DOCX and watch them index.",
-    icon: UploadIcon,
-  },
-];
+export async function generateMetadata(): Promise<Metadata> {
+  const { d } = await getI18n();
+  return { title: d.dashboard.title };
+}
 
 export default async function DashboardPage() {
   await requireSession();
+  const { locale, d } = await getI18n();
+
+  const quickActions = [
+    {
+      href: "/vacancies/new",
+      label: d.dashboard.quickCreateVacancy,
+      description: d.dashboard.quickCreateVacancyHint,
+      icon: PlusIcon,
+    },
+    {
+      href: "/candidates/new",
+      label: d.dashboard.quickAddCandidate,
+      description: d.dashboard.quickAddCandidateHint,
+      icon: UsersIcon,
+    },
+    {
+      href: "/processing",
+      label: d.dashboard.quickUploadResumes,
+      description: d.dashboard.quickUploadResumesHint,
+      icon: UploadIcon,
+    },
+  ];
 
   const {
     generatedAt,
@@ -65,48 +70,48 @@ export default async function DashboardPage() {
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
-        title="Dashboard"
-        description="Where your pipeline stands right now."
+        title={d.dashboard.title}
+        description={d.dashboard.description}
         actions={
           <Link href="/vacancies/new" className={buttonStyles("primary", "md")}>
             <PlusIcon className="size-4" />
-            New vacancy
+            {d.dashboard.newVacancy}
           </Link>
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Total candidates"
+          label={d.dashboard.statTotalCandidates}
           value={stats.totalCandidates}
           href="/candidates"
           icon={<UsersIcon className="size-4" />}
-          hint="Across every vacancy in this workspace"
+          hint={d.dashboard.statTotalCandidatesHint}
         />
         <StatCard
-          label="Active vacancies"
+          label={d.dashboard.statActiveVacancies}
           value={stats.activeVacancies}
           href="/vacancies"
           icon={<BriefcaseIcon className="size-4" />}
-          hint="Open and accepting candidates"
+          hint={d.dashboard.statActiveVacanciesHint}
         />
         <StatCard
-          label="Resumes processing"
+          label={d.dashboard.statResumesProcessing}
           value={stats.resumesProcessing}
           href="/processing"
           icon={<ActivityIcon className="size-4" />}
-          hint="In the parse → index pipeline"
+          hint={d.dashboard.statResumesProcessingHint}
         />
         <StatCard
-          label="Completed analyses"
+          label={d.dashboard.statCompletedAnalyses}
           value={stats.completedAnalyses}
           icon={<SparkIcon className="size-4" />}
-          hint="Documents indexed and ready to read"
+          hint={d.dashboard.statCompletedAnalysesHint}
         />
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
-        {QUICK_ACTIONS.map((action) => {
+        {quickActions.map((action) => {
           const Icon = action.icon;
           return (
             <Link
@@ -134,27 +139,27 @@ export default async function DashboardPage() {
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader
-            title="Recent vacancies"
+            title={d.dashboard.recentVacancies}
             action={
               <Link
                 href="/vacancies"
                 className="text-[12.5px] font-medium text-brand hover:underline"
               >
-                View all
+                {d.common.viewAll}
               </Link>
             }
           />
           {recentVacancies.length === 0 ? (
             <EmptyState
               icon={<BriefcaseIcon className="size-5" />}
-              title="No vacancies yet"
-              description="Create your first vacancy to tell the copilot what to look for."
+              title={d.dashboard.noVacancies}
+              description={d.dashboard.noVacanciesHint}
               action={
                 <Link
                   href="/vacancies/new"
                   className={buttonStyles("primary", "sm")}
                 >
-                  Create vacancy
+                  {d.vacancies.create}
                 </Link>
               }
             />
@@ -171,13 +176,12 @@ export default async function DashboardPage() {
                         {vacancy.title}
                       </p>
                       <p className="truncate text-[12.5px] text-ink-muted">
-                        {vacancy.department ?? "No department"} ·{" "}
-                        {vacancy.location ?? "No location"}
+                        {vacancy.department ?? d.dashboard.noDepartment} ·{" "}
+                        {vacancy.location ?? d.dashboard.noLocation}
                       </p>
                     </div>
                     <span className="hidden text-[12.5px] text-ink-muted sm:block">
-                      {vacancy.candidateCount}{" "}
-                      {pluralize(vacancy.candidateCount, "candidate")}
+                      {plural(d.common.candidates, vacancy.candidateCount, locale)}
                     </span>
                     <VacancyStatusBadge status={vacancy.status} />
                   </Link>
@@ -189,8 +193,8 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader
-            title="Processing activity"
-            description="Documents that reached each stage"
+            title={d.dashboard.processingActivity}
+            description={d.dashboard.processingActivityHint}
           />
           <CardBody>
             <ProcessingProgress summary={processing} />
@@ -198,7 +202,7 @@ export default async function DashboardPage() {
               href="/processing"
               className="mt-4 inline-flex items-center gap-1 text-[12.5px] font-medium text-brand hover:underline"
             >
-              Open processing queue
+              {d.dashboard.openProcessingQueue}
               <ArrowRightIcon className="size-3.5" />
             </Link>
           </CardBody>
@@ -206,27 +210,27 @@ export default async function DashboardPage() {
 
         <Card className="lg:col-span-2">
           <CardHeader
-            title="Recent candidates"
+            title={d.dashboard.recentCandidates}
             action={
               <Link
                 href="/candidates"
                 className="text-[12.5px] font-medium text-brand hover:underline"
               >
-                View all
+                {d.common.viewAll}
               </Link>
             }
           />
           {recentCandidates.length === 0 ? (
             <EmptyState
               icon={<UsersIcon className="size-5" />}
-              title="No candidates yet"
-              description="Add a candidate and upload their resume to start building your pipeline."
+              title={d.dashboard.noCandidates}
+              description={d.dashboard.noCandidatesHint}
               action={
                 <Link
                   href="/candidates/new"
                   className={buttonStyles("primary", "sm")}
                 >
-                  Add candidate
+                  {d.candidates.add}
                 </Link>
               }
             />
@@ -244,7 +248,7 @@ export default async function DashboardPage() {
                         {candidate.fullName}
                       </p>
                       <p className="truncate text-[12.5px] text-ink-muted">
-                        {candidate.currentTitle ?? "Title not set"}
+                        {candidate.currentTitle ?? d.common.notSet}
                       </p>
                     </div>
                     <DocumentStatusBadge status={candidate.processingStatus} />
@@ -257,21 +261,21 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader
-            title="Latest processing"
-            description="Most recent jobs"
+            title={d.dashboard.latestProcessing}
+            description={d.dashboard.latestProcessingHint}
           />
           {recentJobs.length === 0 ? (
             <EmptyState
               icon={<ActivityIcon className="size-5" />}
-              title="Nothing processed yet"
-              description="Uploaded documents appear here as they move through the pipeline."
+              title={d.dashboard.nothingProcessed}
+              description={d.dashboard.nothingProcessedHint}
             />
           ) : (
             <ul className="divide-y divide-[var(--line)]">
               {recentJobs.map((job) => (
                 <li key={job.id} className="px-4 py-3">
                   <p className="truncate text-[13px] font-medium leading-snug text-ink">
-                    {job.document?.originalFileName ?? "Document"}
+                    {job.document?.originalFileName ?? d.dashboard.document}
                   </p>
                   {job.candidateName ? (
                     <p className="mt-0.5 truncate text-[12px] text-ink-muted">
@@ -286,7 +290,7 @@ export default async function DashboardPage() {
                   <div className="mt-1.5 flex items-center justify-between gap-2">
                     <ProcessingJobStatusBadge status={job.status} />
                     <span className="text-[11.5px] text-ink-subtle">
-                      {formatRelativeTime(job.updatedAt, referenceTime)}
+                      {formatRelativeTimeFor(job.updatedAt, d, locale, referenceTime)}
                     </span>
                   </div>
                 </li>

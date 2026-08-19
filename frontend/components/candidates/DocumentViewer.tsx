@@ -10,7 +10,7 @@ import {
   ChevronRightIcon,
   FileIcon,
 } from "@/components/ui/icons";
-import { DOCUMENT_STATUS_LABELS } from "@/lib/constants";
+import { useI18n } from "@/lib/i18n/context";
 import { cn, formatFileSize } from "@/lib/utils";
 import type { CandidateDocument, Citation } from "@/lib/types";
 
@@ -58,6 +58,7 @@ export function DocumentViewer({
   onChangePage,
   className,
 }: DocumentViewerProps) {
+  const { d, f } = useI18n();
   const active = documents.find((doc) => doc.id === activeDocumentId) ?? null;
   const [signed, setSigned] = useState<SignedUrlState>({
     status: "idle",
@@ -90,14 +91,14 @@ export function DocumentViewer({
         setSigned({
           status: "error",
           url: null,
-          message: "This document could not be opened. Try again shortly.",
+          message: d.candidates.documentOpenFailed,
         });
       });
 
     return () => {
       cancelled = true;
     };
-  }, [active]);
+  }, [active, d.candidates.documentOpenFailed]);
 
   if (!active) {
     return (
@@ -109,8 +110,8 @@ export function DocumentViewer({
       >
         <EmptyState
           icon={<FileIcon className="size-5" />}
-          title="No document"
-          description="Upload a resume for this candidate to read it here."
+          title={d.candidates.noDocument}
+          description={d.candidates.noDocumentHint}
         />
       </div>
     );
@@ -136,7 +137,7 @@ export function DocumentViewer({
         <FileIcon className="size-4 shrink-0 text-ink-subtle" />
         {documents.length > 1 ? (
           <select
-            aria-label="Select document"
+            aria-label={d.candidates.selectDocument}
             value={active.id}
             onChange={(event) => onSelectDocument(event.target.value)}
             className="min-w-0 flex-1 truncate bg-transparent text-[13px] font-medium text-ink outline-none"
@@ -180,7 +181,10 @@ export function DocumentViewer({
           <iframe
             key={`${active.id}-${page}`}
             src={frameSrc}
-            title={`${active.originalFileName}, page ${page}`}
+            title={f(d.evidence.openAtPage, {
+              name: active.originalFileName,
+              page,
+            })}
             className="size-full flex-1 border-0"
           />
         ) : null}
@@ -191,8 +195,7 @@ export function DocumentViewer({
               <FileIcon className="size-5" />
             </div>
             <p className="max-w-xs text-[13px] leading-relaxed text-ink-muted">
-              Browsers cannot render DOCX inline. Open the file to read it — the
-              extracted text and its citations still appear alongside.
+              {d.candidates.docxNotRenderable}
             </p>
             <a
               href={signed.url ?? "#"}
@@ -200,7 +203,7 @@ export function DocumentViewer({
               rel="noreferrer"
               className="text-[13px] font-medium text-brand hover:underline"
             >
-              Open {active.originalFileName}
+              {f(d.candidates.openFile, { name: active.originalFileName })}
             </a>
           </div>
         ) : null}
@@ -215,15 +218,15 @@ export function DocumentViewer({
           onClick={() => onChangePage(page - 1)}
           icon={<ChevronLeftIcon className="size-4" />}
         >
-          Previous
+          {d.common.previous}
         </Button>
 
         <span className="text-[12.5px] tabular-nums text-ink-muted">
           {pageCount !== null
-            ? `${page} / ${pageCount}`
+            ? f(d.common.pageOf, { page, total: pageCount })
             : active.status === "COMPLETED"
-              ? `Page ${page}`
-              : DOCUMENT_STATUS_LABELS[active.status]}
+              ? f(d.common.pageNumber, { page })
+              : d.status.document[active.status]}
         </span>
 
         <Button
@@ -233,7 +236,7 @@ export function DocumentViewer({
           disabled={!canPage || (pageCount !== null && page >= pageCount)}
           onClick={() => onChangePage(page + 1)}
         >
-          Next
+          {d.common.next}
           <ChevronRightIcon className="size-4" />
         </Button>
       </div>
@@ -241,8 +244,10 @@ export function DocumentViewer({
       {activeCitation && activeCitation.documentId === active.id ? (
         <div className="border-t border-line bg-brand-soft px-3 py-2.5">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-ink">
-            Showing citation
-            {activeCitation.page !== null ? ` · page ${activeCitation.page}` : ""}
+            {d.candidates.showingCitation}
+            {activeCitation.page !== null
+              ? ` · ${d.common.page} ${activeCitation.page}`
+              : ""}
           </p>
           <p className="mt-1 line-clamp-3 text-[12.5px] leading-relaxed text-brand-ink">
             {activeCitation.snippet}

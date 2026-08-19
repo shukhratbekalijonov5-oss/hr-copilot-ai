@@ -10,7 +10,7 @@ function createPrismaMock() {
       findUnique: jest.fn().mockResolvedValue({ id: ORG_A, name: 'Northwind' }),
       update: jest.fn().mockResolvedValue({ id: ORG_A, name: 'Renamed' }),
     },
-    user: { count: jest.fn().mockResolvedValue(0) },
+    organizationMember: { count: jest.fn().mockResolvedValue(0) },
     vacancy: { count: jest.fn().mockResolvedValue(0) },
     candidate: { count: jest.fn().mockResolvedValue(0) },
     application: { count: jest.fn().mockResolvedValue(0) },
@@ -80,7 +80,9 @@ describe('OrganizationsService', () => {
     it('scopes every counter to the caller organization', async () => {
       await service.stats(ORG_A);
 
-      expect(prisma.user.count.mock.calls[0][0].where).toEqual({
+      // Team size counts MEMBERSHIPS: a CandidateAccount-only user (who has
+      // no membership row) must never inflate an organization's user count.
+      expect(prisma.organizationMember.count.mock.calls[0][0].where).toEqual({
         organizationId: ORG_A,
       });
       expect(prisma.candidate.count.mock.calls[0][0].where).toEqual({

@@ -20,6 +20,7 @@ function session(role: Role): SessionUser {
     fullName: "Aziza Rakhimova",
     email: "aziza@northwind.example",
     role,
+    preferredLocale: null,
     organization: { id: "o1", name: "Northwind Talent", slug: "northwind" },
   };
 }

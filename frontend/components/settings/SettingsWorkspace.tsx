@@ -13,16 +13,14 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Field";
 import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { AlertIcon, CheckIcon, ShieldIcon } from "@/components/ui/icons";
-import {
-  INTEGRATION_AVAILABILITY_LABELS,
-  INTEGRATION_GROUPS,
-} from "@/lib/integrations/catalog";
+import { INTEGRATION_GROUPS } from "@/lib/integrations/catalog";
+import { LocaleSwitcher } from "@/components/layout/LocaleSwitcher";
+import { useI18n } from "@/lib/i18n/context";
+import type { Dictionary } from "@/lib/i18n/dictionary";
 import type { FieldErrors } from "@/lib/api/errors";
-import { ROLE_LABELS } from "@/lib/constants";
-import { formatDate } from "@/lib/utils";
 import type { SettingsData } from "@/lib/types";
 
-function SavedNote({ visible }: { visible: boolean }) {
+function SavedNote({ visible, label }: { visible: boolean; label: string }) {
   if (!visible) return null;
   return (
     <span
@@ -30,7 +28,7 @@ function SavedNote({ visible }: { visible: boolean }) {
       className="inline-flex items-center gap-1 text-[12.5px] text-positive"
     >
       <CheckIcon className="size-3.5" />
-      Saved
+      {label}
     </span>
   );
 }
@@ -55,6 +53,18 @@ function FormError({ message }: { message: string | null }) {
  */
 export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
   const router = useRouter();
+  const { d, p, date } = useI18n();
+
+  // Group and integration copy is keyed by the catalogue's own ids, so adding
+  // an integration surfaces a missing translation as a typecheck failure.
+  const groupTitle = (id: string) =>
+    id === "email" ? d.integrations.groupEmail : d.integrations.groupJobBoards;
+  const groupHint = (id: string) =>
+    id === "email"
+      ? d.integrations.groupEmailHint
+      : d.integrations.groupJobBoardsHint;
+  const integrationHint = (id: string) =>
+    d.integrations[id as keyof Dictionary["integrations"]];
 
   const [fullName, setFullName] = useState(settings.user.fullName);
   const [profileState, setProfileState] = useState<{
@@ -87,7 +97,7 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
       } else {
         setProfileState({
           saved: false,
-          error: result.message ?? "Could not save.",
+          error: result.message ?? d.settings.couldNotSave,
           fieldErrors: result.fieldErrors ?? {},
         });
       }
@@ -107,7 +117,7 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
       } else {
         setOrgState({
           saved: false,
-          error: result.message ?? "Could not save.",
+          error: result.message ?? d.settings.couldNotSave,
           fieldErrors: result.fieldErrors ?? {},
         });
       }
@@ -117,12 +127,12 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
   const tabs: TabItem[] = [
     {
       id: "profile",
-      label: "Profile",
+      label: d.settings.tabProfile,
       content: (
         <Card>
           <CardHeader
-            title="Your profile"
-            description="How you appear to the rest of the workspace."
+            title={d.settings.yourProfile}
+            description={d.settings.yourProfileHint}
           />
           <CardBody>
             <form onSubmit={saveProfile} className="flex flex-col gap-4">
@@ -135,7 +145,7 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
                     {settings.user.fullName}
                   </p>
                   <p className="text-[12.5px] text-ink-muted">
-                    {ROLE_LABELS[settings.user.role]} ·{" "}
+                    {d.status.role[settings.user.role]} ·{" "}
                     {settings.user.organization.name}
                   </p>
                 </div>
@@ -143,25 +153,28 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input
-                  label="Full name"
+                  label={d.settings.fullName}
                   value={fullName}
                   disabled={profilePending}
                   error={profileState.fieldErrors.fullName}
                   onChange={(event) => setFullName(event.target.value)}
                 />
                 <Input
-                  label="Email"
+                  label={d.settings.email}
                   value={settings.user.email}
                   disabled
-                  hint="Changing your sign-in address is not supported by the API yet."
+                  hint={d.settings.emailLocked}
                 />
               </div>
 
               <div className="flex items-center gap-3">
                 <Button type="submit" loading={profilePending}>
-                  Save changes
+                  {d.common.save}
                 </Button>
-                <SavedNote visible={profileState.saved && !profilePending} />
+                <SavedNote
+                  visible={profileState.saved && !profilePending}
+                  label={d.common.saved}
+                />
               </div>
             </form>
           </CardBody>
@@ -170,12 +183,12 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
     },
     {
       id: "organization",
-      label: "Organization",
+      label: d.settings.tabOrganization,
       content: (
         <Card>
           <CardHeader
-            title="Organization"
-            description="Applies to everyone in this workspace."
+            title={d.settings.organization}
+            description={d.settings.organizationHint}
           />
           <CardBody>
             <form onSubmit={saveOrganization} className="flex flex-col gap-4">
@@ -183,17 +196,17 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input
-                  label="Organization name"
+                  label={d.settings.organizationName}
                   value={orgName}
                   disabled={orgPending}
                   error={orgState.fieldErrors.name}
                   onChange={(event) => setOrgName(event.target.value)}
                 />
                 <Input
-                  label="Workspace URL"
+                  label={d.settings.workspaceUrl}
                   value={settings.organization.slug}
                   disabled
-                  hint="Changing the slug would break existing links."
+                  hint={d.settings.slugLocked}
                 />
               </div>
 
@@ -201,10 +214,19 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
                 <dl className="grid grid-cols-2 gap-3 rounded-lg border border-line bg-surface-muted/50 p-3 sm:grid-cols-4">
                   {(
                     [
-                      ["Members", settings.organization.counts.users],
-                      ["Vacancies", settings.organization.counts.vacancies],
-                      ["Candidates", settings.organization.counts.candidates],
-                      ["Documents", settings.organization.counts.documents],
+                      [d.settings.countMembers, settings.organization.counts.users],
+                      [
+                        d.settings.countVacancies,
+                        settings.organization.counts.vacancies,
+                      ],
+                      [
+                        d.settings.countCandidates,
+                        settings.organization.counts.candidates,
+                      ],
+                      [
+                        d.settings.countDocuments,
+                        settings.organization.counts.documents,
+                      ],
                     ] as const
                   ).map(([label, value]) => (
                     <div key={label}>
@@ -219,9 +241,12 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
 
               <div className="flex items-center gap-3">
                 <Button type="submit" loading={orgPending}>
-                  Save changes
+                  {d.common.save}
                 </Button>
-                <SavedNote visible={orgState.saved && !orgPending} />
+                <SavedNote
+                  visible={orgState.saved && !orgPending}
+                  label={d.common.saved}
+                />
               </div>
             </form>
           </CardBody>
@@ -230,12 +255,12 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
     },
     {
       id: "team",
-      label: "Team",
+      label: d.settings.tabTeam,
       content: (
         <Card>
           <CardHeader
-            title="Team"
-            description={`${settings.team.length} ${settings.team.length === 1 ? "person has" : "people have"} access to this workspace.`}
+            title={d.settings.team}
+            description={p(d.settings.teamAccess, settings.team.length)}
           />
           <ul className="divide-y divide-[var(--line)]">
             {settings.team.map((member) => (
@@ -250,15 +275,14 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
                   </p>
                 </div>
                 <Badge tone={member.id === settings.user.id ? "brand" : "neutral"}>
-                  {ROLE_LABELS[member.role]}
+                  {d.status.role[member.role]}
                 </Badge>
               </li>
             ))}
           </ul>
           <CardBody className="border-t border-line">
             <p className="text-[12.5px] leading-relaxed text-ink-muted">
-              The API creates teammates with a password set by an admin rather
-              than an email invitation, so there is no invite flow here yet.
+              {d.settings.inviteNote}
             </p>
           </CardBody>
         </Card>
@@ -266,27 +290,27 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
     },
     {
       id: "integrations",
-      label: "Integrations",
+      label: d.settings.tabIntegrations,
       content: (
         <div className="flex flex-col gap-4">
           <Card>
             <CardHeader
-              title="Integrations"
-              description="Bring applications in from email and job boards so every source lands in one pipeline."
+              title={d.settings.integrations}
+              description={d.settings.integrationsHint}
             />
             <CardBody>
               <p className="rounded-lg bg-surface-muted px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-muted">
-                None of these can be connected yet — the API has no integration
-                endpoints or credential storage. They are listed so the intended
-                shape is visible; nothing here will report a connection it does
-                not have.
+                {d.settings.integrationsUnavailable}
               </p>
             </CardBody>
           </Card>
 
           {INTEGRATION_GROUPS.map((group) => (
             <Card key={group.id}>
-              <CardHeader title={group.title} description={group.description} />
+              <CardHeader
+                title={groupTitle(group.id)}
+                description={groupHint(group.id)}
+              />
               <ul className="divide-y divide-[var(--line)]">
                 {group.integrations.map((integration) => (
                   <li
@@ -298,7 +322,7 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
                         {integration.name}
                       </p>
                       <p className="text-[12.5px] leading-relaxed text-ink-muted">
-                        {integration.description}
+                        {integrationHint(integration.id)}
                       </p>
                     </div>
                     <Badge
@@ -308,10 +332,10 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
                           : "neutral"
                       }
                     >
-                      {INTEGRATION_AVAILABILITY_LABELS[integration.availability]}
+                      {d.status.integrationAvailability[integration.availability]}
                     </Badge>
                     <Button type="button" variant="secondary" size="sm" disabled>
-                      Connect
+                      {d.settings.connect}
                     </Button>
                   </li>
                 ))}
@@ -323,40 +347,37 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
     },
     {
       id: "security",
-      label: "Security",
+      label: d.settings.tabSecurity,
       content: (
         <Card>
-          <CardHeader title="Security" />
+          <CardHeader title={d.settings.security} />
           <CardBody className="flex flex-col gap-4">
             <div className="flex items-start gap-3 rounded-lg border border-line p-3">
               <ShieldIcon className="mt-0.5 size-5 shrink-0 text-ink-subtle" />
               <div className="min-w-0 flex-1">
                 <p className="text-[13.5px] font-medium text-ink">
-                  Session handling
+                  {d.settings.sessionHandling}
                 </p>
                 <p className="text-[12.5px] leading-relaxed text-ink-muted">
-                  Your session is held in a cookie that browser scripts cannot
-                  read. Signing out clears it; the underlying token stays valid
-                  until it expires, because the API has no revocation endpoint
-                  yet.
+                  {d.settings.sessionHandlingHint}
                 </p>
               </div>
             </div>
 
             <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
               <div>
-                <dt className="text-[12px] text-ink-muted">Role</dt>
+                <dt className="text-[12px] text-ink-muted">{d.settings.role}</dt>
                 <dd className="text-[13.5px] text-ink">
-                  {ROLE_LABELS[settings.user.role]}
+                  {d.status.role[settings.user.role]}
                 </dd>
               </div>
               {settings.organization.createdAt ? (
                 <div>
                   <dt className="text-[12px] text-ink-muted">
-                    Workspace created
+                    {d.settings.workspaceCreated}
                   </dt>
                   <dd className="text-[13.5px] text-ink">
-                    {formatDate(settings.organization.createdAt)}
+                    {date(settings.organization.createdAt)}
                   </dd>
                 </div>
               ) : null}
@@ -364,16 +385,37 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
 
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="secondary" disabled>
-                Change password
+                {d.settings.changePassword}
               </Button>
               <Button type="button" variant="ghost" disabled>
-                Enable two-factor authentication
+                {d.settings.enableTwoFactor}
               </Button>
             </div>
 
             <p className="text-[12.5px] leading-relaxed text-ink-muted">
-              These are disabled because the API does not expose them yet. They
-              will do nothing until it does.
+              {d.settings.disabledNote}
+            </p>
+          </CardBody>
+        </Card>
+      ),
+    },
+    {
+      id: "language",
+      label: d.settings.tabLanguage,
+      content: (
+        <Card>
+          <CardHeader
+            title={d.settings.languageTitle}
+            description={d.settings.languageHint}
+          />
+          <CardBody className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <LocaleSwitcher />
+            </div>
+            {/* The backend has no preferredLocale on a user, so this is stated
+                rather than quietly presented as an account setting. */}
+            <p className="text-[12.5px] leading-relaxed text-ink-muted">
+              {d.settings.languageStoredLocally}
             </p>
           </CardBody>
         </Card>
@@ -381,5 +423,5 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
     },
   ];
 
-  return <Tabs items={tabs} />;
+  return <Tabs items={tabs} label={d.settings.title} />;
 }

@@ -6,6 +6,7 @@ import {
   ProcessingJobStatus,
   Role,
 } from '../generated/prisma/enums';
+import type { MembershipService } from '../common/membership/membership.service';
 import type { Socket } from 'socket.io';
 
 const SECRET = 'test-secret-token-that-is-long-enough-32';
@@ -32,28 +33,54 @@ describe('ProcessingGateway', () => {
   let gateway: ProcessingGateway;
   let emit: jest.Mock;
   let to: jest.Mock;
+  let findMembership: jest.Mock;
 
   beforeEach(() => {
-    gateway = new ProcessingGateway(jwtService, configService);
+    findMembership = jest
+      .fn()
+      .mockResolvedValue({ id: 'm1', role: Role.RECRUITER });
+    gateway = new ProcessingGateway(jwtService, configService, {
+      findMembership,
+    } as unknown as MembershipService);
     emit = jest.fn();
     to = jest.fn().mockReturnValue({ emit });
     gateway.server = { to } as never;
   });
 
-  const signFor = (org: string) =>
+  const signFor = (org?: string) =>
     jwtService.sign(
-      { sub: 'u1', email: 'a@b.test', role: Role.RECRUITER, org },
+      { sub: 'u1', email: 'a@b.test', ...(org ? { org } : {}) },
       { secret: SECRET },
     );
 
   describe('handleConnection', () => {
-    it('joins the room for the organization in the token', async () => {
+    it('joins the org room only after verifying a LIVE membership', async () => {
       const client = makeClient(signFor(ORG_A));
 
       await gateway.handleConnection(client);
 
+      expect(findMembership).toHaveBeenCalledWith('u1', ORG_A);
       expect(client.join).toHaveBeenCalledWith(`org:${ORG_A}`);
       expect(client.disconnect).not.toHaveBeenCalled();
+    });
+
+    it('disconnects a valid token whose membership was revoked', async () => {
+      findMembership.mockResolvedValue(null);
+      const client = makeClient(signFor(ORG_A));
+
+      await gateway.handleConnection(client);
+
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(client.join).not.toHaveBeenCalled();
+    });
+
+    it('disconnects a candidate-only token (no org claim)', async () => {
+      const client = makeClient(signFor(undefined));
+
+      await gateway.handleConnection(client);
+
+      expect(client.disconnect).toHaveBeenCalledWith(true);
+      expect(client.join).not.toHaveBeenCalled();
     });
 
     it('accepts the token from an Authorization header too', async () => {

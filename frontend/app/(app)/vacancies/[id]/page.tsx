@@ -14,11 +14,9 @@ import {
 } from "@/components/ui/StatusBadge";
 import { buttonStyles } from "@/components/ui/Button";
 import { CompareIcon, PlusIcon, UsersIcon } from "@/components/ui/icons";
-import {
-  REQUIREMENT_PRIORITY_LABELS,
-  REQUIREMENT_TYPE_LABELS,
-} from "@/lib/constants";
-import { formatDate, pluralize } from "@/lib/utils";
+import { getI18n } from "@/lib/i18n/server";
+import { formatDateFor } from "@/lib/i18n/format";
+import { format, plural } from "@/lib/i18n/format";
 import type { Vacancy } from "@/lib/types";
 
 export async function generateMetadata(
@@ -29,7 +27,8 @@ export async function generateMetadata(
     const vacancy = await api.getVacancy(id);
     return { title: vacancy.title };
   } catch {
-    return { title: "Vacancy" };
+    const { d } = await getI18n();
+    return { title: d.tables.vacancy };
   }
 }
 
@@ -37,6 +36,7 @@ export default async function VacancyDetailPage(
   props: PageProps<"/vacancies/[id]">,
 ) {
   await requireSession();
+  const { locale, d } = await getI18n();
   const { id } = await props.params;
 
   let vacancy: Vacancy;
@@ -60,7 +60,7 @@ export default async function VacancyDetailPage(
     <div className="mx-auto max-w-7xl">
       <PageHeader
         breadcrumbs={[
-          { label: "Vacancies", href: "/vacancies" },
+          { label: d.vacancies.title, href: "/vacancies" },
           { label: vacancy.title },
         ]}
         title={vacancy.title}
@@ -77,17 +77,29 @@ export default async function VacancyDetailPage(
             {vacancy.employmentType ? (
               <>
                 <span aria-hidden="true">·</span>
-                <span>{vacancy.employmentType}</span>
+                <span>
+                  {d.employmentType[
+                    vacancy.employmentType as keyof typeof d.employmentType
+                  ] ?? vacancy.employmentType}
+                </span>
               </>
             ) : null}
             {vacancy.experienceLevel ? (
               <>
                 <span aria-hidden="true">·</span>
-                <span>{vacancy.experienceLevel}</span>
+                <span>
+                  {d.experienceLevel[
+                    vacancy.experienceLevel as keyof typeof d.experienceLevel
+                  ] ?? vacancy.experienceLevel}
+                </span>
               </>
             ) : null}
             <span aria-hidden="true">·</span>
-            <span>Created {formatDate(vacancy.createdAt)}</span>
+            <span>
+              {format(d.vacancyDetail.created, {
+                date: formatDateFor(vacancy.createdAt, d),
+              })}
+            </span>
           </div>
         }
         actions={
@@ -97,14 +109,14 @@ export default async function VacancyDetailPage(
               className={buttonStyles("secondary", "md")}
             >
               <CompareIcon className="size-4" />
-              Compare
+              {d.nav.compare}
             </Link>
             <Link
               href={`/candidates/new?vacancy=${vacancy.id}`}
               className={buttonStyles("primary", "md")}
             >
               <PlusIcon className="size-4" />
-              Add candidate
+              {d.candidates.add}
             </Link>
           </>
         }
@@ -113,7 +125,7 @@ export default async function VacancyDetailPage(
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="flex flex-col gap-4 lg:col-span-2">
           <Card>
-            <CardHeader title="Job description" />
+            <CardHeader title={d.vacancyDetail.jobDescription} />
             <CardBody>
               {vacancy.description ? (
                 <div className="flex flex-col gap-3 text-[13.5px] leading-relaxed text-ink-muted">
@@ -126,7 +138,7 @@ export default async function VacancyDetailPage(
                 </div>
               ) : (
                 <p className="text-[13.5px] text-ink-muted">
-                  No description was added for this vacancy.
+                  {d.vacancyDetail.noDescription}
                 </p>
               )}
             </CardBody>
@@ -134,20 +146,23 @@ export default async function VacancyDetailPage(
 
           <Card>
             <CardHeader
-              title="Requirements"
-              description={`${mustHaves.length} must have · ${niceToHaves.length} nice to have`}
+              title={d.vacancyDetail.requirements}
+              description={format(d.vacancyDetail.requirementsSplit, {
+                must: mustHaves.length,
+                nice: niceToHaves.length,
+              })}
             />
             {vacancy.requirements.length === 0 ? (
               <EmptyState
-                title="No requirements yet"
-                description="Requirements are what each uploaded resume is checked against. Without them there is nothing to find evidence for."
+                title={d.vacancyDetail.noRequirements}
+                description={d.vacancyDetail.noRequirementsHint}
               />
             ) : (
               <CardBody className="flex flex-col gap-4">
                 {mustHaves.length > 0 ? (
                   <div>
                     <p className="mb-2 text-[11.5px] font-semibold uppercase tracking-wide text-ink-subtle">
-                      {REQUIREMENT_PRIORITY_LABELS.required}
+                      {d.status.requirementPriority.required}
                     </p>
                     <ul className="flex flex-col gap-2">
                       {mustHaves.map((requirement) => (
@@ -159,7 +174,7 @@ export default async function VacancyDetailPage(
                             {requirement.text}
                           </span>
                           <Badge>
-                            {REQUIREMENT_TYPE_LABELS[requirement.type]}
+                            {d.status.requirementType[requirement.type]}
                           </Badge>
                         </li>
                       ))}
@@ -170,7 +185,7 @@ export default async function VacancyDetailPage(
                 {niceToHaves.length > 0 ? (
                   <div>
                     <p className="mb-2 text-[11.5px] font-semibold uppercase tracking-wide text-ink-subtle">
-                      {REQUIREMENT_PRIORITY_LABELS.optional}
+                      {d.status.requirementPriority.optional}
                     </p>
                     <ul className="flex flex-wrap gap-1.5">
                       {niceToHaves.map((requirement) => (
@@ -187,28 +202,32 @@ export default async function VacancyDetailPage(
 
           <Card>
             <CardHeader
-              title="Candidates"
-              description={`${applications.length} ${pluralize(applications.length, "candidate")} attached to this vacancy`}
+              title={d.candidates.title}
+              description={plural(
+                d.vacancyDetail.candidatesAttached,
+                applications.length,
+                locale,
+              )}
               action={
                 <Link
                   href={`/candidates?vacancy=${vacancy.id}`}
                   className="text-[12.5px] font-medium text-brand hover:underline"
                 >
-                  View all
+                  {d.common.viewAll}
                 </Link>
               }
             />
             {applications.length === 0 ? (
               <EmptyState
                 icon={<UsersIcon className="size-5" />}
-                title="No candidates yet"
-                description="Add a candidate and upload their resume — each one is checked against the requirements above."
+                title={d.vacancyDetail.noCandidates}
+                description={d.vacancyDetail.noCandidatesHint}
                 action={
                   <Link
                     href={`/candidates/new?vacancy=${vacancy.id}`}
                     className={buttonStyles("primary", "sm")}
                   >
-                    Add candidate
+                    {d.candidates.add}
                   </Link>
                 }
               />
@@ -226,11 +245,11 @@ export default async function VacancyDetailPage(
                       />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[13.5px] font-medium text-ink">
-                          {application.candidate?.fullName ?? "Candidate"}
+                          {application.candidate?.fullName ?? d.tables.candidate}
                         </p>
                         <p className="truncate text-[12.5px] text-ink-muted">
                           {application.candidate?.currentTitle ??
-                            "Title not set"}
+                            d.common.notSet}
                         </p>
                       </div>
                       <ApplicationStatusBadge status={application.status} />
@@ -244,25 +263,31 @@ export default async function VacancyDetailPage(
 
         <div className="flex flex-col gap-4">
           <Card>
-            <CardHeader title="At a glance" />
+            <CardHeader title={d.vacancyDetail.atAGlance} />
             <CardBody>
               <dl className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                  <dt className="text-[13px] text-ink-muted">Candidates</dt>
+                  <dt className="text-[13px] text-ink-muted">
+                    {d.candidates.title}
+                  </dt>
                   <dd className="text-[15px] font-semibold tabular-nums text-ink">
                     {applications.length}
                   </dd>
                 </div>
                 <div className="flex items-center justify-between">
-                  <dt className="text-[13px] text-ink-muted">Requirements</dt>
+                  <dt className="text-[13px] text-ink-muted">
+                    {d.vacancyDetail.requirements}
+                  </dt>
                   <dd className="text-[15px] font-semibold tabular-nums text-ink">
                     {vacancy.requirements.length}
                   </dd>
                 </div>
                 <div className="flex items-center justify-between">
-                  <dt className="text-[13px] text-ink-muted">Last updated</dt>
+                  <dt className="text-[13px] text-ink-muted">
+                    {d.vacancyDetail.lastUpdated}
+                  </dt>
                   <dd className="text-[13px] text-ink">
-                    {formatDate(vacancy.updatedAt)}
+                    {formatDateFor(vacancy.updatedAt, d)}
                   </dd>
                 </div>
               </dl>
@@ -270,19 +295,17 @@ export default async function VacancyDetailPage(
           </Card>
 
           <Card>
-            <CardHeader title="Reading resumes" />
+            <CardHeader title={d.vacancyDetail.readingResumes} />
             <CardBody className="flex flex-col gap-3">
               <p className="text-[13px] leading-relaxed text-ink-muted">
-                Documents attach to a candidate, not to a vacancy. Add the person
-                first, then upload their resume from their page — that is what
-                links the file to these requirements.
+                {d.vacancyDetail.readingResumesHint}
               </p>
               <Link
                 href={`/candidates/new?vacancy=${vacancy.id}`}
                 className={buttonStyles("secondary", "md", "self-start")}
               >
                 <PlusIcon className="size-4" />
-                Add candidate
+                {d.candidates.add}
               </Link>
             </CardBody>
           </Card>

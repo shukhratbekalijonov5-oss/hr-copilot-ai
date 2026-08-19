@@ -1,12 +1,15 @@
 import { NotFoundState } from "@/components/ui/NotFoundState";
+import { getTranslations } from "@/lib/i18n/server";
 
-export default function VacancyNotFound() {
+export default async function VacancyNotFound() {
+  const d = await getTranslations();
+
   return (
     <NotFoundState
-      title="Vacancy not found"
-      description="This vacancy may have been deleted, or the link is wrong."
+      title={d.vacancies.notFound}
+      description={d.vacancyDetail.deletedOrWrongLink}
       backHref="/vacancies"
-      backLabel="Back to vacancies"
+      backLabel={d.vacancies.backToVacancies}
     />
   );
 }

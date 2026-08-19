@@ -9,6 +9,9 @@ const ORG_B = 'org-b';
 
 function createPrismaMock() {
   return {
+    organization: {
+      findUnique: jest.fn().mockResolvedValue({ slug: 'org-a-slug' }),
+    },
     vacancy: {
       create: jest.fn(),
       findMany: jest.fn(),
@@ -53,9 +56,29 @@ describe('VacanciesService', () => {
             createdById: 'user-1',
             title: 'Backend Engineer',
             status: VacancyStatus.DRAFT,
+            // Public identifier minted once at creation: title + org slug +
+            // random suffix, never regenerated on later edits.
+            publicSlug: expect.stringMatching(
+              /^backend-engineer-org-a-slug-[0-9a-f]{6}$/,
+            ),
           }),
         }),
       );
+    });
+
+    it('retries with a fresh slug on a publicSlug collision', async () => {
+      prisma.vacancy.create
+        .mockRejectedValueOnce({
+          code: 'P2002',
+          meta: { target: ['publicSlug'] },
+        })
+        .mockResolvedValueOnce({ id: 'v1' });
+
+      await service.create(ORG_A, 'user-1', { title: 'Backend Engineer' });
+
+      expect(prisma.vacancy.create).toHaveBeenCalledTimes(2);
+      const [first, second] = prisma.vacancy.create.mock.calls;
+      expect(first[0].data.publicSlug).not.toBe(second[0].data.publicSlug);
     });
   });
 

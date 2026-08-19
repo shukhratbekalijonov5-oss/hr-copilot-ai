@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AlertIcon } from "@/components/ui/icons";
+import { useI18n } from "@/lib/i18n/context";
 
 export default function AppError({
   error,
@@ -12,6 +13,8 @@ export default function AppError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const { d } = useI18n();
+
   useEffect(() => {
     // Replace with the app's error reporter once one is configured.
     console.error(error);
@@ -22,11 +25,11 @@ export default function AppError({
       <div className="rounded-xl border border-line bg-surface shadow-card">
         <EmptyState
           icon={<AlertIcon className="size-5" />}
-          title="Something went wrong"
-          description="This page could not be loaded. Retrying usually fixes it."
+          title={d.errors.somethingWentWrong}
+          description={d.errors.pageLoadFailed}
           action={
             <Button type="button" variant="secondary" size="sm" onClick={reset}>
-              Try again
+              {d.common.retry}
             </Button>
           }
         />

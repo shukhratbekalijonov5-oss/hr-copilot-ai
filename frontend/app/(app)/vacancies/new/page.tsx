@@ -1,18 +1,24 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { VacancyForm } from "@/components/vacancies/VacancyForm";
+import { getTranslations } from "@/lib/i18n/server";
 
-export const metadata: Metadata = { title: "New vacancy" };
+export async function generateMetadata(): Promise<Metadata> {
+  const d = await getTranslations();
+  return { title: d.vacancyDetail.newVacancyTitle };
+}
 
-export default function NewVacancyPage() {
+export default async function NewVacancyPage() {
+  const d = await getTranslations();
+
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
-        title="Create vacancy"
-        description="Requirements you add here are what every uploaded resume gets checked against."
+        title={d.vacancyDetail.newVacancyTitle}
+        description={d.vacancyDetail.newVacancyHint}
         breadcrumbs={[
-          { label: "Vacancies", href: "/vacancies" },
-          { label: "New" },
+          { label: d.vacancies.title, href: "/vacancies" },
+          { label: d.vacancyDetail.breadcrumbNew },
         ]}
       />
       <VacancyForm />

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateDocumentStatus,
+  aiReadiness,
   buildRequirementEvidence,
   documentProgress,
   summarizeDocumentStatuses,
@@ -303,5 +304,41 @@ describe("toEvidenceSearchResult", () => {
     const result = toEvidenceSearchResult(response([]));
     expect(result.candidates).toEqual([]);
     expect(result.totalConsidered).toBe(40);
+  });
+});
+
+describe("aiReadiness", () => {
+  it("is ready as soon as one document is indexed", () => {
+    // The AI service reads what is indexed; a sibling failure does not hide it.
+    expect(
+      aiReadiness([{ status: "COMPLETED" }, { status: "FAILED" }]),
+    ).toBe("ready");
+    expect(
+      aiReadiness([{ status: "COMPLETED" }, { status: "EMBEDDING" }]),
+    ).toBe("ready");
+  });
+
+  it("reports no documents separately from a failure", () => {
+    expect(aiReadiness([])).toBe("no_documents");
+  });
+
+  it("prefers `processing` while anything is still moving", () => {
+    expect(aiReadiness([{ status: "FAILED" }, { status: "PARSING" }])).toBe(
+      "processing",
+    );
+    expect(aiReadiness([{ status: "QUEUED" }])).toBe("processing");
+  });
+
+  it("reports failure only when every document failed", () => {
+    expect(aiReadiness([{ status: "FAILED" }, { status: "FAILED" }])).toBe(
+      "failed",
+    );
+  });
+
+  it("stays stricter than the headline badge on purpose", () => {
+    const documents = [{ status: "COMPLETED" as const }, { status: "FAILED" as const }];
+    // The badge warns about the failure; the panels still work.
+    expect(aggregateDocumentStatus(documents)).toBe("FAILED");
+    expect(aiReadiness(documents)).toBe("ready");
   });
 });

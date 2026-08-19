@@ -16,6 +16,22 @@ const ko: Dictionary = {
       "근거 중심 채용 인텔리전스. 이력서를 자연어로 검색하고, 모든 내용을 원문 출처까지 추적하며, 채용 결정은 사람이 내립니다.",
   },
 
+  datetime: {
+    months: [
+      "1월", "2월", "3월", "4월", "5월", "6월",
+      "7월", "8월", "9월", "10월", "11월", "12월",
+    ],
+    date: "{year}년 {month} {day}일",
+    dateTime: "{month} {day}일 {time}",
+    time: "{hour}:{minute}",
+    justNow: "방금 전",
+    minutesAgo: { other: "{count}분 전" },
+    hoursAgo: { other: "{count}시간 전" },
+    daysAgo: { other: "{count}일 전" },
+    groupSeparator: ",",
+    decimalSeparator: ".",
+  },
+
   common: {
     save: "변경사항 저장",
     saved: "저장됨",
@@ -562,7 +578,7 @@ const ko: Dictionary = {
     languageHint:
       "인터페이스 언어와 AI 답변이 작성되는 언어를 설정합니다. 인용된 이력서 구절은 원문 언어 그대로 유지됩니다.",
     languageStoredLocally:
-      "선택한 언어는 이 브라우저에 저장됩니다. API에 사용자별 선호 언어 필드가 아직 없어 다른 기기까지 따라가지 않습니다.",
+      "선택한 언어는 이 브라우저에 저장됩니다. 계정에 저장된 언어가 있어 이 설정을 처음 보는 기기에서는 그 값이 사용되지만, API에 해당 언어를 변경하는 필드가 없어 여기서 바꾼 값은 다른 기기로 이어지지 않습니다.",
   },
 
   personal: {

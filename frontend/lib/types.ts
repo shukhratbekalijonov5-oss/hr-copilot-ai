@@ -27,6 +27,14 @@ export interface User {
   fullName: string;
   email: string;
   role: Role;
+  /**
+   * The language stored against the account.
+   *
+   * Null when the API did not report one. It seeds this browser's locale on a
+   * first visit; the API exposes no field to update it, so a change made here
+   * cannot be written back.
+   */
+  preferredLocale: Locale | null;
   createdAt?: ISODateString;
   updatedAt?: ISODateString;
 }
@@ -606,6 +614,13 @@ export interface ComparisonResult {
     "id" | "fullName" | "currentTitle" | "totalExperienceYears" | "location"
   >[];
   rows: ComparisonRow[];
+  /**
+   * Candidates with no stored evidence map for this vacancy.
+   *
+   * Their cells read NOT_RUN rather than "no evidence": nobody has checked, and
+   * reporting that as an absence would understate what those candidates show.
+   */
+  unmappedCandidateIds: ID[];
 }
 
 /* -------------------------------------------------------------------------- */

@@ -36,15 +36,30 @@ export interface AuthTokenResponse {
     id: string;
     email: string;
     fullName: string;
+    /** The user's stored language. Read-only: no endpoint updates it. */
+    preferredLocale?: SupportedLocale;
     role: Role;
     organizationId: string;
   };
 }
 
+/**
+ * GET /auth/me
+ *
+ * The API also returns `memberships`, `activeOrganization` and
+ * `candidateAccount` since the identity migration landed. Those are not mapped
+ * here yet: there is no endpoint to switch the active organization and none to
+ * read or write a CandidateAccount, so consuming them would let the UI offer
+ * actions the API cannot complete. `role` and `organizationId` remain the
+ * verified contract and describe the organization the current token is scoped
+ * to.
+ */
 export interface MeResponse {
   id: string;
   email: string;
   fullName: string;
+  /** Stored on the user since the identity migration. Read-only today. */
+  preferredLocale?: SupportedLocale;
   role: Role;
   organizationId: string;
   organization: { id: string; name: string; slug: string };

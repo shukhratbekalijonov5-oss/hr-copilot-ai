@@ -4,13 +4,18 @@ import { requireSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CandidateListView } from "@/components/candidates/CandidateListView";
 import { UploadPanel } from "@/components/upload/UploadPanel";
+import { getTranslations } from "@/lib/i18n/server";
 
-export const metadata: Metadata = { title: "Candidates" };
+export async function generateMetadata(): Promise<Metadata> {
+  const d = await getTranslations();
+  return { title: d.candidates.title };
+}
 
 export default async function CandidatesPage(
   props: PageProps<"/candidates">,
 ) {
   await requireSession();
+  const d = await getTranslations();
 
   const [candidates, vacancies, searchParams] = await Promise.all([
     api.getAllCandidates(),
@@ -25,8 +30,8 @@ export default async function CandidatesPage(
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
-        title="Candidates"
-        description="Everyone in your pipeline, with the state of their documents. Nobody is ranked or filtered by the model."
+        title={d.candidates.title}
+        description={d.candidates.description}
         actions={<UploadPanel />}
       />
       <CandidateListView

@@ -75,6 +75,7 @@ export const api = {
   getCandidateRequirementEvidence: evidence.getCandidateRequirementEvidence,
   countEvidence: evidence.countEvidence,
   compareCandidates: compare.compareCandidates,
+  mapMissingCandidates: compare.mapMissingCandidates,
 
   // settings
   getSettings: settings.getSettings,

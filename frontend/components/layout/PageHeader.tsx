@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/ui/icons";
+import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 
 export interface Breadcrumb {
@@ -25,10 +28,12 @@ export function PageHeader({
   meta,
   className,
 }: PageHeaderProps) {
+  const { d } = useI18n();
+
   return (
     <div className={cn("mb-5", className)}>
       {breadcrumbs && breadcrumbs.length > 0 ? (
-        <nav aria-label="Breadcrumb" className="mb-2">
+        <nav aria-label={d.nav.breadcrumb} className="mb-2">
           <ol className="flex flex-wrap items-center gap-1 text-[12.5px] text-ink-muted">
             {breadcrumbs.map((crumb, index) => (
               <li key={`${crumb.label}-${index}`} className="flex items-center gap-1">
