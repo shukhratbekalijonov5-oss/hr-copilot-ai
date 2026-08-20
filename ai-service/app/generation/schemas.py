@@ -48,3 +48,21 @@ class QuestionPayload(BaseModel):
 
 class QuestionsPayload(BaseModel):
     questions: list[QuestionPayload] = Field(default_factory=list)
+
+
+class MatchExplanationPayload(BaseModel):
+    vacancy_id: str = Field(
+        description="The vacancyId this explanation belongs to, copied exactly."
+    )
+    explanation: str = Field(
+        description=(
+            "2-4 sentences, in the requested language, addressed to the job "
+            "seeker, describing why this role relates to their documented "
+            "experience and which stated requirements their documents do not "
+            "show. Uses only the supplied facts."
+        )
+    )
+
+
+class MatchExplanationsPayload(BaseModel):
+    explanations: list[MatchExplanationPayload] = Field(default_factory=list)

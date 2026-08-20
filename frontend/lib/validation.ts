@@ -81,7 +81,18 @@ export function validateRegister(
     errors.email = d.validation.emailInvalid;
   }
 
-  if (!values.organizationName.trim()) {
+  /**
+   * Organization fields are validated only when the person is creating one.
+   *
+   * Registration serves two intents through one endpoint: a job seeker omits
+   * both fields entirely. Mirrors the backend, which rejects a half-filled
+   * pair and accepts an empty one.
+   */
+  const wantsOrganization =
+    values.organizationName !== undefined ||
+    values.organizationSlug !== undefined;
+
+  if (wantsOrganization && !values.organizationName?.trim()) {
     errors.organizationName = d.validation.organizationNameRequired;
   }
 
@@ -93,10 +104,12 @@ export function validateRegister(
     });
   }
 
-  if (!values.organizationSlug.trim()) {
-    errors.organizationSlug = d.validation.slugRequired;
-  } else if (!SLUG_PATTERN.test(values.organizationSlug.trim())) {
-    errors.organizationSlug = d.validation.slugPattern;
+  if (wantsOrganization) {
+    if (!values.organizationSlug?.trim()) {
+      errors.organizationSlug = d.validation.slugRequired;
+    } else if (!SLUG_PATTERN.test(values.organizationSlug.trim())) {
+      errors.organizationSlug = d.validation.slugPattern;
+    }
   }
 
   return errors;

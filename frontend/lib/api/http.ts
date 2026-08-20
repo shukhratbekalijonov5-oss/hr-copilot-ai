@@ -1,16 +1,33 @@
 import "server-only";
 
 import { API_BASE_URL } from "@/lib/config";
-import { getSessionToken } from "@/lib/api/session";
+import {
+  getRefreshToken,
+  getSessionToken,
+  setSessionTokens,
+} from "@/lib/api/session";
+import { refreshSession } from "@/lib/auth/refresh";
 import { ApiError, apiErrorFromResponse, networkError } from "@/lib/api/errors";
 
 /**
  * The one place the frontend talks to the NestJS API.
  *
- * Every request is server-side, so the JWT never enters the browser. There is
- * deliberately no way to pass an organizationId: the backend derives tenancy
- * from the token, and adding one here would create a client-controlled tenant
- * parameter that must not exist.
+ * Every request is server-side, so neither token ever enters the browser. There
+ * is deliberately no way to pass an organizationId: the backend derives tenancy
+ * from the token's membership, and adding one here would create a
+ * client-controlled tenant parameter that must not exist.
+ *
+ * ## Expired access tokens
+ *
+ * Proxy refreshes proactively before a render starts, so this path is a safety
+ * net for the case where a token expires *during* a request. On a 401 it
+ * refreshes once — through the same single-flight lock, so ten parallel calls
+ * still produce one `/auth/refresh` — and retries the original request exactly
+ * once. There is no retry loop: a second 401 is reported as an auth failure.
+ *
+ * A 403 is never retried. "Your role does not allow this" and "your token
+ * expired" are different problems, and refreshing on a role failure would spin
+ * against a wall.
  */
 
 export interface RequestOptions {
@@ -42,25 +59,24 @@ function buildUrl(
   return url.toString();
 }
 
-export async function apiFetch<T>(
+async function send(
   path: string,
-  options: RequestOptions = {},
-): Promise<T> {
-  const token =
-    options.token === undefined ? await getSessionToken() : options.token;
-
+  options: RequestOptions,
+  token: string | null,
+): Promise<Response> {
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   // FormData must set its own multipart boundary, so only JSON bodies get a
   // content-type here.
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
 
-  let response: Response;
   try {
-    response = await fetch(buildUrl(path, options.query), {
+    return await fetch(buildUrl(path, options.query), {
       method: options.method ?? "GET",
       headers,
-      body: options.formData ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
+      body:
+        options.formData ??
+        (options.body === undefined ? undefined : JSON.stringify(options.body)),
       cache: options.cache ?? "no-store",
       signal: options.signal,
     });
@@ -68,11 +84,9 @@ export async function apiFetch<T>(
     // DNS failure, connection refused, TLS error — the API is unreachable.
     throw networkError();
   }
+}
 
-  if (!response.ok) {
-    throw await apiErrorFromResponse(response);
-  }
-
+async function readBody<T>(response: Response): Promise<T> {
   if (response.status === 204) return undefined as T;
 
   const text = await response.text();
@@ -83,6 +97,50 @@ export async function apiFetch<T>(
   } catch {
     throw new ApiError("The server returned an unreadable response.", 502);
   }
+}
+
+export async function apiFetch<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const explicitToken = options.token !== undefined;
+  const token = explicitToken ? options.token! : await getSessionToken();
+
+  let response = await send(path, options, token);
+
+  /**
+   * One refresh, one retry.
+   *
+   * Skipped when the caller supplied its own token (login, and the retry
+   * below): those either have no session to refresh or have already tried.
+   * A body cannot be replayed from a consumed FormData stream either, so an
+   * upload that races an expiry surfaces the 401 and is retried by the user.
+   */
+  if (
+    response.status === 401 &&
+    !explicitToken &&
+    !options.formData
+  ) {
+    const refreshToken = await getRefreshToken();
+    if (refreshToken) {
+      try {
+        const pair = await refreshSession(refreshToken);
+        // Best effort: a Server Component render cannot write cookies. The
+        // rotated pair is still remembered in-process, so the next Proxy pass
+        // persists it instead of replaying the token this request just used.
+        await setSessionTokens(pair).catch(() => undefined);
+        response = await send(path, options, pair.accessToken);
+      } catch {
+        // Fall through with the original 401; the caller decides what to show.
+      }
+    }
+  }
+
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response);
+  }
+
+  return readBody<T>(response);
 }
 
 /** Shape every paginated NestJS list endpoint returns. */

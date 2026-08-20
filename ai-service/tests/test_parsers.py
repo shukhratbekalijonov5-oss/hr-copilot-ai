@@ -18,12 +18,19 @@ from app.parsers import (
     split_into_sections,
 )
 from tests.fixtures.resumes import (
+    CYRILLIC_LINES,
     JIWOO_HAN_TEXT,
+    KOREAN_LINES,
     MARCUS_OSEI_TEXT,
     build_corrupt_pdf,
+    build_cyrillic_pdf,
     build_docx,
     build_empty_pdf,
+    build_korean_pdf,
+    build_letter_spaced_pdf,
+    build_multi_column_pdf,
     build_pdf,
+    find_cyrillic_font,
 )
 
 
@@ -69,6 +76,88 @@ class TestPdfParsing:
     def test_corrupt_pdf_raises(self):
         with pytest.raises((CorruptDocumentError, EmptyDocumentError)):
             parse_document(build_corrupt_pdf(), "broken.pdf")
+
+
+class TestPdfExtractionQuality:
+    """Layout-aware extraction plus conservative cleanup, end to end."""
+
+    def test_glyph_spaced_pdf_comes_out_as_words(self):
+        parsed = parse_document(build_letter_spaced_pdf(), "cv.pdf")
+        text = parsed.full_text
+        assert "Rakhmatillo" in text
+        assert "Full Stack Developer" in text
+        assert "andrew0331r@gmail.com" in text
+        assert "+821056375426" in text
+        assert "R a k h" not in text
+        assert "F u l l" not in text
+
+    def test_glyph_spaced_headings_become_detectable_sections(self):
+        parsed = parse_document(build_letter_spaced_pdf(), "cv.pdf")
+        sections = split_into_sections(parsed.pages)
+        assert "skills" in {s.name for s in sections}
+
+    def test_multi_column_pdf_does_not_interleave_columns(self):
+        parsed = parse_document(build_multi_column_pdf(), "cv.pdf")
+        text = parsed.full_text
+        # Every phrase survives whole...
+        assert "Work Experience" in text
+        assert "Redis Pub/Sub" in text
+        assert "Built the order orchestration platform" in text
+        # ...and no extracted line mixes the two columns.
+        for line in text.split("\n"):
+            assert not ("Hanwool" in line and "Kubernetes" in line), line
+            assert not ("Work Experience" in line and "Skills" in line), line
+
+    def test_korean_pdf_with_mixed_english_is_preserved(self):
+        parsed = parse_document(build_korean_pdf(), "cv.pdf")
+        text = parsed.full_text
+        for line in KOREAN_LINES:
+            assert line in text
+        assert "Backend Engineer, Seoul, South Korea" in text
+
+    @pytest.mark.skipif(
+        find_cyrillic_font() is None,
+        reason="no Cyrillic-capable TTF on this host",
+    )
+    def test_cyrillic_pdf_is_preserved(self):
+        font = find_cyrillic_font()
+        assert font is not None
+        parsed = parse_document(build_cyrillic_pdf(font), "cv.pdf")
+        for line in CYRILLIC_LINES:
+            assert line in parsed.full_text
+
+    def test_page_content_stays_on_its_page(self):
+        page_one = "ALPHA_MARKER opening line"
+        filler = "\n".join(f"Filler line number {i}" for i in range(70))
+        page_two_tail = "OMEGA_MARKER closing line"
+        parsed = parse_document(
+            build_pdf(f"{page_one}\n{filler}\n{page_two_tail}"), "cv.pdf"
+        )
+        assert parsed.page_count == 2
+        assert "ALPHA_MARKER" in parsed.pages[0].text
+        assert "OMEGA_MARKER" not in parsed.pages[0].text
+        assert "OMEGA_MARKER" in parsed.pages[1].text
+
+    def test_falls_back_to_pypdf_when_pdfminer_fails(self, monkeypatch):
+        from app.parsers import pdf_parser
+
+        monkeypatch.setattr(pdf_parser, "_extract_pdfminer", lambda data: None)
+        parsed = parse_document(build_pdf(JIWOO_HAN_TEXT), "cv.pdf")
+        assert "Ji-woo Han" in parsed.full_text
+        assert "Kubernetes" in parsed.full_text
+
+    def test_degraded_primary_output_loses_to_a_clean_fallback(self, monkeypatch):
+        from app.parsers import pdf_parser
+
+        # Primary "succeeds" but returns glyph-soup the cleanup gate cannot
+        # rescue; the clean pypdf reading must win the comparison.
+        monkeypatch.setattr(
+            pdf_parser,
+            "_extract_pdfminer",
+            lambda data: ["x 1 q. 2 z- 3 w 4 v 5 b 6 n 7 m 8 k 9 j 0" * 3],
+        )
+        parsed = parse_document(build_pdf(JIWOO_HAN_TEXT), "cv.pdf")
+        assert "Ji-woo Han" in parsed.full_text
 
 
 class TestDocxParsing:

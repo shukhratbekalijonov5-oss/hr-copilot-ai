@@ -52,28 +52,42 @@ export const BACKEND_CAPABILITIES = {
   /* ---------------------------------------------------------------------- */
   /* Two-sided platform                                                      */
   /*                                                                         */
-  /* The API models a User as belonging to exactly one organization, with the
-     role as a column on the user row. There is no CandidateAccount and no
-     OrganizationMember join, so none of the job-seeker surfaces can persist
-     anything yet. Each flag below turns one on when its contract lands.      */
+  /* The identity migration landed: a User owns an optional CandidateAccount
+     and any number of OrganizationMember rows, each with its own role. Every
+     flag below was flipped only after the matching contract was verified
+     against the running API — see docs/identity-contracts.md.               */
   /* ---------------------------------------------------------------------- */
 
-  /** No CandidateAccount model — a user cannot own a job-seeker profile. */
-  candidateAccount: false,
-  /** No OrganizationMember join — a user cannot belong to several orgs. */
-  multiOrganization: false,
-  /** No public/unauthenticated vacancy discovery route. */
-  publicJobs: false,
-  /** No route lets a candidate apply to a vacancy for themselves. */
-  directApplication: false,
-  /** No saved-jobs/favourites model. */
-  savedJobs: false,
+  /**
+   * POST /api/candidate-account, GET/PATCH /candidate-account/me and the
+   * personal-resume routes — live. A user owns a job-seeker profile that
+   * belongs to no organization.
+   */
+  candidateAccount: true,
+  /**
+   * GET /api/auth/me returns `memberships[]`, and
+   * POST /api/auth/switch-organization mints a token for another one — live.
+   * One user can hold a different role in each organization.
+   */
+  multiOrganization: true,
+  /** GET /api/public/jobs and /public/jobs/:slug — live, no auth required. */
+  publicJobs: true,
+  /** POST /api/public/jobs/:slug/apply — live, authenticated candidate. */
+  directApplication: true,
+  /** GET/POST/DELETE /api/candidate-account/me/saved-jobs — live. */
+  savedJobs: true,
   /**
    * Application.source — live. The API returns a provenance value on every
-   * application (MANUAL_UPLOAD for one created in-app), so the badge shows a
-   * real source rather than a guess.
+   * application (DIRECT for a self-application, MANUAL_UPLOAD for a recruiter
+   * upload), so the badge shows a real source rather than a guess.
    */
   applicationSource: true,
+  /**
+   * Session management: GET /api/auth/sessions, DELETE /auth/sessions/:id,
+   * POST /auth/logout and /auth/logout-all — live.
+   */
+  sessionManagement: true,
+
   /** No email or job-board integration endpoints. */
   integrations: false,
 } as const;

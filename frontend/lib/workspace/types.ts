@@ -8,19 +8,18 @@ import type { Role, SessionUser } from "@/lib/types";
  * belong to. Roles belong to the membership, never to the user, so nothing here
  * reads a "user role" as if it were global.
  *
- * The backend does not model this yet (see the migration notes in README): a
- * User carries a single `organizationId` and `role` column, so today exactly
- * one organization workspace can be derived and the personal workspace has no
- * backing account. The shape below is what the UI needs either way — when
- * `OrganizationMember` lands, `organizations` becomes a list of many instead of
- * a list of one, and no component has to change.
+ * The identity migration made this literal: `GET /auth/me` returns a
+ * `memberships[]` array and an `activeOrganization`, and one user can hold
+ * several memberships with a different role in each. The personal workspace is
+ * independent of all of them — a recruiter at two organizations may also be a
+ * job seeker, and the two sides must not borrow each other's assumptions.
  */
 
 export type WorkspaceKind = "personal" | "organization";
 
 export interface OrganizationWorkspace {
   kind: "organization";
-  /** The organization's id. Never sent to the API — the backend derives tenancy. */
+  /** The organization's id. Sent only to /auth/switch-organization. */
   id: string;
   name: string;
   slug: string;
@@ -37,39 +36,82 @@ export interface PersonalWorkspace {
 export type Workspace = OrganizationWorkspace | PersonalWorkspace;
 
 export interface WorkspaceContext {
-  /** Derived from the route the user is on, not from stored state. */
+  /** Derived from the route the user is on and the token's active org. */
   active: Workspace;
+  /** Every organization the user actually belongs to. */
   organizations: OrganizationWorkspace[];
   personal: PersonalWorkspace;
   /**
-   * False while the backend has no CandidateAccount. The personal workspace is
-   * still listed so the concept is visible, but entering it is disabled rather
-   * than leading to a screen that cannot persist anything.
+   * The organization the current access token points at, if any.
+   *
+   * Null for a job seeker, and also when the token's claim is stale because
+   * the membership was revoked. Both mean the same thing to the UI: do not
+   * render organization data, offer the picker.
    */
-  personalAvailable: boolean;
+  activeOrganizationId: string | null;
+  /**
+   * Whether the user has created their job-seeker profile yet.
+   *
+   * The workspace is reachable either way — the profile page creates the
+   * account — but the switcher says which state it is in rather than implying
+   * a profile exists.
+   */
+  hasCandidateAccount: boolean;
 }
 
 /**
- * Builds the workspace list from the session.
+ * The organizations the user belongs to, in join order.
  *
- * Today the session carries one organization, so this returns one. It is
- * written as a list on purpose — that is the only part that changes when
- * multi-organization membership arrives.
+ * Built from real membership rows, so a user with none gets an empty list and
+ * a user with four gets four — each with the role held in that organization.
  */
 export function organizationsFromSession(
   session: SessionUser,
 ): OrganizationWorkspace[] {
-  return [
-    {
-      kind: "organization",
-      id: session.organization.id,
-      name: session.organization.name,
-      slug: session.organization.slug,
-      role: session.role,
-    },
-  ];
+  return session.memberships.map((membership) => ({
+    kind: "organization",
+    id: membership.organization.id,
+    name: membership.organization.name,
+    slug: membership.organization.slug,
+    role: membership.role,
+  }));
 }
 
 export function personalFromSession(session: SessionUser): PersonalWorkspace {
   return { kind: "personal", id: "personal", name: session.fullName };
+}
+
+/**
+ * Assembles the context a shell needs.
+ *
+ * Pure on purpose: it takes a session and the active workspace and derives
+ * nothing from request state, so both the server helpers and the tests use the
+ * same function.
+ */
+export function buildWorkspaceContext(
+  session: SessionUser,
+  active: Workspace,
+): WorkspaceContext {
+  return {
+    active,
+    organizations: organizationsFromSession(session),
+    personal: personalFromSession(session),
+    activeOrganizationId: session.activeOrganization?.id ?? null,
+    hasCandidateAccount: session.hasCandidateAccount,
+  };
+}
+
+/** The workspace matching the token's active organization, if it still exists. */
+export function activeOrganizationWorkspace(
+  session: SessionUser,
+): OrganizationWorkspace | null {
+  const active = session.activeOrganization;
+  if (!active) return null;
+  return {
+    kind: "organization",
+    id: active.id,
+    name: active.name,
+    slug: active.slug,
+    role: active.role,
+  };
 }

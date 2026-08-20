@@ -16,6 +16,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CandidateAccountService } from './candidate-account.service';
 import { UpsertCandidateAccountDto } from './dto/upsert-candidate-account.dto';
+import { JobMatchesDto } from './dto/job-matches.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination.dto';
 import type { ValidatableFile } from '../documents/file-validation';
@@ -90,6 +91,17 @@ export class CandidateAccountController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.withdraw(userId, id);
+  }
+
+  /**
+   * AI job matching over the caller's own profile + personal resume. Needs no
+   * organization membership of any kind; a dual-identity user's active
+   * organization plays no part in it.
+   */
+  @HttpCode(HttpStatus.OK)
+  @Post('me/job-matches')
+  jobMatches(@CurrentUser('id') userId: string, @Body() dto: JobMatchesDto) {
+    return this.service.jobMatches(userId, dto);
   }
 
   @Get('me/saved-jobs')

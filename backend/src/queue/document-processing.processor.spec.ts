@@ -59,11 +59,144 @@ describe('DocumentProcessingProcessor', () => {
     ai = {
       enabled: true,
       processDocument: jest.fn().mockResolvedValue(AI_RESULT),
+      processPersonalResume: jest.fn().mockResolvedValue({
+        documentId: 'pd1',
+        pageCount: 1,
+        chunksCreated: 3,
+        vectorsIndexed: 3,
+        durationMs: 300,
+      }),
+      deletePersonalResume: jest.fn().mockResolvedValue(undefined),
+      indexVacancy: jest.fn().mockResolvedValue(undefined),
+      deleteVacancyIndex: jest.fn().mockResolvedValue(undefined),
     };
-    prisma = { document: { findFirst: jest.fn().mockResolvedValue(DOCUMENT) } };
+    prisma = {
+      document: {
+        findFirst: jest.fn().mockResolvedValue(DOCUMENT),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      vacancy: { findUnique: jest.fn() },
+    };
     storage = {
       getObject: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4')),
     };
+  });
+
+  describe('personal resume jobs (candidate-scoped path)', () => {
+    const personalJob = (over: Record<string, unknown> = {}) =>
+      ({
+        name: 'PROCESS_PERSONAL_RESUME',
+        data: { documentId: 'pd1', candidateAccountId: 'acct-1' },
+        attemptsMade: 0,
+        ...over,
+      }) as never;
+
+    beforeEach(() => {
+      prisma.document.findFirst.mockResolvedValue({
+        id: 'pd1',
+        originalFileName: 'me.pdf',
+        storageKey: 'candidate/acct-1/documents/pd1.pdf',
+        mimeType: 'application/pdf',
+      });
+    });
+
+    it('verifies OWNERSHIP and org-lessness before indexing', async () => {
+      await build().process(personalJob());
+
+      expect(prisma.document.findFirst.mock.calls[0][0].where).toEqual({
+        id: 'pd1',
+        candidateAccountId: 'acct-1',
+        organizationId: null,
+      });
+      expect(ai.processPersonalResume).toHaveBeenCalledWith(
+        expect.objectContaining({ candidateAccountId: 'acct-1' }),
+      );
+      // Never the org pipeline, never a ProcessingJob write.
+      expect(ai.processDocument).not.toHaveBeenCalled();
+      expect(processing.markCompleted).not.toHaveBeenCalled();
+      expect(prisma.document.updateMany.mock.calls[0][0].data.status).toBe(
+        'COMPLETED',
+      );
+    });
+
+    it('marks the personal document FAILED when indexing fails', async () => {
+      ai.processPersonalResume.mockRejectedValue(new Error('boom'));
+
+      await expect(build().process(personalJob())).rejects.toThrow('boom');
+      expect(prisma.document.updateMany.mock.calls[0][0].data.status).toBe(
+        'FAILED',
+      );
+    });
+
+    it('the delete job evicts the replaced resume vectors', async () => {
+      await build().process({
+        name: 'DELETE_PERSONAL_RESUME_INDEX',
+        data: { documentId: 'old', candidateAccountId: 'acct-1' },
+        attemptsMade: 0,
+      } as never);
+
+      expect(ai.deletePersonalResume).toHaveBeenCalledWith('acct-1', 'old');
+    });
+  });
+
+  describe('vacancy index sync jobs', () => {
+    const syncJob = () =>
+      ({
+        name: 'SYNC_VACANCY_INDEX',
+        data: { vacancyId: 'v1' },
+        attemptsMade: 0,
+      }) as never;
+
+    it('an OPEN vacancy is indexed with candidate-visible fields only', async () => {
+      prisma.vacancy.findUnique.mockResolvedValue({
+        id: 'v1',
+        organizationId: ORG_A,
+        status: 'OPEN',
+        title: 'Backend Engineer',
+        description: 'Build things',
+        location: 'Remote',
+        employmentType: 'Full-time',
+        requirements: [{ text: 'Docker', required: true }],
+      });
+
+      await build().process(syncJob());
+
+      const sent = ai.indexVacancy.mock.calls[0][0];
+      expect(sent.vacancyId).toBe('v1');
+      expect(sent.requirements).toEqual([{ text: 'Docker', required: true }]);
+      // Recruiter-side data is not even selected, let alone sent.
+      expect(JSON.stringify(sent)).not.toContain('createdBy');
+      expect(JSON.stringify(sent)).not.toContain('applications');
+    });
+
+    it.each(['DRAFT', 'CLOSED', 'ARCHIVED'])(
+      'a %s vacancy is removed from the index',
+      async (status) => {
+        prisma.vacancy.findUnique.mockResolvedValue({
+          id: 'v1',
+          organizationId: ORG_A,
+          status,
+          title: 't',
+          description: null,
+          location: null,
+          employmentType: null,
+          requirements: [],
+        });
+
+        await build().process(syncJob());
+
+        expect(ai.deleteVacancyIndex).toHaveBeenCalledWith('v1');
+        expect(ai.indexVacancy).not.toHaveBeenCalled();
+      },
+    );
+
+    it('a deleted vacancy is removed from the index (idempotent sync)', async () => {
+      prisma.vacancy.findUnique.mockResolvedValue(null);
+
+      await build().process(syncJob());
+
+      expect(ai.deleteVacancyIndex).toHaveBeenCalledWith('v1');
+    });
   });
 
   describe('while the AI service is not configured', () => {

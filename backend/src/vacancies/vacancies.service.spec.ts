@@ -33,13 +33,16 @@ function createPrismaMock() {
 
 describe('VacanciesService', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
+  let producer: { enqueueVacancyIndexSync: jest.Mock };
   let service: VacanciesService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
+    producer = { enqueueVacancyIndexSync: jest.fn().mockResolvedValue('j1') };
     service = new VacanciesService(
       prisma as unknown as PrismaService,
       new TenantService(),
+      producer as never,
     );
   });
 
@@ -79,6 +82,61 @@ describe('VacanciesService', () => {
       expect(prisma.vacancy.create).toHaveBeenCalledTimes(2);
       const [first, second] = prisma.vacancy.create.mock.calls;
       expect(first[0].data.publicSlug).not.toBe(second[0].data.publicSlug);
+    });
+  });
+
+  describe('candidate-visible job index lifecycle', () => {
+    it('create queues an index sync', async () => {
+      prisma.vacancy.create.mockResolvedValue({ id: 'v1' });
+
+      await service.create(ORG_A, 'user-1', { title: 'Backend Engineer' });
+
+      expect(producer.enqueueVacancyIndexSync).toHaveBeenCalledWith({
+        vacancyId: 'v1',
+      });
+    });
+
+    it('update and status changes queue a sync', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({ id: 'v1', status: 'DRAFT' });
+      prisma.vacancy.update.mockResolvedValue({ id: 'v1' });
+
+      await service.update(ORG_A, 'v1', { title: 'Renamed' });
+      await service.setStatus(ORG_A, 'v1', VacancyStatus.OPEN);
+
+      expect(producer.enqueueVacancyIndexSync).toHaveBeenCalledTimes(2);
+    });
+
+    it('deletion queues a sync so the index entry is removed', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({ id: 'v1' });
+      prisma.vacancy.delete.mockResolvedValue({ id: 'v1' });
+
+      await service.remove(ORG_A, 'v1');
+
+      expect(producer.enqueueVacancyIndexSync).toHaveBeenCalledWith({
+        vacancyId: 'v1',
+      });
+    });
+
+    it('requirement edits queue a sync (candidate-visible content changed)', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({ id: 'v1' });
+      prisma.jobRequirement.create.mockResolvedValue({ id: 'r1' });
+
+      await service.addRequirement(ORG_A, 'v1', { text: 'Docker' });
+
+      expect(producer.enqueueVacancyIndexSync).toHaveBeenCalledWith({
+        vacancyId: 'v1',
+      });
+    });
+
+    it('a queue outage never fails recruiter CRUD', async () => {
+      producer.enqueueVacancyIndexSync.mockRejectedValue(
+        new Error('redis down'),
+      );
+      prisma.vacancy.create.mockResolvedValue({ id: 'v1' });
+
+      await expect(
+        service.create(ORG_A, 'user-1', { title: 'Backend Engineer' }),
+      ).resolves.toMatchObject({ id: 'v1' });
     });
   });
 

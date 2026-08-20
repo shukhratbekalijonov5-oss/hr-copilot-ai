@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { DocumentProcessingProducer } from '../queue/document-processing.producer';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import { VacancyStatus } from '../generated/prisma/enums';
 import { buildPublicSlug } from './vacancy-slug.util';
@@ -15,10 +16,31 @@ import type {
 
 @Injectable()
 export class VacanciesService {
+  private readonly logger = new Logger(VacanciesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantService,
+    private readonly producer: DocumentProcessingProducer,
   ) {}
+
+  /**
+   * Queues reconciliation of this vacancy with the candidate-discoverable job
+   * index. Fired after EVERY vacancy mutation; the worker reads the current
+   * database state (OPEN -> index candidate-visible fields, anything else ->
+   * remove), so repeated/out-of-order syncs converge. Best-effort: the index
+   * is a retrieval accelerator, and a queue outage must not fail recruiter
+   * CRUD.
+   */
+  private async queueIndexSync(vacancyId: string): Promise<void> {
+    try {
+      await this.producer.enqueueVacancyIndexSync({ vacancyId });
+    } catch (error) {
+      this.logger.warn(
+        `Vacancy ${vacancyId} index sync could not be queued: ${(error as Error).message}`,
+      );
+    }
+  }
 
   async create(
     organizationId: string,
@@ -37,7 +59,7 @@ export class VacanciesService {
     // so that even that case never surfaces to the caller.
     for (let attempt = 1; ; attempt += 1) {
       try {
-        return await this.prisma.vacancy.create({
+        const vacancy = await this.prisma.vacancy.create({
           data: {
             ...dto,
             status: dto.status ?? VacancyStatus.DRAFT,
@@ -47,6 +69,8 @@ export class VacanciesService {
           },
           include: { requirements: true },
         });
+        await this.queueIndexSync(vacancy.id);
+        return vacancy;
       } catch (error) {
         if (attempt >= 3 || !isUniqueViolation(error, 'publicSlug')) {
           throw error;
@@ -105,11 +129,13 @@ export class VacanciesService {
 
   async update(organizationId: string, id: string, dto: UpdateVacancyDto) {
     await this.assertVacancyInOrg(organizationId, id);
-    return this.prisma.vacancy.update({
+    const vacancy = await this.prisma.vacancy.update({
       where: { id },
       data: dto,
       include: { requirements: true },
     });
+    await this.queueIndexSync(id);
+    return vacancy;
   }
 
   /** Explicit lifecycle transition; always a human action. */
@@ -127,12 +153,18 @@ export class VacanciesService {
       throw new BadRequestException('An archived vacancy cannot change status');
     }
 
-    return this.prisma.vacancy.update({ where: { id }, data: { status } });
+    const updated = await this.prisma.vacancy.update({
+      where: { id },
+      data: { status },
+    });
+    await this.queueIndexSync(id);
+    return updated;
   }
 
   async remove(organizationId: string, id: string) {
     await this.assertVacancyInOrg(organizationId, id);
     await this.prisma.vacancy.delete({ where: { id } });
+    await this.queueIndexSync(id);
     return { id, deleted: true };
   }
 
@@ -146,7 +178,11 @@ export class VacanciesService {
     dto: CreateJobRequirementDto,
   ) {
     await this.assertVacancyInOrg(organizationId, vacancyId);
-    return this.prisma.jobRequirement.create({ data: { ...dto, vacancyId } });
+    const requirement = await this.prisma.jobRequirement.create({
+      data: { ...dto, vacancyId },
+    });
+    await this.queueIndexSync(vacancyId);
+    return requirement;
   }
 
   async listRequirements(organizationId: string, vacancyId: string) {
@@ -161,10 +197,12 @@ export class VacanciesService {
     dto: UpdateJobRequirementDto,
   ) {
     await this.assertRequirementInOrg(organizationId, vacancyId, requirementId);
-    return this.prisma.jobRequirement.update({
+    const requirement = await this.prisma.jobRequirement.update({
       where: { id: requirementId },
       data: dto,
     });
+    await this.queueIndexSync(vacancyId);
+    return requirement;
   }
 
   async removeRequirement(
@@ -174,6 +212,7 @@ export class VacanciesService {
   ) {
     await this.assertRequirementInOrg(organizationId, vacancyId, requirementId);
     await this.prisma.jobRequirement.delete({ where: { id: requirementId } });
+    await this.queueIndexSync(vacancyId);
     return { id: requirementId, deleted: true };
   }
 

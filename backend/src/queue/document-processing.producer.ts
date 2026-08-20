@@ -2,9 +2,15 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import {
+  DELETE_PERSONAL_RESUME_INDEX_JOB,
   PROCESS_DOCUMENT_JOB,
+  PROCESS_PERSONAL_RESUME_JOB,
   RESUME_PROCESSING_QUEUE,
+  SYNC_VACANCY_INDEX_JOB,
+  type PersonalResumeJobData,
   type ProcessDocumentJobData,
+  type ResumeQueueJobData,
+  type SyncVacancyIndexJobData,
 } from './queue.constants';
 
 @Injectable()
@@ -13,7 +19,7 @@ export class DocumentProcessingProducer {
 
   constructor(
     @InjectQueue(RESUME_PROCESSING_QUEUE)
-    private readonly queue: Queue<ProcessDocumentJobData>,
+    private readonly queue: Queue<ResumeQueueJobData>,
   ) {}
 
   /**
@@ -74,6 +80,49 @@ export class DocumentProcessingProducer {
     if (!job) return false;
     const state = await job.getState();
     return state === 'active' || state === 'waiting' || state === 'delayed';
+  }
+
+  /**
+   * Enqueues a PERSONAL resume for candidate-scoped AI indexing.
+   *
+   * Distinct job id namespace from org documents so a personal doc can never
+   * dedupe against an org one. Replace semantics on the AI side make retries
+   * and re-uploads idempotent.
+   */
+  async enqueuePersonalResume(
+    data: PersonalResumeJobData,
+  ): Promise<string | null> {
+    const job = await this.queue.add(PROCESS_PERSONAL_RESUME_JOB, data, {
+      jobId: `personal-${data.documentId}`,
+    });
+    this.logger.log(
+      `Enqueued ${PROCESS_PERSONAL_RESUME_JOB} for document ${data.documentId}`,
+    );
+    return job.id ?? null;
+  }
+
+  /** Queues removal of a replaced personal resume's vectors. */
+  async enqueuePersonalResumeIndexDeletion(
+    data: PersonalResumeJobData,
+  ): Promise<string | null> {
+    const job = await this.queue.add(DELETE_PERSONAL_RESUME_INDEX_JOB, data, {
+      jobId: `personal-delete-${data.documentId}`,
+    });
+    return job.id ?? null;
+  }
+
+  /**
+   * Queues a vacancy ↔ index reconciliation. Fired on every vacancy mutation;
+   * the worker looks at the CURRENT database state, so firing it many times
+   * (or after deletion) converges on the right index contents. A fresh job id
+   * per call is deliberate: a later mutation must not be swallowed by
+   * deduping against a finished earlier job.
+   */
+  async enqueueVacancyIndexSync(
+    data: SyncVacancyIndexJobData,
+  ): Promise<string | null> {
+    const job = await this.queue.add(SYNC_VACANCY_INDEX_JOB, data);
+    return job.id ?? null;
   }
 
   /** Resolves once the queue's Redis connection is usable. Used by tests. */

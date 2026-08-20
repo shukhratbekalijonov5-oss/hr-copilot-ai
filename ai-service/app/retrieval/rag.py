@@ -16,6 +16,7 @@ from app.config import Settings
 from app.generation import (
     GenerationClient,
     GenerationDisabledError,
+    reconcile_answer_markers,
     scrub_context,
     validate_citations,
 )
@@ -127,7 +128,9 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
     )
 
     return RagResponse(
-        answer=generated.answer,
+        # Prose and citation list must agree: markers for accepted citations
+        # are canonicalized to [<chunkId>], everything else is stripped.
+        answer=reconcile_answer_markers(generated.answer, context, outcome.citations),
         status=status,
         citations=outcome.citations,
         locale=locale,
@@ -188,7 +191,9 @@ def summarise_candidate(
     )
 
     return CandidateSummaryResponse(
-        summary=generated.answer,
+        summary=reconcile_answer_markers(
+            generated.answer, context, outcome.citations
+        ),
         status=_resolve_status(generated.status, outcome.citations),
         citations=outcome.citations,
         locale=locale,

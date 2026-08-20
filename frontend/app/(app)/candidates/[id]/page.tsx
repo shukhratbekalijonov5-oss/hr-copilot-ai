@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { api, ApiError } from "@/lib/api";
 import { aiFailureReason } from "@/lib/api/ai-failure";
-import { requireSession } from "@/lib/auth/session";
+import { requireOrganizationWorkspace } from "@/lib/workspace/server";
 import { getTranslations } from "@/lib/i18n/server";
 import { CandidateWorkspace } from "@/components/candidates/CandidateWorkspace";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -29,7 +29,7 @@ export async function generateMetadata(
 export default async function CandidateDetailPage(
   props: PageProps<"/candidates/[id]">,
 ) {
-  const session = await requireSession();
+  const { workspace } = await requireOrganizationWorkspace();
   const d = await getTranslations();
   const { id } = await props.params;
 
@@ -80,7 +80,11 @@ export default async function CandidateDetailPage(
         vacancy={vacancy}
         evidenceMap={evidenceMap}
         evidenceMapFailure={evidenceMapFailure}
-        role={session.role}
+        role={
+          workspace.active.kind === "organization"
+            ? workspace.active.role
+            : "INTERVIEWER"
+        }
       />
     </div>
   );

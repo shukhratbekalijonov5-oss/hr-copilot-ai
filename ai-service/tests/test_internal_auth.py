@@ -12,6 +12,16 @@ INTERNAL_ROUTES = [
     ("/internal/search", {"organizationId": "org-a", "query": "kubernetes"}),
     ("/internal/rerank", {"query": "kubernetes", "hits": []}),
     ("/internal/documents/delete", {"organizationId": "org-a", "documentId": "d1"}),
+    # Candidate-side routes require the same service credential.
+    (
+        "/internal/candidate/documents/delete",
+        {"candidateAccountId": "acct-a", "documentId": "d1"},
+    ),
+    ("/internal/vacancies/delete", {"vacancyId": "v1"}),
+    (
+        "/internal/candidate/job-matches",
+        {"candidateAccountId": "acct-a", "locale": "en"},
+    ),
 ]
 
 

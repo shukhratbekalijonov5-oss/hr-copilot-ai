@@ -13,15 +13,17 @@ import {
 } from "@/lib/workspace/navigation";
 import type { Role, SessionUser } from "@/lib/types";
 
+const NORTHWIND = { id: "o1", name: "Northwind Talent", slug: "northwind" };
+
 function session(role: Role): SessionUser {
   return {
     id: "u1",
-    organizationId: "o1",
     fullName: "Aziza Rakhimova",
     email: "aziza@northwind.example",
-    role,
-    preferredLocale: null,
-    organization: { id: "o1", name: "Northwind Talent", slug: "northwind" },
+    preferredLocale: "en",
+    hasCandidateAccount: false,
+    activeOrganization: { ...NORTHWIND, role },
+    memberships: [{ organization: NORTHWIND, role, joinedAt: "2026-01-01T00:00:00.000Z" }],
   };
 }
 

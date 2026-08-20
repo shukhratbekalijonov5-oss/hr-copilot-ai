@@ -9,6 +9,7 @@ import {
 const ORG_A = 'org-a';
 const ORG_B = 'org-b';
 const CAND = 'cand-1';
+const USER = 'user-1';
 const VAC = 'vac-1';
 
 describe('AiAnswerService', () => {
@@ -56,6 +57,9 @@ describe('AiAnswerService', () => {
       }),
     };
     prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ preferredLocale: 'en' }),
+      },
       candidate: { findFirst: jest.fn().mockResolvedValue({ id: CAND }) },
       vacancy: {
         findFirst: jest.fn().mockResolvedValue({
@@ -71,12 +75,12 @@ describe('AiAnswerService', () => {
 
   describe('tenant identity', () => {
     it('always sends the organization from auth', async () => {
-      await service.answer(ORG_A, { query: 'Kubernetes?' });
+      await service.answer(ORG_A, USER, { query: 'Kubernetes?' });
       expect(ai.answerQuestion.mock.calls[0][0].organizationId).toBe(ORG_A);
     });
 
     it('ignores any organizationId in the payload', async () => {
-      await service.answer(ORG_A, {
+      await service.answer(ORG_A, USER, {
         query: 'x',
         organizationId: ORG_B,
       } as never);
@@ -87,7 +91,7 @@ describe('AiAnswerService', () => {
       prisma.candidate.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.answer(ORG_A, { query: 'x', candidateId: 'foreign' }),
+        service.answer(ORG_A, USER, { query: 'x', candidateId: 'foreign' }),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(ai.answerQuestion).not.toHaveBeenCalled();
     });
@@ -96,7 +100,7 @@ describe('AiAnswerService', () => {
       prisma.vacancy.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.answer(ORG_A, { query: 'x', vacancyId: 'foreign' }),
+        service.answer(ORG_A, USER, { query: 'x', vacancyId: 'foreign' }),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(ai.answerQuestion).not.toHaveBeenCalled();
     });
@@ -105,22 +109,56 @@ describe('AiAnswerService', () => {
       prisma.candidate.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.summariseCandidate(ORG_A, 'foreign'),
+        service.summariseCandidate(ORG_A, USER, 'foreign'),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(ai.summariseCandidate).not.toHaveBeenCalled();
     });
   });
 
-  describe('locale handling', () => {
-    it('defaults to English', async () => {
-      await service.answer(ORG_A, { query: 'x' });
+  describe('locale handling (precedence: explicit → preferred → en)', () => {
+    it('falls back to the USER preferred locale when the request sends none', async () => {
+      prisma.user.findUnique.mockResolvedValue({ preferredLocale: 'uz' });
+
+      await service.answer(ORG_A, USER, { query: 'x' });
+
+      expect(ai.answerQuestion.mock.calls[0][0].locale).toBe('uz');
+      expect(prisma.user.findUnique.mock.calls[0][0].where).toEqual({
+        id: USER,
+      });
+    });
+
+    it('an EXPLICIT request locale always wins over the preference', async () => {
+      prisma.user.findUnique.mockResolvedValue({ preferredLocale: 'ko' });
+
+      await service.answer(ORG_A, USER, { query: 'x', locale: 'ru' });
+
+      expect(ai.answerQuestion.mock.calls[0][0].locale).toBe('ru');
+      // No lookup needed when the client stated the language.
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('defaults to English only as the last resort', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await service.answer(ORG_A, USER, { query: 'x' });
+
       expect(ai.answerQuestion.mock.calls[0][0].locale).toBe('en');
+    });
+
+    it('summaries and interview questions use the same precedence', async () => {
+      prisma.user.findUnique.mockResolvedValue({ preferredLocale: 'ko' });
+
+      await service.summariseCandidate(ORG_A, USER, CAND, undefined);
+      expect(ai.summariseCandidate.mock.calls[0][0].locale).toBe('ko');
+
+      await service.interviewQuestions(ORG_A, USER, CAND, VAC, undefined);
+      expect(ai.interviewQuestions.mock.calls[0][0].locale).toBe('ko');
     });
 
     it.each(['en', 'ko', 'ru', 'uz'] as const)(
       'passes %s through',
       async (locale) => {
-        await service.answer(ORG_A, { query: 'x', locale });
+        await service.answer(ORG_A, USER, { query: 'x', locale });
         expect(ai.answerQuestion.mock.calls[0][0].locale).toBe(locale);
       },
     );
@@ -134,7 +172,9 @@ describe('AiAnswerService', () => {
 
   describe('results', () => {
     it('passes through the grounded answer and its citations', async () => {
-      const result = await service.answer(ORG_A, { query: 'Kubernetes?' });
+      const result = await service.answer(ORG_A, USER, {
+        query: 'Kubernetes?',
+      });
 
       expect(result.status).toBe('GROUNDED');
       expect(result.citations[0].pageNumber).toBe(2);
@@ -142,7 +182,7 @@ describe('AiAnswerService', () => {
     });
 
     it('sends the vacancy requirements when generating questions', async () => {
-      await service.interviewQuestions(ORG_A, CAND, VAC, 'ko');
+      await service.interviewQuestions(ORG_A, USER, CAND, VAC, 'ko');
 
       const payload = ai.interviewQuestions.mock.calls[0][0];
       expect(payload.requirements).toEqual([
@@ -157,14 +197,14 @@ describe('AiAnswerService', () => {
       ai.answerQuestion.mockRejectedValue(new AiServiceDisabledError('answer'));
 
       await expect(
-        service.answer(ORG_A, { query: 'x' }),
+        service.answer(ORG_A, USER, { query: 'x' }),
       ).rejects.toBeInstanceOf(ServiceUnavailableException);
     });
 
     it('never fabricates an answer when the provider fails', async () => {
       ai.answerQuestion.mockRejectedValue(new Error('provider timeout'));
 
-      await expect(service.answer(ORG_A, { query: 'x' })).rejects.toThrow(
+      await expect(service.answer(ORG_A, USER, { query: 'x' })).rejects.toThrow(
         'provider timeout',
       );
     });

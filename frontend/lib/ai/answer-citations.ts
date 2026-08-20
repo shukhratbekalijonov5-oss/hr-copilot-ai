@@ -94,3 +94,37 @@ export function hasInlineCitations(
     (segment) => segment.kind === "citation",
   );
 }
+
+/**
+ * A bracketed run of small numbers — "[1]", "[1, 3]" — the shape the model
+ * falls back to when it numbers its own references instead of using chunk ids.
+ *
+ * One or two digits only: the citation limit is 20, and anything longer is
+ * ordinary prose such as "[2021]".
+ */
+const NUMERIC_MARKER = /\[\s*\d{1,2}(?:\s*[,;]\s*\d{1,2})*\s*\]/;
+
+/** Non-global copy — `.test` on a /g/ regex is stateful across calls. */
+const ANY_ID_MARKER = new RegExp(MARKER.source);
+
+/**
+ * True when the answer refers to sources that were not returned with it.
+ *
+ * The live failure this guards: an answer written with reference markers —
+ * numeric "[1] [3]" or chunk-id brackets — arriving with `citations: []`
+ * because the backend validated every citation away. Rendering the usual
+ * source UI would imply the numbers can be checked when nothing backs them,
+ * so the caller shows a "sources unavailable" notice instead.
+ *
+ * Deliberately NOT triggered while any citation exists: an id marker that
+ * fails to resolve against a non-empty list was rejected by the backend's
+ * validator and is silently dropped by `segmentAnswer` — the remaining
+ * sources are real and the source list stays the honest UI for them.
+ */
+export function hasOrphanedReferences(
+  answer: string,
+  citations: Citation[],
+): boolean {
+  if (citations.length > 0) return false;
+  return ANY_ID_MARKER.test(answer) || NUMERIC_MARKER.test(answer);
+}

@@ -8,6 +8,7 @@ import { TenantService } from '../common/tenant/tenant.service';
 import {
   AiServiceClient,
   AiServiceDisabledError,
+  isSupportedLocale,
   type SupportedLocale,
 } from '../ai/ai-service.client';
 
@@ -30,6 +31,7 @@ export class AiAnswerService {
 
   async answer(
     organizationId: string,
+    userId: string,
     input: {
       query: string;
       candidateId?: string;
@@ -44,6 +46,7 @@ export class AiAnswerService {
     if (input.vacancyId) {
       await this.assertVacancy(organizationId, input.vacancyId);
     }
+    const locale = await this.resolveLocale(userId, input.locale);
 
     return this.guard('answer questions', () =>
       this.ai.answerQuestion({
@@ -51,32 +54,67 @@ export class AiAnswerService {
         query: input.query,
         candidateId: input.candidateId ?? null,
         vacancyId: input.vacancyId ?? null,
-        locale: input.locale ?? 'en',
+        locale,
         limit: input.limit,
       }),
     );
   }
 
+  /**
+   * Locale precedence (documented product rule):
+   *   explicit request locale → the user's preferredLocale → 'en'.
+   * The client's explicit choice always wins; the account-level preference
+   * only fills the gap when the client sent none. Nothing here detects the
+   * query's language — language selection is a user setting, not a guess.
+   */
+  private async resolveLocale(
+    userId: string,
+    requested: SupportedLocale | undefined,
+  ): Promise<SupportedLocale> {
+    if (requested) return requested;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { preferredLocale: true },
+    });
+    const resolved =
+      user && isSupportedLocale(user.preferredLocale)
+        ? user.preferredLocale
+        : 'en';
+    // Safe metadata only — no query text, no tokens.
+    this.logger.log(
+      `AI generation locale: requested=none resolved=${resolved}`,
+    );
+    return resolved;
+  }
+
   async summariseCandidate(
     organizationId: string,
+    userId: string,
     candidateId: string,
-    locale: SupportedLocale = 'en',
+    locale?: SupportedLocale,
   ) {
     await this.assertCandidate(organizationId, candidateId);
+    const resolved = await this.resolveLocale(userId, locale);
 
     return this.guard('summarise candidates', () =>
-      this.ai.summariseCandidate({ organizationId, candidateId, locale }),
+      this.ai.summariseCandidate({
+        organizationId,
+        candidateId,
+        locale: resolved,
+      }),
     );
   }
 
   async interviewQuestions(
     organizationId: string,
+    userId: string,
     candidateId: string,
     vacancyId: string,
-    locale: SupportedLocale = 'en',
+    locale?: SupportedLocale,
   ) {
     await this.assertCandidate(organizationId, candidateId);
     const vacancy = await this.assertVacancy(organizationId, vacancyId);
+    const resolvedLocale = await this.resolveLocale(userId, locale);
 
     return this.guard('generate interview questions', () =>
       this.ai.interviewQuestions({
@@ -89,7 +127,7 @@ export class AiAnswerService {
           type: r.type,
           required: r.required,
         })),
-        locale,
+        locale: resolvedLocale,
       }),
     );
   }

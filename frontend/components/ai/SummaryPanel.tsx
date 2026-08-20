@@ -161,6 +161,7 @@ export function SummaryPanel({
 
               <CitationList
                 citations={summary.citations}
+                answerText={summary.summary}
                 onSelectCitation={onSelectCitation}
                 activeCitationId={activeCitationId}
                 className="border-t border-line pt-3"

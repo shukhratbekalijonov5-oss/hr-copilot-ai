@@ -21,6 +21,7 @@ and the caller is told so rather than being handed an uncited claim.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from app.common.logging import get_logger
@@ -60,6 +61,17 @@ def validate_citations(
     citations: list[Citation] = []
     rejected: list[str] = []
     seen: set[str] = set()
+
+    # The prompt shows passages as "PASSAGE n — chunkId: <id>", and despite
+    # being told to cite by chunkId the model sometimes cites by the passage
+    # NUMBER instead. That is not an invented source — it is a deterministic
+    # reference into the exact context we sent — so map it back to the real
+    # chunkId before validating. Anything out of range stays rejected, and
+    # membership/candidate checks below run unchanged, so nothing about this
+    # loosens what a citation may point at.
+    claimed_chunk_ids = [
+        _normalise_claimed_id(raw, context) for raw in claimed_chunk_ids
+    ]
 
     for chunk_id in claimed_chunk_ids:
         if not chunk_id or chunk_id in seen:
@@ -121,3 +133,72 @@ def scrub_context(
             continue
         safe.append(hit)
     return safe
+
+
+_ORDINAL_CLAIM = re.compile(r"^\[?\s*(\d{1,3})\s*\]?$")
+
+
+def _normalise_claimed_id(raw: str, context: list[EvidenceHit]) -> str:
+    """Maps a passage-ordinal claim ("3", "[3]") to the real chunkId."""
+    match = _ORDINAL_CLAIM.match(raw.strip()) if raw else None
+    if not match:
+        return raw
+    position = int(match.group(1))
+    if 1 <= position <= len(context):
+        return context[position - 1].chunkId
+    return raw
+
+
+_UUID_SOURCE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+# A bracketed run of ordinals ("[1]", "[1, 3]"), a bracketed run of chunk ids,
+# or a bare chunk id in prose.
+_ANSWER_MARKER = re.compile(
+    rf"\[\s*\d{{1,3}}(?:\s*[,;]\s*\d{{1,3}})*\s*\]"
+    rf"|\[\s*{_UUID_SOURCE}(?:\s*[,;]?\s*{_UUID_SOURCE})*\s*\]"
+    rf"|\({_UUID_SOURCE}\)"
+    rf"|{_UUID_SOURCE}"
+)
+_NUM = re.compile(r"\d{1,3}")
+_UUID = re.compile(_UUID_SOURCE)
+
+
+def reconcile_answer_markers(
+    answer: str,
+    context: list[EvidenceHit],
+    accepted: list[Citation],
+) -> str:
+    """Makes the answer PROSE agree with the validated citation list.
+
+    The invariant delivered to callers: every citation marker remaining in the
+    answer corresponds to an ACCEPTED citation, expressed canonically as
+    ``[<chunkId>]``. Ordinal markers ("[3]") are rewritten to the accepted
+    chunkId they refer to; markers whose reference was rejected (or points
+    nowhere) are removed entirely. With zero accepted citations the answer
+    therefore contains no source markers at all — an answer must never imply
+    sources that the response does not carry.
+
+    Prose brackets that are not pure ordinals/ids ("[internal tooling]") are
+    untouched.
+    """
+    accepted_ids = {c.chunkId for c in accepted}
+
+    def replace(match: re.Match) -> str:
+        token = match.group(0)
+        ids: list[str] = []
+        uuids = _UUID.findall(token)
+        if uuids:
+            ids = [u for u in uuids if u in accepted_ids]
+        else:
+            for num in _NUM.findall(token):
+                position = int(num)
+                if 1 <= position <= len(context):
+                    chunk_id = context[position - 1].chunkId
+                    if chunk_id in accepted_ids and chunk_id not in ids:
+                        ids.append(chunk_id)
+        return "".join(f"[{i}]" for i in ids)
+
+    cleaned = _ANSWER_MARKER.sub(replace, answer)
+    # Removing a marker can leave doubled spaces or a space before punctuation.
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r" +([.,;:!?)])", r"\1", cleaned)
+    return cleaned.strip()

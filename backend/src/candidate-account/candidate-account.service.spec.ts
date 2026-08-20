@@ -27,7 +27,13 @@ function createPrismaMock() {
       count: jest.fn().mockResolvedValue(0),
       update: jest.fn(),
     },
-    vacancy: { findFirst: jest.fn() },
+    vacancy: {
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    user: {
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ preferredLocale: 'en' }),
+    },
     savedJob: {
       findUnique: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
@@ -53,6 +59,17 @@ function createStorageMock() {
   };
 }
 
+function createProducerMock() {
+  return {
+    enqueuePersonalResume: jest.fn().mockResolvedValue('job-1'),
+    enqueuePersonalResumeIndexDeletion: jest.fn().mockResolvedValue('job-2'),
+  };
+}
+
+function createAiMock() {
+  return { candidateJobMatches: jest.fn() };
+}
+
 const configService = {
   get: jest.fn((_: string, fallback?: unknown) => fallback),
 } as unknown as ConfigService;
@@ -60,14 +77,20 @@ const configService = {
 describe('CandidateAccountService', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
   let storage: ReturnType<typeof createStorageMock>;
+  let producer: ReturnType<typeof createProducerMock>;
+  let ai: ReturnType<typeof createAiMock>;
   let service: CandidateAccountService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
     storage = createStorageMock();
+    producer = createProducerMock();
+    ai = createAiMock();
     service = new CandidateAccountService(
       prisma as never,
       storage,
+      producer as never,
+      ai as never,
       configService,
     );
   });
@@ -192,6 +215,194 @@ describe('CandidateAccountService', () => {
       await expect(service.requireAccount(ME)).rejects.toBeInstanceOf(
         BadRequestException,
       );
+    });
+  });
+
+  describe('jobMatches — candidate identity only', () => {
+    const account = {
+      id: MY_ACCOUNT,
+      resumeDocumentId: 'doc-1',
+      headline: 'Backend Engineer',
+      summary: null,
+      location: 'Tashkent',
+      phone: null,
+      skills: ['Docker', 'PostgreSQL'],
+      languages: ['English'],
+      experience: [{ title: 'Backend Engineer', company: 'Acme' }],
+      education: [],
+    };
+    const aiResult = {
+      matches: [
+        {
+          vacancyId: 'vac-open',
+          organizationId: 'org-1',
+          title: 'Platform Engineer',
+          match: 'STRONG',
+          explanation: 'x',
+          supportedRequirements: [
+            { text: 'Docker', required: true, reason: '' },
+          ],
+          unsupportedRequirements: [],
+          unclearRequirements: [],
+          evidence: [
+            {
+              fileName: 'resume.pdf',
+              pageNumber: 1,
+              section: 'skills',
+              text: 'Docker',
+            },
+          ],
+        },
+        {
+          vacancyId: 'vac-closed-since',
+          organizationId: 'org-2',
+          title: 'Old Role',
+          match: 'PARTIAL',
+          explanation: null,
+          supportedRequirements: [],
+          unsupportedRequirements: [],
+          unclearRequirements: [],
+          evidence: [],
+        },
+      ],
+      locale: 'uz',
+      vacanciesConsidered: 7,
+      generated: true,
+      durationMs: 1200,
+    };
+
+    beforeEach(() => {
+      prisma.candidateAccount.findUnique.mockResolvedValue(account);
+      prisma.user.findUniqueOrThrow = jest
+        .fn()
+        .mockResolvedValue({ preferredLocale: 'uz' });
+      prisma.vacancy.findMany = jest.fn().mockResolvedValue([
+        {
+          id: 'vac-open',
+          publicSlug: 'platform-engineer-org1-abc123',
+          title: 'Platform Engineer',
+          location: 'Remote',
+          employmentType: 'Full-time',
+          status: 'OPEN',
+          organization: { name: 'Org One' },
+        },
+      ]);
+      prisma.savedJob.findMany.mockResolvedValue([{ vacancyId: 'vac-open' }]);
+      prisma.application.findMany.mockResolvedValue([
+        { vacancyId: 'vac-open', status: 'NEW' },
+      ]);
+      ai.candidateJobMatches.mockResolvedValue(aiResult);
+    });
+
+    it('matches purely by the OWN candidate account — no organization anywhere', async () => {
+      await service.jobMatches(ME, {});
+
+      const call = ai.candidateJobMatches.mock.calls[0][0];
+      expect(call.candidateAccountId).toBe(MY_ACCOUNT);
+      expect(JSON.stringify(call)).not.toContain('organizationId');
+      expect(call.profile.skills).toEqual(['Docker', 'PostgreSQL']);
+      // Locale defaults to the user's preferredLocale.
+      expect(call.locale).toBe('uz');
+    });
+
+    it('re-verifies vacancies against the DB and exposes public slugs, not UUIDs', async () => {
+      const result = await service.jobMatches(ME, {});
+
+      expect(result.matches).toHaveLength(1); // the closed one is dropped
+      const [match] = result.matches;
+      expect(match.vacancy.slug).toBe('platform-engineer-org1-abc123');
+      expect(match.vacancy.organizationName).toBe('Org One');
+      expect(JSON.stringify(match.vacancy)).not.toContain('vac-open');
+      expect(match.saved).toBe(true);
+      expect(match.applicationState).toBe('NEW');
+      // The DB filter only ever asks for OPEN vacancies.
+      expect(prisma.vacancy.findMany.mock.calls[0][0].where.status).toBe(
+        'OPEN',
+      );
+    });
+
+    it('matching NEVER creates applications, candidates or documents', async () => {
+      await service.jobMatches(ME, {});
+
+      expect(prisma.application.create).toBeUndefined();
+      expect(prisma.document.create).not.toHaveBeenCalled();
+      expect(JSON.stringify(prisma.savedJob.create.mock.calls)).toBe('[]');
+    });
+
+    it('requires SOME candidate signal (profile or resume)', async () => {
+      prisma.candidateAccount.findUnique.mockResolvedValue({
+        ...account,
+        resumeDocumentId: null,
+        headline: null,
+        summary: null,
+        skills: [],
+        experience: [],
+      });
+
+      await expect(service.jobMatches(ME, {})).rejects.toMatchObject({
+        status: 422,
+      });
+      expect(ai.candidateJobMatches).not.toHaveBeenCalled();
+    });
+
+    it('an explicit locale wins over the preferred one', async () => {
+      await service.jobMatches(ME, { locale: 'ko' });
+      expect(ai.candidateJobMatches.mock.calls[0][0].locale).toBe('ko');
+    });
+  });
+
+  describe('uploadResume — candidate AI indexing lifecycle', () => {
+    const pdf = {
+      originalname: 'resume.pdf',
+      mimetype: 'application/pdf',
+      size: 9,
+      buffer: Buffer.from('%PDF-1.4 x'),
+    };
+
+    beforeEach(() => {
+      prisma.candidateAccount.findUnique.mockResolvedValue({
+        id: MY_ACCOUNT,
+        resumeDocumentId: null,
+      });
+    });
+
+    it('queues candidate-scoped indexing for a fresh upload', async () => {
+      const result = await service.uploadResume(ME, pdf);
+
+      expect(producer.enqueuePersonalResume).toHaveBeenCalledWith({
+        documentId: result.id,
+        candidateAccountId: MY_ACCOUNT,
+      });
+      expect(
+        producer.enqueuePersonalResumeIndexDeletion,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('replacement queues indexing of the new and eviction of the old', async () => {
+      prisma.candidateAccount.findUnique.mockResolvedValue({
+        id: MY_ACCOUNT,
+        resumeDocumentId: 'old-doc',
+      });
+      prisma.document.findUnique.mockResolvedValue({
+        id: 'old-doc',
+        storageKey: 'candidate/acct-me/documents/old-doc.pdf',
+      });
+
+      await service.uploadResume(ME, pdf);
+
+      expect(producer.enqueuePersonalResume).toHaveBeenCalled();
+      expect(producer.enqueuePersonalResumeIndexDeletion).toHaveBeenCalledWith({
+        documentId: 'old-doc',
+        candidateAccountId: MY_ACCOUNT,
+      });
+    });
+
+    it('a queue outage does not fail the upload', async () => {
+      producer.enqueuePersonalResume.mockRejectedValue(new Error('redis down'));
+
+      await expect(
+        service.uploadResume(ME, pdf as never),
+      ).resolves.toMatchObject({ originalFileName: 'resume.pdf' });
     });
   });
 

@@ -17,6 +17,7 @@ import {
 } from './dto/ai-answer.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { OrgScoped } from '../common/decorators/org-scoped.decorator';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 /**
  * HR-facing evidence search.
@@ -54,25 +55,23 @@ export class AiController {
   /** Grounded answer with validated citations. */
   @HttpCode(HttpStatus.OK)
   @Post('answer')
-  answer(
-    @CurrentUser('organizationId') organizationId: string,
-    @Body() dto: AiAnswerDto,
-  ) {
-    return this.aiAnswerService.answer(organizationId, dto);
+  answer(@CurrentUser() user: AuthenticatedUser, @Body() dto: AiAnswerDto) {
+    return this.aiAnswerService.answer(user.organizationId!, user.id, dto);
   }
 
   /** What this candidate's documents state. Not a quality assessment. */
   @HttpCode(HttpStatus.OK)
   @Post('candidates/:candidateId/summary')
   summary(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('candidateId', ParseUUIDPipe) candidateId: string,
     @Body() dto: CandidateSummaryDto,
   ) {
     return this.aiAnswerService.summariseCandidate(
-      organizationId,
+      user.organizationId!,
+      user.id,
       candidateId,
-      dto.locale ?? 'en',
+      dto.locale,
     );
   }
 
@@ -80,16 +79,17 @@ export class AiController {
   @HttpCode(HttpStatus.OK)
   @Post('candidates/:candidateId/vacancies/:vacancyId/interview-questions')
   interviewQuestions(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('candidateId', ParseUUIDPipe) candidateId: string,
     @Param('vacancyId', ParseUUIDPipe) vacancyId: string,
     @Body() dto: InterviewQuestionsDto,
   ) {
     return this.aiAnswerService.interviewQuestions(
-      organizationId,
+      user.organizationId!,
+      user.id,
       candidateId,
       vacancyId,
-      dto.locale ?? 'en',
+      dto.locale,
     );
   }
 }

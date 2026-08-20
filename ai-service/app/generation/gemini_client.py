@@ -147,6 +147,30 @@ class GeminiGenerationClient(GenerationClient):
             for q in payload.questions
         ]
 
+    def generate_match_explanations(
+        self, *, context: str, vacancy_ids: list[str], locale: str
+    ) -> dict[str, str]:
+        from app.generation.prompts import (
+            CANDIDATE_MATCH_RULES,
+            build_match_explanations_prompt,
+        )
+        from app.generation.schemas import MatchExplanationsPayload
+
+        payload = self._generate(
+            system=CANDIDATE_MATCH_RULES,
+            prompt=build_match_explanations_prompt(context, locale),
+            schema=MatchExplanationsPayload,
+            operation="generate job match explanations",
+        )
+        # Only ids that were actually asked about survive — a hallucinated
+        # vacancyId has nowhere to attach.
+        wanted = set(vacancy_ids)
+        return {
+            e.vacancy_id: e.explanation
+            for e in payload.explanations
+            if e.vacancy_id in wanted and e.explanation.strip()
+        }
+
     # -- transport ---------------------------------------------------------
 
     def _generate(self, *, system: str, prompt: str, schema: Any, operation: str) -> Any:

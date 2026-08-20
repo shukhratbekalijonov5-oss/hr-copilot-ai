@@ -2,7 +2,7 @@ import "server-only";
 
 import { apiFetch, fetchAllPages } from "@/lib/api/http";
 import { toOrganization, toTeamMember } from "@/lib/api/adapters";
-import { getSession } from "@/lib/api/auth.service";
+import { getSession, listSessions } from "@/lib/api/auth.service";
 import type {
   OrganizationResponse,
   UserResponse,
@@ -10,16 +10,20 @@ import type {
 import type { Organization, SettingsData, TeamMember } from "@/lib/types";
 
 export async function getSettings(): Promise<SettingsData> {
-  const [user, organization, team] = await Promise.all([
+  const [user, organization, team, sessions] = await Promise.all([
     getSession(),
     apiFetch<OrganizationResponse>("/organizations/current"),
     fetchAllPages<UserResponse>("/users"),
+    // A failed session read must not blank the whole settings page; the
+    // security card reports the gap on its own.
+    listSessions().catch(() => []),
   ]);
 
   return {
     user,
     organization: toOrganization(organization),
     team: team.map(toTeamMember),
+    sessions,
   };
 }
 

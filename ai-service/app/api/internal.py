@@ -13,12 +13,14 @@ import time
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from app.api.dependencies import (
+    get_candidate_store,
     get_cross_encoder,
     get_current_settings,
     get_embedder,
     get_generator,
     get_progress_reporter,
     get_store,
+    get_vacancy_store,
 )
 from app.api.security import require_internal_token
 from app.common.errors import FileTooLargeError, UnsupportedFileTypeError
@@ -27,6 +29,14 @@ from app.common.logging import get_logger
 from app.mapping import generate_interview_questions, map_requirements
 from app.models.schemas import (
     CandidateSummaryRequest,
+    DeleteCandidateResumeRequest,
+    JobMatchRequest,
+    JobMatchResponse,
+    ProcessCandidateResumeResponse,
+    VacancyDeleteRequest,
+    VacancyDeleteResponse,
+    VacancyIndexRequest,
+    VacancyIndexResponse,
     CollectionInfo,
     CandidateSummaryResponse,
     DeleteDocumentRequest,
@@ -43,6 +53,7 @@ from app.models.schemas import (
     SearchRequest,
     SearchResponse,
 )
+from app.candidate import index_vacancy, match_jobs, process_candidate_resume
 from app.retrieval import (
     answer_question,
     process_document,
@@ -316,6 +327,115 @@ async def interview_questions_endpoint(
         settings=settings,
         embedder=embedder,
         store=store,
+        reranker=reranker,
+        generator=generator,
+    )
+
+
+# --- Candidate-side: personal resumes, vacancy index, job match --------------
+#
+# Same internal token, but a DIFFERENT scoping key: these routes take a
+# candidateAccountId (derived by the backend from the authenticated user's own
+# CandidateAccount) and touch only the candidate-side collections. No route
+# below can read org-scoped resume chunks, and no route above can read
+# personal ones — the stores are physically separate.
+
+
+@router.post(
+    "/candidate/documents/process", response_model=ProcessCandidateResumeResponse
+)
+async def process_candidate_resume_endpoint(
+    file: UploadFile = File(...),
+    documentId: str = Form(...),
+    candidateAccountId: str = Form(...),
+    fileName: str | None = Form(default=None),
+    settings=Depends(get_current_settings),
+    embedder=Depends(get_embedder),
+    store=Depends(get_candidate_store),
+) -> ProcessCandidateResumeResponse:
+    """Indexes one PERSONAL resume into the candidate-scoped collection."""
+    data = await file.read()
+    if len(data) > settings.max_file_size_bytes:
+        raise FileTooLargeError(
+            f"File exceeds the {settings.max_file_size_bytes} byte limit"
+        )
+    return process_candidate_resume(
+        data=data,
+        file_name=fileName or file.filename or "resume",
+        document_id=documentId,
+        candidate_account_id=candidateAccountId,
+        settings=settings,
+        embedder=embedder,
+        store=store,
+    )
+
+
+@router.post("/candidate/documents/delete", response_model=DeleteDocumentResponse)
+async def delete_candidate_resume_endpoint(
+    payload: DeleteCandidateResumeRequest,
+    store=Depends(get_candidate_store),
+) -> DeleteDocumentResponse:
+    """Removes a personal resume's vectors (owner-scoped, idempotent)."""
+    store.delete_document(payload.candidateAccountId, payload.documentId)
+    logger.info(
+        "Personal resume vectors deleted",
+        extra={
+            "documentId": payload.documentId,
+            "candidateAccountId": payload.candidateAccountId,
+            "stage": "candidate_delete",
+        },
+    )
+    return DeleteDocumentResponse(documentId=payload.documentId, deleted=True)
+
+
+@router.post("/vacancies/index", response_model=VacancyIndexResponse)
+async def index_vacancy_endpoint(
+    payload: VacancyIndexRequest,
+    settings=Depends(get_current_settings),
+    embedder=Depends(get_embedder),
+    store=Depends(get_vacancy_store),
+) -> VacancyIndexResponse:
+    """Indexes one vacancy's candidate-visible content. Idempotent."""
+    return index_vacancy(
+        payload, settings=settings, embedder=embedder, store=store
+    )
+
+
+@router.post("/vacancies/delete", response_model=VacancyDeleteResponse)
+async def delete_vacancy_endpoint(
+    payload: VacancyDeleteRequest,
+    store=Depends(get_vacancy_store),
+) -> VacancyDeleteResponse:
+    """Removes a vacancy from the candidate-discoverable index. Idempotent."""
+    store.delete_vacancy(payload.vacancyId)
+    logger.info(
+        "Vacancy index removed",
+        extra={"vacancyId": payload.vacancyId, "stage": "vacancy_delete"},
+    )
+    return VacancyDeleteResponse(vacancyId=payload.vacancyId, deleted=True)
+
+
+@router.post("/candidate/job-matches", response_model=JobMatchResponse)
+async def job_matches_endpoint(
+    payload: JobMatchRequest,
+    settings=Depends(get_current_settings),
+    embedder=Depends(get_embedder),
+    resume_store=Depends(get_candidate_store),
+    vacancy_store=Depends(get_vacancy_store),
+    generator=Depends(get_generator),
+) -> JobMatchResponse:
+    """Candidate → vacancy matching over the candidate's OWN data only.
+
+    Deterministic labels from requirement-evidence coverage; one batched
+    generation call for the explanations. Never touches org-scoped chunks.
+    """
+    reranker = get_cross_encoder() if settings.reranker_enabled else None
+    return match_jobs(
+        request=payload,
+        settings=settings,
+        embedder=embedder,
+        resume_store=resume_store,
+        vacancy_store=vacancy_store,
         reranker=reranker,
         generator=generator,
     )

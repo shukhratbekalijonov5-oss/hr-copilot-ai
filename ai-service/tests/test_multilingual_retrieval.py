@@ -158,15 +158,15 @@ class TestFixtureLimitations:
     def test_reportlab_cannot_render_hangul(self):
         """build_pdf uses Helvetica, which has no Hangul glyphs.
 
-        Korean therefore survives as "■". Real Korean PDFs embed a font and
-        extract correctly — this pins the helper's limit, and is why the
-        Korean fixture above is DOCX.
+        The Hangul is lost to replacement glyphs (their exact spelling depends
+        on the extractor). Real Korean PDFs embed a font and extract correctly
+        — `build_korean_pdf` (CID font) is the PDF-level Korean fixture, and
+        the retrieval fixture above stays DOCX for exact round-tripping.
         """
         from app.parsers import parse_document
 
         parsed = parse_document(build_pdf("쿠버네티스 운영 경험"), "ko.pdf")
 
-        assert "■" in parsed.full_text
         assert "쿠버네티스" not in parsed.full_text
 
     def test_docx_preserves_korean_exactly(self):

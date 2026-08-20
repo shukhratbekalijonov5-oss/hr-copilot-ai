@@ -92,6 +92,23 @@ class GenerationClient(ABC):
         evidence_found: bool,
     ) -> list[GeneratedQuestion]: ...
 
+    def generate_match_explanations(
+        self, *, context: str, vacancy_ids: list[str], locale: str
+    ) -> dict[str, str]:
+        """Candidate-facing explanations for pre-classified job matches.
+
+        One batched call for ALL matches — never one call per vacancy. The
+        match labels are decided deterministically before this runs; the model
+        only explains the already-validated evidence. Returns
+        {vacancyId: explanation} for the ids it covered; the caller drops any
+        id it did not ask about.
+
+        Deliberately NOT abstract: a provider (or a test fake) that does not
+        implement it refuses honestly instead of breaking instantiation, and
+        the job-match pipeline treats that refusal as "no explanations".
+        """
+        raise GenerationDisabledError("generate job match explanations")
+
 
 class DisabledGenerationClient(GenerationClient):
     """Used when no provider is configured. Refuses, never improvises."""
@@ -112,6 +129,9 @@ class DisabledGenerationClient(GenerationClient):
 
     def generate_interview_questions(self, **_: object) -> list[GeneratedQuestion]:
         raise GenerationDisabledError("generate interview questions")
+
+    def generate_match_explanations(self, **_: object) -> dict[str, str]:
+        raise GenerationDisabledError("generate job match explanations")
 
 
 class AnthropicGenerationClient(GenerationClient):
@@ -225,6 +245,28 @@ class AnthropicGenerationClient(GenerationClient):
             )
             for q in payload.questions
         ]
+
+    def generate_match_explanations(
+        self, *, context: str, vacancy_ids: list[str], locale: str
+    ) -> dict[str, str]:
+        from app.generation.prompts import (
+            CANDIDATE_MATCH_RULES,
+            build_match_explanations_prompt,
+        )
+        from app.generation.schemas import MatchExplanationsPayload
+
+        payload = self._parse(
+            system=CANDIDATE_MATCH_RULES,
+            prompt=build_match_explanations_prompt(context, locale),
+            output_format=MatchExplanationsPayload,
+            operation="generate job match explanations",
+        )
+        wanted = set(vacancy_ids)
+        return {
+            e.vacancy_id: e.explanation
+            for e in payload.explanations
+            if e.vacancy_id in wanted and e.explanation.strip()
+        }
 
     # -- transport ---------------------------------------------------------
 

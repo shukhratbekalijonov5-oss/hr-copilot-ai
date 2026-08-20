@@ -56,6 +56,7 @@ export const ORGANIZATION_SECONDARY_NAV: NavItem[] = [
 /** Job-seeking side. */
 export const PERSONAL_NAV: NavItem[] = [
   { href: "/jobs", labelKey: "findJobs", icon: SearchIcon },
+  { href: "/job-matches", labelKey: "aiJobMatch", icon: SparkIcon },
   { href: "/my-applications", labelKey: "myApplications", icon: BriefcaseIcon },
   { href: "/saved-jobs", labelKey: "savedJobs", icon: FileIcon },
   { href: "/my-profile", labelKey: "myProfile", icon: UserIcon },
@@ -83,6 +84,7 @@ export function navigationFor(workspace: Workspace): {
 /** Route prefixes that belong to the personal (job-seeker) workspace. */
 export const PERSONAL_ROUTE_PREFIXES = [
   "/jobs",
+  "/job-matches",
   "/my-applications",
   "/my-profile",
   "/my-resume",

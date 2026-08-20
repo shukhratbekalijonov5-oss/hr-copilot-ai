@@ -9,7 +9,7 @@ from app.generation.client import (
 )
 from app.generation.factory import build_generation_client
 from app.generation.gemini_client import GeminiGenerationClient
-from app.generation.validation import ValidationOutcome, scrub_context, validate_citations
+from app.generation.validation import ValidationOutcome, scrub_context, reconcile_answer_markers, validate_citations
 
 __all__ = [
     "AnthropicGenerationClient",

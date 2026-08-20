@@ -30,5 +30,17 @@ export const API_BASE_URL = `${API_ORIGIN}/api`;
 /** socket.io namespace exposed by the processing gateway. */
 export const PROCESSING_SOCKET_URL = `${API_ORIGIN}/processing`;
 
-/** Name of the httpOnly cookie holding the backend JWT. */
+/**
+ * Session cookies.
+ *
+ * Two separate httpOnly cookies rather than one blob: the access token is
+ * short-lived (15 minutes) and replaced constantly, the refresh token is the
+ * long-lived credential that must survive a browser restart. Splitting them
+ * keeps the sensitive one out of every rewrite and makes an atomic swap of the
+ * pair explicit at the one place that performs it.
+ *
+ * Neither is readable by browser JavaScript. `hrc_locale` is the only
+ * script-readable cookie this app sets, and it holds a display preference.
+ */
 export const SESSION_COOKIE = "hrc_session";
+export const REFRESH_COOKIE = "hrc_refresh";

@@ -189,6 +189,84 @@ export interface AiHealthResult {
   checks: Record<string, { status: 'up' | 'down'; error?: string | null }>;
 }
 
+// --- Candidate-side (Job Match) ---------------------------------------------
+// These contracts are keyed by candidateAccountId — the caller's OWN account,
+// derived server-side — and touch only the candidate-scoped collections.
+
+export interface ProcessPersonalResumeResult {
+  documentId: string;
+  pageCount: number;
+  chunksCreated: number;
+  vectorsIndexed: number;
+  durationMs: number;
+}
+
+export interface VacancyIndexInput {
+  vacancyId: string;
+  organizationId: string;
+  status: string;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  employmentType?: string | null;
+  /** Candidate-visible requirements ONLY — never recruiter-private notes. */
+  requirements: { text: string; required: boolean }[];
+}
+
+export interface AiCandidateProfile {
+  headline?: string | null;
+  summary?: string | null;
+  location?: string | null;
+  skills: string[];
+  languages: string[];
+  experience: {
+    title: string;
+    company?: string | null;
+    description?: string | null;
+  }[];
+  education: {
+    institution: string;
+    degree?: string | null;
+    field?: string | null;
+  }[];
+}
+
+export type JobMatchLabel = 'STRONG' | 'PARTIAL' | 'WEAK';
+
+export interface AiRequirementCheck {
+  text: string;
+  required: boolean;
+  reason: string;
+}
+
+export interface AiMatchEvidence {
+  fileName: string | null;
+  pageNumber: number | null;
+  section: string | null;
+  text: string;
+}
+
+export interface AiJobMatch {
+  vacancyId: string;
+  organizationId: string;
+  title: string;
+  /** Deterministic evidence-coverage label — never an LLM judgement. */
+  match: JobMatchLabel;
+  explanation: string | null;
+  supportedRequirements: AiRequirementCheck[];
+  unsupportedRequirements: AiRequirementCheck[];
+  unclearRequirements: AiRequirementCheck[];
+  evidence: AiMatchEvidence[];
+}
+
+export interface AiJobMatchResult {
+  matches: AiJobMatch[];
+  locale: SupportedLocale;
+  vacanciesConsidered: number;
+  generated: boolean;
+  durationMs: number;
+}
+
 @Injectable()
 export class AiServiceClient {
   private readonly logger = new Logger(AiServiceClient.name);
@@ -387,6 +465,81 @@ export class AiServiceClient {
     await this.request('/internal/documents/delete', {
       organizationId,
       documentId,
+    });
+  }
+
+  // --- Candidate-side (Job Match) ---------------------------------------
+
+  /**
+   * Indexes a PERSONAL resume into the candidate-scoped collection — a
+   * physically separate Qdrant collection from tenant data. There is no
+   * organizationId anywhere in this path.
+   */
+  async processPersonalResume(input: {
+    documentId: string;
+    candidateAccountId: string;
+    fileName: string;
+    content: Buffer;
+    mimeType: string;
+  }): Promise<ProcessPersonalResumeResult> {
+    this.assertEnabled('process personal resume');
+
+    const form = new FormData();
+    form.append(
+      'file',
+      new Blob([new Uint8Array(input.content)], { type: input.mimeType }),
+      input.fileName,
+    );
+    form.append('documentId', input.documentId);
+    form.append('candidateAccountId', input.candidateAccountId);
+    form.append('fileName', input.fileName);
+
+    return this.request<ProcessPersonalResumeResult>(
+      '/internal/candidate/documents/process',
+      form,
+    );
+  }
+
+  /** Removes a personal resume's vectors (owner-scoped, idempotent). */
+  async deletePersonalResume(
+    candidateAccountId: string,
+    documentId: string,
+  ): Promise<void> {
+    this.assertEnabled('delete personal resume vectors');
+    await this.request('/internal/candidate/documents/delete', {
+      candidateAccountId,
+      documentId,
+    });
+  }
+
+  /** Indexes one vacancy's candidate-visible content. Idempotent. */
+  async indexVacancy(input: VacancyIndexInput): Promise<void> {
+    this.assertEnabled('index vacancy');
+    await this.request('/internal/vacancies/index', input);
+  }
+
+  /** Removes a vacancy from the candidate-discoverable index. Idempotent. */
+  async deleteVacancyIndex(vacancyId: string): Promise<void> {
+    this.assertEnabled('delete vacancy index');
+    await this.request('/internal/vacancies/delete', { vacancyId });
+  }
+
+  /**
+   * Candidate → vacancy matching over the candidate's OWN data only.
+   * Labels are deterministic; one batched generation call writes the prose.
+   */
+  async candidateJobMatches(input: {
+    candidateAccountId: string;
+    profile: AiCandidateProfile;
+    locale: SupportedLocale;
+    limit?: number;
+  }): Promise<AiJobMatchResult> {
+    this.assertEnabled('match jobs');
+    return this.request<AiJobMatchResult>('/internal/candidate/job-matches', {
+      candidateAccountId: input.candidateAccountId,
+      profile: input.profile,
+      locale: input.locale,
+      limit: input.limit ?? 5,
     });
   }
 

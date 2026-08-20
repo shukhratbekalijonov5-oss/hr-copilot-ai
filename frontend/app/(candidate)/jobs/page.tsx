@@ -1,38 +1,50 @@
 import type { Metadata } from "next";
+import { api } from "@/lib/api";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { UnavailableState } from "@/components/ui/UnavailableState";
-import { SearchIcon } from "@/components/ui/icons";
-import { BACKEND_CAPABILITIES } from "@/lib/capabilities";
 import { getTranslations } from "@/lib/i18n/server";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { JobBoard } from "@/components/jobs/JobBoard";
 
 export async function generateMetadata(): Promise<Metadata> {
   const d = await getTranslations();
-  return { title: d.personal.findJobs };
+  return { title: d.jobs.title };
 }
 
-export default async function JobsPage() {
-  await requirePersonalWorkspace();
-  const d = await getTranslations();
+export default async function JobsPage(props: PageProps<"/jobs">) {
+  const { session } = await requirePersonalWorkspace();
+  const [d, searchParams] = await Promise.all([
+    getTranslations(),
+    props.searchParams,
+  ]);
 
-  if (!BACKEND_CAPABILITIES.publicJobs) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <PageHeader
-          title={d.personal.findJobs}
-          description={d.personal.findJobsDescription}
-        />
-        <UnavailableState
-          icon={<SearchIcon className="size-5" />}
-          title={d.personal.findJobsUnavailable}
-          description={d.personal.findJobsUnavailableHint}
-          requires={d.personal.findJobsRequires}
-        />
-      </div>
-    );
-  }
+  const asText = (value: string | string[] | undefined) =>
+    typeof value === "string" ? value : "";
+  const search = asText(searchParams.search);
+  const location = asText(searchParams.location);
+  const page = Number(asText(searchParams.page)) || 1;
 
-  // Intentionally unreachable until the capability flag flips; the listing is
-  // built against the real endpoint at that point, never against sample data.
-  return null;
+  /**
+   * Saved state comes from the caller's own bookmarks, so every card can show
+   * the right control on first paint. A user without a candidate account has
+   * none — the endpoint requires one — and an empty list is the honest answer
+   * rather than a failed page.
+   */
+  const [jobs, saved] = await Promise.all([
+    api.getPublicJobs({ page, search, location }),
+    session.hasCandidateAccount
+      ? api.getSavedJobs(1, 100).catch(() => ({ saved: [] }))
+      : Promise.resolve({ saved: [] }),
+  ]);
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <PageHeader title={d.jobs.title} description={d.jobs.description} />
+      <JobBoard
+        page={jobs}
+        savedSlugs={saved.saved.map((item) => item.job.publicSlug)}
+        search={search}
+        location={location}
+      />
+    </div>
+  );
 }

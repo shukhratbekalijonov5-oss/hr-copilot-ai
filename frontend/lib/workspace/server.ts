@@ -1,11 +1,11 @@
 import "server-only";
 
-import { BACKEND_CAPABILITIES } from "@/lib/capabilities";
+import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/session";
 import {
-  organizationsFromSession,
+  activeOrganizationWorkspace,
+  buildWorkspaceContext,
   personalFromSession,
-  type Workspace,
   type WorkspaceContext,
 } from "@/lib/workspace/types";
 import type { SessionUser } from "@/lib/types";
@@ -13,30 +13,35 @@ import type { SessionUser } from "@/lib/types";
 /**
  * Resolves the workspace context for a request.
  *
- * The active workspace comes from which route the user is on rather than from
- * stored state — there is only ever one organization to be in today, so a
- * persisted selection would be state pretending to be a choice.
+ * The active workspace comes from the route the user is on: routes under
+ * `(app)` are organization-scoped, routes under `(candidate)` are personal.
+ * Which ORGANIZATION is active comes from the backend — the token's `org`
+ * claim, re-validated against a live membership on every request — never from
+ * anything the frontend remembers.
  */
-export function buildWorkspaceContext(
-  session: SessionUser,
-  active: Workspace,
-): WorkspaceContext {
-  return {
-    active,
-    organizations: organizationsFromSession(session),
-    personal: personalFromSession(session),
-    personalAvailable: BACKEND_CAPABILITIES.candidateAccount,
-  };
-}
+export { buildWorkspaceContext };
 
-/** For routes inside the recruiting workspace. */
+/**
+ * For routes inside the recruiting workspace.
+ *
+ * A user whose token carries no active organization cannot render these pages:
+ * every org-scoped backend route answers 403, so sending them to the workspace
+ * picker is the honest outcome rather than a page full of errors. A user with
+ * exactly one membership is switched into it automatically — being asked to
+ * choose from a list of one is friction, not a decision.
+ */
 export async function requireOrganizationWorkspace(): Promise<{
   session: SessionUser;
   workspace: WorkspaceContext;
 }> {
   const session = await requireSession();
-  const [organization] = organizationsFromSession(session);
-  return { session, workspace: buildWorkspaceContext(session, organization) };
+  const active = activeOrganizationWorkspace(session);
+
+  if (!active) {
+    redirect(session.memberships.length > 0 ? "/workspaces" : "/jobs");
+  }
+
+  return { session, workspace: buildWorkspaceContext(session, active) };
 }
 
 /** For routes inside the personal (job-seeker) workspace. */

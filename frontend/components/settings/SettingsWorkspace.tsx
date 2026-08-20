@@ -15,6 +15,7 @@ import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { AlertIcon, CheckIcon, ShieldIcon } from "@/components/ui/icons";
 import { INTEGRATION_GROUPS } from "@/lib/integrations/catalog";
 import { LocaleSwitcher } from "@/components/layout/LocaleSwitcher";
+import { SessionsCard } from "@/components/settings/SessionsCard";
 import { useI18n } from "@/lib/i18n/context";
 import type { Dictionary } from "@/lib/i18n/dictionary";
 import type { FieldErrors } from "@/lib/api/errors";
@@ -145,8 +146,9 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
                     {settings.user.fullName}
                   </p>
                   <p className="text-[12.5px] text-ink-muted">
-                    {d.status.role[settings.user.role]} ·{" "}
-                    {settings.user.organization.name}
+                    {settings.user.activeOrganization
+                      ? `${d.status.role[settings.user.activeOrganization.role]} · ${settings.user.activeOrganization.name}`
+                      : d.nav.personal}
                   </p>
                 </div>
               </div>
@@ -349,6 +351,8 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
       id: "security",
       label: d.settings.tabSecurity,
       content: (
+        <div className="flex flex-col gap-4">
+        <SessionsCard sessions={settings.sessions} />
         <Card>
           <CardHeader title={d.settings.security} />
           <CardBody className="flex flex-col gap-4">
@@ -368,7 +372,9 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
               <div>
                 <dt className="text-[12px] text-ink-muted">{d.settings.role}</dt>
                 <dd className="text-[13.5px] text-ink">
-                  {d.status.role[settings.user.role]}
+                  {settings.user.activeOrganization
+                    ? d.status.role[settings.user.activeOrganization.role]
+                    : d.tables.empty}
                 </dd>
               </div>
               {settings.organization.createdAt ? (
@@ -397,6 +403,7 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
             </p>
           </CardBody>
         </Card>
+        </div>
       ),
     },
     {

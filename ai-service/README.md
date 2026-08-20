@@ -163,7 +163,14 @@ makes an honest "evidence not found" possible.
 
 ### Parsing
 
-- **PDF** via pypdf, preserving real page numbers. No OCR: a scan with no text
+- **PDF** via pdfminer.six layout analysis (primary), falling back to pypdf's
+  plain text-layer read when pdfminer fails or scores worse on degradation
+  signals. Layout analysis reconstructs word boundaries and column order from
+  glyph positions, so per-glyph positioned CVs ("R a k h m a t i l l o") and
+  multi-column layouts extract readably. Both outputs pass the same
+  conservative cleanup (`app/parsers/text_cleanup.py`): evidently glyph-spaced
+  lines are collapsed back into words; nothing ever splits merged words apart
+  by guessing. Real page numbers are preserved. No OCR: a scan with no text
   layer is reported as `empty_document` rather than silently indexing nothing.
 - **DOCX** via python-docx, including table cells. DOCX stores no pagination,
   so everything is page 1 and citations omit a page number — inventing page

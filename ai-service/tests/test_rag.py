@@ -327,3 +327,82 @@ class TestGenerationFailureIsHonest:
         assert response.json()["requirements"][0]["status"] in (
             "EVIDENCE_FOUND", "NO_EVIDENCE_FOUND", "NEEDS_HUMAN_REVIEW",
         )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+class TestAnswerCitationConsistency:
+    """The answer prose and the citation list must never contradict.
+
+    A model that cites by PASSAGE NUMBER is referencing the exact context we
+    sent, so those references are mapped to real chunkIds and validated as
+    usual — while any marker whose reference did not survive validation is
+    stripped from the prose. The response can therefore never say "[1]" while
+    carrying zero citations.
+    """
+
+    def test_ordinal_citations_map_to_real_chunks_and_stay_grounded(
+        self, store, embedder, indexed
+    ):
+        generator = ScriptedGenerator(
+            answer="The candidate ran production Kubernetes [1].",
+            cited=["1"],
+            status="GROUNDED",
+        )
+        response = _ask(
+            store, embedder, generator, org=indexed["org"], query="Kubernetes"
+        )
+
+        # Passage 1 of the exact retrieved context, validated normally.
+        assert response.status == "GROUNDED"
+        assert len(response.citations) == 1
+        assert response.rejectedCitations == []
+        citation = response.citations[0]
+        assert citation.fileName
+        assert citation.text
+        # The prose marker was canonicalized to that accepted chunkId.
+        assert f"[{citation.chunkId}]" in response.answer
+        assert "[1]" not in response.answer
+
+    def test_rejected_references_leave_no_markers_behind(
+        self, store, embedder, indexed
+    ):
+        generator = ScriptedGenerator(
+            answer="Claims here [1] and there [99] and invented "
+            "[deadbeef-dead-4bad-8bad-deadbeefdead].",
+            cited=["99", "deadbeef-dead-4bad-8bad-deadbeefdead"],
+            status="GROUNDED",
+        )
+        response = _ask(
+            store, embedder, generator, org=indexed["org"], query="Kubernetes"
+        )
+
+        # Nothing validated -> downgraded, and the prose carries NO markers.
+        assert response.citations == []
+        assert response.status == "NEEDS_HUMAN_REVIEW"
+        assert "[1]" not in response.answer
+        assert "[99]" not in response.answer
+        assert "deadbeef" not in response.answer
+
+    def test_no_raw_chunk_uuid_without_a_matching_citation(
+        self, store, embedder, indexed
+    ):
+        # An accepted citation's id MAY appear (the frontend renders it as a
+        # numbered reference); any other uuid must not survive.
+        generator = ScriptedGenerator(
+            answer="Kubernetes work [2].", cited=["2"], status="GROUNDED"
+        )
+        response = _ask(
+            store, embedder, generator, org=indexed["org"], query="Kubernetes"
+        )
+
+        accepted = {c.chunkId for c in response.citations}
+        import re
+        uuids = set(
+            re.findall(
+                r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+                response.answer,
+            )
+        )
+        assert uuids <= accepted

@@ -7,6 +7,7 @@
  */
 import type {
   AnswerStatus,
+  ProfileVisibility,
   ApplicationSource,
   ApplicationStatus,
   DocumentStatus,
@@ -30,39 +31,87 @@ import type { Locale } from "@/lib/i18n/locales";
  */
 export type SupportedLocale = Locale;
 
-export interface AuthTokenResponse {
+/**
+ * POST /auth/login | /auth/register | /auth/refresh
+ *
+ * `role` and `organizationId` describe the ACTIVE organization and are null for
+ * a user with no membership — a job seeker is a first-class account, not a
+ * degraded recruiter.
+ */
+export interface AuthSessionResponse {
   accessToken: string;
+  refreshToken: string;
   user: {
     id: string;
     email: string;
     fullName: string;
-    /** The user's stored language. Read-only: no endpoint updates it. */
-    preferredLocale?: SupportedLocale;
-    role: Role;
-    organizationId: string;
+    preferredLocale: SupportedLocale;
+    role: Role | null;
+    organizationId: string | null;
   };
+}
+
+/** POST /auth/switch-organization — a new access token, same refresh session. */
+export interface SwitchOrganizationResponse {
+  accessToken: string;
+  user: AuthSessionResponse["user"];
+  activeOrganization: {
+    id: string;
+    name: string;
+    slug: string;
+    role: Role;
+  };
+}
+
+export interface MembershipResponse {
+  organization: { id: string; name: string; slug: string };
+  role: Role;
+  joinedAt: string;
 }
 
 /**
  * GET /auth/me
  *
- * The API also returns `memberships`, `activeOrganization` and
- * `candidateAccount` since the identity migration landed. Those are not mapped
- * here yet: there is no endpoint to switch the active organization and none to
- * read or write a CandidateAccount, so consuming them would let the UI offer
- * actions the API cannot complete. `role` and `organizationId` remain the
- * verified contract and describe the organization the current token is scoped
- * to.
+ * The canonical shape is `user` / `candidateAccount` / `activeOrganization` /
+ * `memberships`. The flat `role`, `organizationId` and `organization` fields
+ * are the backend's compatibility layer for the pre-migration contract and are
+ * deliberately NOT read here: authorization comes from the live membership the
+ * backend reports, never from a field that used to live on the user row.
  */
 export interface MeResponse {
   id: string;
   email: string;
   fullName: string;
-  /** Stored on the user since the identity migration. Read-only today. */
-  preferredLocale?: SupportedLocale;
-  role: Role;
-  organizationId: string;
-  organization: { id: string; name: string; slug: string };
+  preferredLocale: SupportedLocale;
+  role: Role | null;
+  organizationId: string | null;
+  organization: { id: string; name: string; slug: string } | null;
+
+  user: {
+    id: string;
+    email: string;
+    fullName: string;
+    preferredLocale: SupportedLocale;
+  };
+  candidateAccount: { exists: boolean };
+  activeOrganization: {
+    id: string;
+    name: string;
+    slug: string;
+    role: Role;
+  } | null;
+  memberships: MembershipResponse[];
+}
+
+/** GET /auth/sessions */
+export interface AuthSessionRowResponse {
+  id: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  userAgent: string | null;
+  deviceName: string | null;
+  current: boolean;
 }
 
 export interface OrganizationResponse {
@@ -344,4 +393,172 @@ export interface EvidenceMapResponse {
   candidate: { id: string; fullName: string };
   vacancy: { id: string; title: string };
   requirements: EvidenceMapRequirementResponse[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Candidate account — the user's own job-seeker identity                      */
+/*                                                                             */
+/* Never confused with the recruiter-side `Candidate`: this belongs to the      */
+/* user and to no organization. Copied field-for-field from                     */
+/* backend/src/candidate-account/candidate-account.service.ts.                  */
+/* -------------------------------------------------------------------------- */
+
+export interface CandidateExperienceResponse {
+  title: string;
+  company?: string;
+  startDate?: string;
+  endDate?: string;
+  description?: string;
+}
+
+export interface CandidateEducationResponse {
+  institution: string;
+  degree?: string;
+  field?: string;
+  startYear?: number;
+  endYear?: number;
+}
+
+export interface CandidateResumeResponse {
+  id: string;
+  originalFileName: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  createdAt: string;
+}
+
+export interface CandidateAccountResponse {
+  id: string;
+  headline: string | null;
+  location: string | null;
+  phone: string | null;
+  summary: string | null;
+  skills: string[];
+  languages: string[];
+  experience: CandidateExperienceResponse[];
+  education: CandidateEducationResponse[];
+  profileVisibility: ProfileVisibility;
+  /** Null until a personal resume is uploaded. */
+  resumeDocument: CandidateResumeResponse | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Public job board                                                            */
+/* -------------------------------------------------------------------------- */
+
+export interface PublicJobResponse {
+  publicSlug: string;
+  title: string;
+  department: string | null;
+  location: string | null;
+  employmentType: string | null;
+  experienceLevel: string | null;
+  createdAt: string;
+  organization: { name: string };
+}
+
+export interface PublicJobDetailResponse extends PublicJobResponse {
+  description: string | null;
+  requirements: { text: string; type: RequirementType; required: boolean }[];
+}
+
+/** POST /public/jobs/:slug/apply */
+export interface DirectApplicationResponse {
+  id: string;
+  status: ApplicationStatus;
+  source: ApplicationSource;
+  createdAt: string;
+  vacancy: {
+    publicSlug: string;
+    title: string;
+    organization: { name: string };
+  };
+}
+
+/** GET /candidate-account/me/applications */
+export interface MyApplicationResponse {
+  id: string;
+  status: ApplicationStatus;
+  source: ApplicationSource;
+  createdAt: string;
+  updatedAt: string;
+  vacancy: {
+    publicSlug: string;
+    title: string;
+    location: string | null;
+    employmentType: string | null;
+    organization: { name: string };
+  };
+  submittedDocument: { originalFileName: string } | null;
+}
+
+/** GET /candidate-account/me/saved-jobs */
+export interface SavedJobResponse {
+  savedAt: string;
+  job: {
+    publicSlug: string;
+    title: string;
+    location: string | null;
+    employmentType: string | null;
+    /** Present so a bookmark whose job closed can be flagged. */
+    status: VacancyStatus;
+    organization: { name: string };
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Candidate job matching                                                      */
+/* -------------------------------------------------------------------------- */
+
+export type JobMatchStrengthResponse = "STRONG" | "PARTIAL" | "WEAK";
+
+/** One requirement, classified deterministically by the backend. */
+export interface MatchRequirementResponse {
+  text: string;
+  required: boolean;
+  reason: string;
+}
+
+/** A passage from the candidate's OWN resume/profile that drove the match. */
+export interface MatchEvidenceResponse {
+  fileName: string | null;
+  pageNumber: number | null;
+  section: string | null;
+  text: string;
+}
+
+/**
+ * POST /candidate-account/me/job-matches.
+ *
+ * Vacancies are addressed by public slug only — the backend never returns an
+ * internal vacancy id on this candidate-facing route.
+ */
+export interface JobMatchResponse {
+  vacancy: {
+    slug: string;
+    title: string;
+    organizationName: string;
+    location: string | null;
+    employmentType: string | null;
+    status: VacancyStatus;
+  };
+  match: JobMatchStrengthResponse;
+  /** Null when generation was unavailable; the deterministic data remains. */
+  explanation: string | null;
+  supportedRequirements: MatchRequirementResponse[];
+  unsupportedRequirements: MatchRequirementResponse[];
+  unclearRequirements: MatchRequirementResponse[];
+  evidence: MatchEvidenceResponse[];
+  saved: boolean;
+  applicationState: ApplicationStatus | null;
+}
+
+export interface JobMatchesResponse {
+  matches: JobMatchResponse[];
+  locale: SupportedLocale;
+  /** False when the Gemini explanation step was skipped or failed. */
+  generated: boolean;
+  generatedAt: string;
 }

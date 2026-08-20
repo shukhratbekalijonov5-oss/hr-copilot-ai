@@ -1,5 +1,31 @@
 # Reindexing and model migration
 
+## Reprocessing after a parser/chunker fix (same collection)
+
+When extraction or chunking improves (e.g. the 2026-08 layout-aware PDF
+extraction fix), already-indexed documents still hold text produced by the old
+code. No collection version bump is needed — the vector width is unchanged —
+and the fix is applied by re-running processing for each document **into the
+active collection**:
+
+- org documents → `POST /internal/documents/process` with the original file,
+  `documentId`, `organizationId`, `candidateId`, `fileName`, `documentType`
+  (all read from the `documents` row; the file comes from backend storage);
+- personal resumes (`organizationId` null) →
+  `POST /internal/candidate/documents/process` with `documentId`,
+  `candidateAccountId`, `fileName`.
+
+Both stores **delete the document's old points before upserting**, so a
+reprocess replaces the malformed vectors entirely — a shorter re-parse cannot
+strand stale chunks, and re-running is idempotent. Only `COMPLETED` documents
+have vectors; `FAILED`/`UPLOADED` ones have nothing to replace.
+
+The backend's `POST /documents/:id/reprocess` covers stuck (non-COMPLETED)
+documents only; bulk reprocessing of COMPLETED documents is an operator task
+against the internal API until the bulk reindex job below is built.
+
+## Model migration (new collection version)
+
 Changing `EMBEDDING_MODEL` changes the vector width. Qdrant rejects a
 dimension mismatch (by design — mixing widths silently corrupts retrieval), so
 a model change needs a migration, not an in-place rewrite.

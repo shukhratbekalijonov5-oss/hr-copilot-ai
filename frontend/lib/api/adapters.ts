@@ -8,6 +8,13 @@
  */
 import type {
   AiAnswerResponse,
+  AuthSessionRowResponse,
+  CandidateAccountResponse,
+  MyApplicationResponse,
+  PublicJobDetailResponse,
+  PublicJobResponse,
+  SavedJobResponse,
+  JobMatchesResponse,
   AiCandidateSummaryResponse,
   AiCitationResponse,
   AiInterviewQuestionsResponse,
@@ -28,7 +35,14 @@ import type {
 import { PIPELINE_STAGES } from "@/lib/types";
 import type {
   Application,
+  AuthSessionRow,
   Candidate,
+  CandidateAccount,
+  MyApplication,
+  PublicJob,
+  PublicJobDetail,
+  SavedJob,
+  JobMatchResult,
   CandidateEvidenceMatch,
   CandidateSummary,
   EvidenceMap,
@@ -57,16 +71,41 @@ import type {
 /* Identity                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * GET /auth/me → the session.
+ *
+ * Reads the canonical `user` / `candidateAccount` / `activeOrganization` /
+ * `memberships` shape and ignores the backend's flat compatibility fields:
+ * authorization must come from the live membership, and mapping `role` off a
+ * user-level field is exactly the assumption the identity migration removed.
+ */
 export function toSessionUser(response: MeResponse): SessionUser {
   return {
+    id: response.user.id,
+    fullName: response.user.fullName,
+    email: response.user.email,
+    preferredLocale: response.user.preferredLocale,
+    hasCandidateAccount: response.candidateAccount.exists,
+    activeOrganization: response.activeOrganization,
+    memberships: response.memberships.map((membership) => ({
+      organization: membership.organization,
+      role: membership.role,
+      joinedAt: membership.joinedAt,
+    })),
+  };
+}
+
+export function toAuthSession(
+  response: AuthSessionRowResponse,
+): AuthSessionRow {
+  return {
     id: response.id,
-    organizationId: response.organizationId,
-    fullName: response.fullName,
-    email: response.email,
-    role: response.role,
-    // Absent on an older API build; null rather than a guessed default.
-    preferredLocale: response.preferredLocale ?? null,
-    organization: response.organization,
+    createdAt: response.createdAt,
+    lastUsedAt: response.lastUsedAt,
+    expiresAt: response.expiresAt,
+    userAgent: response.userAgent,
+    deviceName: response.deviceName,
+    current: response.current,
   };
 }
 
@@ -607,5 +646,135 @@ export function toEvidenceMap(response: EvidenceMapResponse): EvidenceMap {
             new Date(value) > new Date(latest) ? value : latest,
           )
         : null,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Candidate account & public job board                                        */
+/*                                                                             */
+/* The job-seeker side of the product. A `CandidateAccount` belongs to the      */
+/* user and to no organization; it is never merged with the recruiter-owned     */
+/* `Candidate` record, which is a different thing that happens to describe the  */
+/* same person.                                                                */
+/* -------------------------------------------------------------------------- */
+
+export function toCandidateAccount(
+  response: CandidateAccountResponse,
+): CandidateAccount {
+  return {
+    id: response.id,
+    headline: response.headline,
+    location: response.location,
+    phone: response.phone,
+    summary: response.summary,
+    skills: response.skills ?? [],
+    languages: response.languages ?? [],
+    experience: response.experience ?? [],
+    education: response.education ?? [],
+    profileVisibility: response.profileVisibility,
+    resume: response.resumeDocument
+      ? {
+          id: response.resumeDocument.id,
+          originalFileName: response.resumeDocument.originalFileName,
+          mimeType: response.resumeDocument.mimeType,
+          fileSize: response.resumeDocument.fileSize,
+          createdAt: response.resumeDocument.createdAt,
+        }
+      : null,
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+  };
+}
+
+export function toPublicJob(response: PublicJobResponse): PublicJob {
+  return {
+    publicSlug: response.publicSlug,
+    title: response.title,
+    department: response.department,
+    location: response.location,
+    employmentType: response.employmentType,
+    experienceLevel: response.experienceLevel,
+    createdAt: response.createdAt,
+    organizationName: response.organization.name,
+  };
+}
+
+export function toPublicJobDetail(
+  response: PublicJobDetailResponse,
+): PublicJobDetail {
+  return {
+    ...toPublicJob(response),
+    description: response.description,
+    requirements: response.requirements ?? [],
+  };
+}
+
+export function toMyApplication(
+  response: MyApplicationResponse,
+): MyApplication {
+  return {
+    id: response.id,
+    status: response.status,
+    source: response.source,
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+    job: {
+      publicSlug: response.vacancy.publicSlug,
+      title: response.vacancy.title,
+      location: response.vacancy.location,
+      employmentType: response.vacancy.employmentType,
+      organizationName: response.vacancy.organization.name,
+    },
+    // The snapshot actually submitted, which may differ from the profile
+    // resume the candidate has since replaced.
+    submittedFileName: response.submittedDocument?.originalFileName ?? null,
+  };
+}
+
+export function toSavedJob(response: SavedJobResponse): SavedJob {
+  return {
+    savedAt: response.savedAt,
+    job: {
+      publicSlug: response.job.publicSlug,
+      title: response.job.title,
+      location: response.job.location,
+      employmentType: response.job.employmentType,
+      status: response.job.status,
+      organizationName: response.job.organization.name,
+    },
+  };
+}
+
+/**
+ * POST /candidate-account/me/job-matches.
+ *
+ * A near-passthrough on purpose: the backend already returns candidate-safe
+ * data — public slugs, no internal ids, a deterministic STRONG/PARTIAL/WEAK
+ * label. Nothing is re-scored, re-ordered or re-classified here; the backend
+ * ordering (retrieval relevance) is preserved as-is.
+ */
+export function toJobMatchResult(response: JobMatchesResponse): JobMatchResult {
+  return {
+    matches: response.matches.map((match) => ({
+      vacancy: {
+        slug: match.vacancy.slug,
+        title: match.vacancy.title,
+        organizationName: match.vacancy.organizationName,
+        location: match.vacancy.location,
+        employmentType: match.vacancy.employmentType,
+        status: match.vacancy.status,
+      },
+      match: match.match,
+      explanation: match.explanation,
+      supportedRequirements: match.supportedRequirements,
+      unsupportedRequirements: match.unsupportedRequirements,
+      unclearRequirements: match.unclearRequirements,
+      evidence: match.evidence,
+      saved: match.saved,
+      applicationState: match.applicationState,
+    })),
+    locale: response.locale,
+    generated: response.generated,
+    generatedAt: response.generatedAt,
   };
 }

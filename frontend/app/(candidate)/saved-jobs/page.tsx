@@ -1,35 +1,41 @@
 import type { Metadata } from "next";
+import { api } from "@/lib/api";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { UnavailableState } from "@/components/ui/UnavailableState";
-import { FileIcon } from "@/components/ui/icons";
-import { BACKEND_CAPABILITIES } from "@/lib/capabilities";
 import { getTranslations } from "@/lib/i18n/server";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { SavedJobsView } from "@/components/candidate/SavedJobsView";
+import { CandidateAccountRequired } from "@/components/candidate/CandidateAccountRequired";
 
 export async function generateMetadata(): Promise<Metadata> {
   const d = await getTranslations();
-  return { title: d.personal.savedJobs };
+  return { title: d.savedJobs.title };
 }
 
 export default async function SavedJobsPage() {
-  await requirePersonalWorkspace();
+  const { session } = await requirePersonalWorkspace();
   const d = await getTranslations();
+
+  if (!session.hasCandidateAccount) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <PageHeader
+          title={d.savedJobs.title}
+          description={d.savedJobs.description}
+        />
+        <CandidateAccountRequired />
+      </div>
+    );
+  }
+
+  const page = await api.getSavedJobs(1, 50);
 
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
-        title={d.personal.savedJobs}
-        description={d.personal.savedJobsDescription}
+        title={d.savedJobs.title}
+        description={d.savedJobs.description}
       />
-
-      {!BACKEND_CAPABILITIES.savedJobs ? (
-        <UnavailableState
-          icon={<FileIcon className="size-5" />}
-          title={d.personal.savedJobsUnavailable}
-          description={d.personal.savedJobsUnavailableHint}
-          requires={d.personal.savedJobsRequires}
-        />
-      ) : null}
+      <SavedJobsView saved={page.saved} />
     </div>
   );
 }

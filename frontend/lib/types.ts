@@ -10,6 +10,8 @@
 
 import type { Locale } from "@/lib/i18n/locales";
 
+export type { Locale };
+
 export type ID = string;
 /** ISO-8601 timestamp. */
 export type ISODateString = string;
@@ -21,22 +23,19 @@ export type ISODateString = string;
 export const ROLES = ["OWNER", "HR_ADMIN", "RECRUITER", "INTERVIEWER"] as const;
 export type Role = (typeof ROLES)[number];
 
+/**
+ * A person's account. Roles live on memberships, never here.
+ *
+ * There is deliberately no `role` and no `organizationId` on this type: the
+ * backend removed both from the user row, and reintroducing them in the
+ * frontend would recreate the single-organization assumption the identity
+ * migration exists to remove.
+ */
 export interface User {
   id: ID;
-  organizationId: ID;
   fullName: string;
   email: string;
-  role: Role;
-  /**
-   * The language stored against the account.
-   *
-   * Null when the API did not report one. It seeds this browser's locale on a
-   * first visit; the API exposes no field to update it, so a change made here
-   * cannot be written back.
-   */
-  preferredLocale: Locale | null;
-  createdAt?: ISODateString;
-  updatedAt?: ISODateString;
+  preferredLocale: Locale;
 }
 
 export interface Organization {
@@ -54,22 +53,73 @@ export interface Organization {
   };
 }
 
-/** GET /auth/me */
-export interface SessionUser extends User {
+/** One organization the user belongs to, with the role held THERE. */
+export interface Membership {
   organization: Pick<Organization, "id" | "name" | "slug">;
+  role: Role;
+  joinedAt: ISODateString;
+}
+
+/** The organization the current access token points at. */
+export interface ActiveOrganization {
+  id: ID;
+  name: string;
+  slug: string;
+  role: Role;
+}
+
+/**
+ * GET /auth/me — who the caller is across both sides of the product.
+ *
+ * `activeOrganization` is null for a job seeker, and also when the token's
+ * organization claim is stale (the membership was revoked). Both cases mean the
+ * same thing to the UI: show the workspace picker rather than organization data.
+ */
+export interface SessionUser {
+  id: ID;
+  fullName: string;
+  email: string;
+  preferredLocale: Locale;
+  /** True once the user has created their personal job-seeker profile. */
+  hasCandidateAccount: boolean;
+  activeOrganization: ActiveOrganization | null;
+  memberships: Membership[];
+}
+
+/** One live browser/device session from GET /auth/sessions. */
+export interface AuthSessionRow {
+  id: ID;
+  createdAt: ISODateString;
+  lastUsedAt: ISODateString;
+  expiresAt: ISODateString;
+  userAgent: string | null;
+  deviceName: string | null;
+  /** True for the session making the request. */
+  current: boolean;
 }
 
 export interface LoginInput {
   email: string;
   password: string;
+  deviceName?: string;
 }
 
+/**
+ * Registration covers two intents through one endpoint.
+ *
+ * Supplying `organizationName` + `organizationSlug` creates an organization
+ * with the caller as OWNER; omitting both creates a job-seeker account with no
+ * membership. Supplying only one is a 400 from the backend.
+ */
 export interface RegisterInput {
   fullName: string;
   email: string;
   password: string;
-  organizationName: string;
-  organizationSlug: string;
+  organizationName?: string;
+  organizationSlug?: string;
+  preferredLocale?: Locale;
+  /** Friendly label for the session list, e.g. "Work laptop". */
+  deviceName?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -659,4 +709,231 @@ export interface SettingsData {
   user: SessionUser;
   organization: Organization;
   team: TeamMember[];
+  /** The caller's live sessions, for the security section. */
+  sessions: AuthSessionRow[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Candidate account — the user's own job-seeker identity                      */
+/*                                                                             */
+/* Separate from `Candidate`, which is a recruiter-owned record inside one      */
+/* organization. A person may have both; they are never merged.                */
+/* -------------------------------------------------------------------------- */
+
+export const PROFILE_VISIBILITIES = ["PRIVATE", "PUBLIC"] as const;
+export type ProfileVisibility = (typeof PROFILE_VISIBILITIES)[number];
+
+/** Dates are free text on purpose — a resume is not a form. */
+export interface CandidateExperience {
+  title: string;
+  company?: string;
+  startDate?: string;
+  endDate?: string;
+  description?: string;
+}
+
+export interface CandidateEducation {
+  institution: string;
+  degree?: string;
+  field?: string;
+  startYear?: number;
+  endYear?: number;
+}
+
+/**
+ * The personal resume.
+ *
+ * Stored against the candidate account with no organization, in a private
+ * namespace, and never indexed for recruiter search. An organization only ever
+ * receives a snapshot copy made at apply time.
+ */
+export interface PersonalResume {
+  id: ID;
+  originalFileName: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  createdAt: ISODateString;
+}
+
+export interface CandidateAccount {
+  id: ID;
+  headline: string | null;
+  location: string | null;
+  phone: string | null;
+  summary: string | null;
+  skills: string[];
+  languages: string[];
+  experience: CandidateExperience[];
+  education: CandidateEducation[];
+  profileVisibility: ProfileVisibility;
+  resume: PersonalResume | null;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export interface CandidateAccountInput {
+  headline?: string;
+  location?: string;
+  phone?: string;
+  summary?: string;
+  skills?: string[];
+  languages?: string[];
+  experience?: CandidateExperience[];
+  education?: CandidateEducation[];
+  profileVisibility?: ProfileVisibility;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Public job board                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A job as a job seeker sees it.
+ *
+ * Addressed by `publicSlug` only — no internal vacancy id is exposed — and
+ * carrying advertisement-safe fields alone: no applicant counts, no creator,
+ * no processing or evidence data.
+ */
+export interface PublicJob {
+  publicSlug: string;
+  title: string;
+  department: string | null;
+  location: string | null;
+  employmentType: string | null;
+  experienceLevel: string | null;
+  createdAt: ISODateString;
+  organizationName: string;
+}
+
+export interface PublicJobDetail extends PublicJob {
+  description: string | null;
+  requirements: {
+    text: string;
+    type: RequirementType;
+    required: boolean;
+  }[];
+}
+
+export interface PublicJobPage {
+  jobs: PublicJob[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+/** One of the caller's own direct applications. */
+export interface MyApplication {
+  id: ID;
+  status: ApplicationStatus;
+  source: ApplicationSource;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+  job: {
+    publicSlug: string;
+    title: string;
+    location: string | null;
+    employmentType: string | null;
+    organizationName: string;
+  };
+  /** The resume snapshot actually submitted, not the current profile resume. */
+  submittedFileName: string | null;
+}
+
+export interface MyApplicationPage {
+  applications: MyApplication[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+export interface SavedJob {
+  savedAt: ISODateString;
+  job: {
+    publicSlug: string;
+    title: string;
+    location: string | null;
+    employmentType: string | null;
+    /** A bookmark whose job is no longer OPEN is shown but not actionable. */
+    status: VacancyStatus;
+    organizationName: string;
+  };
+}
+
+export interface SavedJobPage {
+  saved: SavedJob[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+/**
+ * Why a candidate-platform action did not succeed.
+ *
+ * Distinct reasons because each needs different words and a different next
+ * step: creating a profile, uploading a resume, and having already applied are
+ * three different situations, not one generic failure.
+ */
+export type CandidateActionReason =
+  | "no_candidate_account"
+  | "no_resume"
+  | "already_applied"
+  | "job_unavailable"
+  | "cannot_withdraw"
+  | "unauthorized"
+  | "network"
+  | "error";
+
+/* -------------------------------------------------------------------------- */
+/* Candidate AI job matching                                                   */
+/*                                                                             */
+/* The STRONG/PARTIAL/WEAK label is the backend's deterministic classification  */
+/* of evidence coverage. It is never a score, a percentage or a hiring          */
+/* recommendation, and the frontend must not derive one from it.               */
+/* -------------------------------------------------------------------------- */
+
+export const JOB_MATCH_STRENGTHS = ["STRONG", "PARTIAL", "WEAK"] as const;
+export type JobMatchStrength = (typeof JOB_MATCH_STRENGTHS)[number];
+
+export interface MatchRequirement {
+  text: string;
+  required: boolean;
+  /** The backend's stated basis for the classification. */
+  reason: string;
+}
+
+/** A passage from the candidate's own resume/profile behind a match. */
+export interface MatchEvidence {
+  fileName: string | null;
+  pageNumber: number | null;
+  section: string | null;
+  text: string;
+}
+
+export interface JobMatch {
+  vacancy: {
+    /** Public slug — the only identifier this surface ever sees. */
+    slug: string;
+    title: string;
+    organizationName: string;
+    location: string | null;
+    employmentType: string | null;
+    status: VacancyStatus;
+  };
+  match: JobMatchStrength;
+  /** Null when generation was unavailable; deterministic data still stands. */
+  explanation: string | null;
+  supportedRequirements: MatchRequirement[];
+  unsupportedRequirements: MatchRequirement[];
+  unclearRequirements: MatchRequirement[];
+  evidence: MatchEvidence[];
+  saved: boolean;
+  applicationState: ApplicationStatus | null;
+}
+
+export interface JobMatchResult {
+  matches: JobMatch[];
+  locale: Locale;
+  /** False when the grounded explanation step did not run. */
+  generated: boolean;
+  generatedAt: ISODateString;
 }

@@ -199,6 +199,7 @@ export function AnswerPanel({
 
             <CitationList
               citations={answer.citations}
+              answerText={answer.answer}
               onSelectCitation={onSelectCitation}
               activeCitationId={activeCitationId}
               className="border-t border-line pt-3"

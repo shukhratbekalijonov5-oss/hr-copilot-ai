@@ -139,6 +139,138 @@ def build_docx(text: str) -> bytes:
     return buffer.getvalue()
 
 
+# --- Extraction-artefact fixtures ------------------------------------------
+
+# Emulates per-glyph positioned PDFs as pypdf reads them: one space between
+# glyphs of a word, two spaces at real word boundaries.
+GLYPH_SPACED_LINES = (
+    "R a k h m a t i l l o",
+    "A n d r e w",
+    "F u l l  S t a c k  D e v e l o p e r",
+    "S k i l l s",
+    "H T M L ,  C S S ,  S A S S ,  J a v a S c r i p t",
+    "a n d r e w 0 3 3 1 r @ g m a i l . c o m",
+    "+ 8 2 1 0 5 6 3 7 5 4 2 6",
+)
+
+
+def _render_pdf_lines(
+    lines, *, font: str = "Helvetica", size: int = 10, x: int = 72
+) -> bytes:
+    """Renders exact lines (no wrapping) so spacing artefacts survive."""
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=LETTER)
+    y = LETTER[1] - 72
+    for line in lines:
+        pdf.setFont(font, size)
+        pdf.drawString(x, y, line)
+        y -= 14
+    pdf.save()
+    return buffer.getvalue()
+
+
+def build_letter_spaced_pdf() -> bytes:
+    """A PDF whose text layer is glyph-spaced, like per-glyph positioned CVs."""
+    return _render_pdf_lines(GLYPH_SPACED_LINES)
+
+
+def build_multi_column_pdf() -> bytes:
+    """Two visual columns, interleaved in content-stream order.
+
+    Plain text-layer readers concatenate rows across the gap; layout-aware
+    extraction must keep each column's lines separate.
+    """
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.pdfgen import canvas
+
+    left = (
+        "Work Experience",
+        "Senior Backend Engineer",
+        "Hanwool Logistics, Seoul",
+        "Built the order orchestration platform",
+        "using NestJS and TypeScript.",
+    )
+    right = ("Skills", "Kubernetes", "Redis Pub/Sub", "PostgreSQL", "Docker")
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=LETTER)
+    pdf.setFont("Helvetica", 10)
+    y = LETTER[1] - 72
+    for left_line, right_line in zip(left, right):
+        pdf.drawString(72, y, left_line)
+        pdf.drawString(380, y, right_line)
+        y -= 14
+    pdf.save()
+    return buffer.getvalue()
+
+
+KOREAN_LINES = (
+    "김민준",
+    "백엔드 엔지니어",
+    "경력",
+    "하늘 물류에서 주문 플랫폼을 개발했습니다.",
+    "기술: 쿠버네티스, 레디스",
+)
+
+
+def build_korean_pdf() -> bytes:
+    """Korean text (CID font) with one English line mixed in."""
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfgen import canvas
+
+    pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=LETTER)
+    y = LETTER[1] - 72
+    for line in KOREAN_LINES:
+        pdf.setFont("HYSMyeongJo-Medium", 10)
+        pdf.drawString(72, y, line)
+        y -= 14
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(72, y, "Backend Engineer, Seoul, South Korea")
+    pdf.save()
+    return buffer.getvalue()
+
+
+# reportlab's built-in fonts cannot encode Cyrillic; a Unicode TTF from the
+# host is used when one exists, and the PDF-level Cyrillic test skips cleanly
+# otherwise (string-level Cyrillic coverage does not depend on any font).
+_CYRILLIC_FONT_CANDIDATES = (
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/Library/Fonts/Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+)
+
+CYRILLIC_LINES = (
+    "Дмитрий Волков",
+    "Опытный инженер по данным и аналитике",
+    "Навыки: Python, Spark, SQL",
+)
+
+
+def find_cyrillic_font() -> str | None:
+    import os
+
+    for path in _CYRILLIC_FONT_CANDIDATES:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def build_cyrillic_pdf(font_path: str) -> bytes:
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    pdfmetrics.registerFont(TTFont("FixtureCyrillic", font_path))
+    return _render_pdf_lines(CYRILLIC_LINES, font="FixtureCyrillic")
+
+
 def build_empty_pdf() -> bytes:
     """A structurally valid PDF with no text layer (like a scan)."""
     from reportlab.lib.pagesizes import LETTER

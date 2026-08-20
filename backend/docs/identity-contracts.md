@@ -187,3 +187,62 @@ refresh token in SecureStore/Keychain, keep the access token in memory,
 refresh on 401/expiry (serialized), pass `deviceName` at login so the user
 recognizes the device in `GET /auth/sessions`, and call `DELETE
 /auth/sessions/:id` for remote sign-out. Nothing else is needed server-side.
+
+## 12. Candidate AI Job Match (NEW)
+
+`POST /candidate-account/me/job-matches` — authenticated candidate, **no
+organization required or used**. Body (both optional):
+`{ "locale": "en|ko|ru|uz", "limit": 1..10 }` — locale defaults to the user's
+`preferredLocale`, limit to 5. `422` when the account has neither a resume nor
+any profile content. Latency is generation-bound (~15–30s) — show a progress
+state, don't set short client timeouts.
+
+```json
+{
+  "matches": [{
+    "vacancy": { "slug", "title", "organizationName", "location",
+                 "employmentType", "status" },
+    "match": "STRONG" | "PARTIAL" | "WEAK",
+    "explanation": "…in the requested locale, or null…",
+    "supportedRequirements":   [{ "text", "required", "reason" }],
+    "unsupportedRequirements": [{ "text", "required", "reason" }],
+    "unclearRequirements":     [{ "text", "required", "reason" }],
+    "evidence": [{ "fileName", "pageNumber", "section", "text" }],
+    "saved": false,
+    "applicationState": "NEW" | … | null
+  }],
+  "locale": "uz", "generated": true, "generatedAt": "…"
+}
+```
+
+Semantics the UI must respect:
+
+- `match` is a **deterministic evidence-coverage label** (computed from how
+  many required requirements the candidate's documents support / miss / leave
+  unclear). It is NOT a hiring recommendation, rating or percentage — never
+  render it as a score.
+- Matches are ordered by retrieval relevance, not by label.
+- `evidence.fileName` is either the personal resume file or `"Profile"` (a
+  profile field; `pageNumber` null).
+- `explanation` may be `null` (`generated: false`) when the LLM was
+  unavailable — the labels and requirement lists are still valid; render them.
+- Vacancies are addressed by public `slug` (works with `/public/jobs/:slug`,
+  save and apply). `saved`/`applicationState` let the UI show bookmark/apply
+  state inline.
+- The match uses ONLY the personal profile + personal resume. Uploading or
+  replacing the resume re-indexes automatically (allow a few seconds after
+  upload before matching reflects it).
+
+## 13. AI generation locale precedence (updated)
+
+For `POST /ai/answer`, `POST /ai/candidates/:id/summary` and interview
+questions, `locale` is now optional with a documented precedence:
+
+    explicit request locale → the user's preferredLocale → 'en'
+
+Sending the UI locale explicitly is still recommended (it always wins). The
+backend also guarantees answer/citation consistency: any inline citation
+marker in `answer` corresponds to an entry in `citations` (markers are
+`[<chunkId>]`, which the existing `segmentAnswer` renderer already converts to
+numbered references) — an answer can never show source markers while
+`citations` is empty, in ANY status.

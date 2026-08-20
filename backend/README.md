@@ -459,6 +459,7 @@ token except those marked public.
 | GET    | `/api/candidate-account/me/applications(/:id)`      | own DIRECT applications   |
 | POST   | `/api/candidate-account/me/applications/:id/withdraw` | only candidate status mutation |
 | GET/POST/DELETE | `/api/candidate-account/me/saved-jobs(/:slug)` | bookmarks (OPEN jobs)  |
+| POST   | `/api/candidate-account/me/job-matches`             | candidate-side AI matching (no org) |
 | POST   | `/api/internal/processing/progress`                 | AI service only (service token) |
 | GET    | `/health/live`, `/health/ready`                     | public                    |
 

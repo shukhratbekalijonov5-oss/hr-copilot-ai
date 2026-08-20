@@ -79,3 +79,56 @@ def get_embedder() -> EmbeddingModel:
 
 def get_cross_encoder() -> CrossEncoderReranker:
     return get_reranker()
+
+
+_candidate_store = None
+_candidate_store_lock = threading.Lock()
+
+
+def get_candidate_store():
+    """Personal-resume collection — physically separate from tenant data."""
+    global _candidate_store
+    if _candidate_store is None:
+        with _candidate_store_lock:
+            if _candidate_store is None:
+                from app.candidate.store import CandidateResumeStore
+
+                settings = get_settings()
+                _candidate_store = CandidateResumeStore(
+                    settings.qdrant_url,
+                    settings.active_candidate_collection,
+                    api_key=settings.qdrant_api_key,
+                    timeout=settings.qdrant_timeout_seconds,
+                )
+    return _candidate_store
+
+
+_vacancy_store = None
+_vacancy_store_lock = threading.Lock()
+
+
+def get_vacancy_store():
+    """Candidate-discoverable vacancy index."""
+    global _vacancy_store
+    if _vacancy_store is None:
+        with _vacancy_store_lock:
+            if _vacancy_store is None:
+                from app.candidate.store import VacancyStore
+
+                settings = get_settings()
+                _vacancy_store = VacancyStore(
+                    settings.qdrant_url,
+                    settings.active_vacancy_collection,
+                    api_key=settings.qdrant_api_key,
+                    timeout=settings.qdrant_timeout_seconds,
+                )
+    return _vacancy_store
+
+
+def reset_candidate_stores() -> None:
+    """Test hook: drops the cached candidate-side clients."""
+    global _candidate_store, _vacancy_store
+    with _candidate_store_lock:
+        _candidate_store = None
+    with _vacancy_store_lock:
+        _vacancy_store = None

@@ -19,14 +19,20 @@ describe("backend capability flags", () => {
     expect(BACKEND_CAPABILITIES.evidenceMap).toBe(true);
   });
 
-  it("keeps every candidate-platform surface gated until identity migrates", () => {
-    // There is no CandidateAccount and no OrganizationMember join yet, so none
-    // of these can persist anything.
-    expect(BACKEND_CAPABILITIES.candidateAccount).toBe(false);
-    expect(BACKEND_CAPABILITIES.multiOrganization).toBe(false);
-    expect(BACKEND_CAPABILITIES.publicJobs).toBe(false);
-    expect(BACKEND_CAPABILITIES.directApplication).toBe(false);
-    expect(BACKEND_CAPABILITIES.savedJobs).toBe(false);
+  it("enables the candidate platform now that the identity migration landed", () => {
+    // Verified against the running API: POST /candidate-account,
+    // GET /public/jobs, POST /public/jobs/:slug/apply, the saved-job routes and
+    // POST /auth/switch-organization all answer for real.
+    expect(BACKEND_CAPABILITIES.candidateAccount).toBe(true);
+    expect(BACKEND_CAPABILITIES.multiOrganization).toBe(true);
+    expect(BACKEND_CAPABILITIES.publicJobs).toBe(true);
+    expect(BACKEND_CAPABILITIES.directApplication).toBe(true);
+    expect(BACKEND_CAPABILITIES.savedJobs).toBe(true);
+  });
+
+  it("enables session management", () => {
+    // GET /auth/sessions, DELETE /auth/sessions/:id, POST /auth/logout-all.
+    expect(BACKEND_CAPABILITIES.sessionManagement).toBe(true);
   });
 
   it("enables application provenance now that the API returns it", () => {
@@ -35,6 +41,7 @@ describe("backend capability flags", () => {
   });
 
   it("keeps flags off for routes the API still does not expose", () => {
+    // No integration endpoints and no credential storage; no retry route.
     expect(BACKEND_CAPABILITIES.integrations).toBe(false);
     expect(BACKEND_CAPABILITIES.processingRetry).toBe(false);
   });

@@ -49,6 +49,24 @@ class Settings(BaseSettings):
     qdrant_collection_version: int = Field(default=1, ge=1)
     qdrant_timeout_seconds: float = 30.0
 
+    # --- Candidate-side collections (Job Match) -----------------------------
+    #
+    # PHYSICALLY separate from the org-scoped resume collection. Personal
+    # candidate resumes must never be reachable through any organization
+    # filter, so they do not share a collection with tenant data — isolation
+    # by construction, not by query discipline. Same versioning rationale as
+    # `qdrant_collection`.
+    qdrant_candidate_collection: str = "candidate_resume_chunks"
+    qdrant_vacancy_collection: str = "vacancy_chunks"
+
+    # --- Candidate job matching --------------------------------------------
+    # How many vacancy chunks the first-stage vector search considers before
+    # grouping into vacancies and reranking.
+    match_vacancy_pool: int = Field(default=32, ge=4, le=200)
+    # Per-vacancy cap on requirements compared in depth; a JD with 40 bullet
+    # points does not get 40 retrieval rounds.
+    match_max_requirements: int = Field(default=12, ge=1, le=30)
+
     # --- Embeddings -------------------------------------------------------
     #
     # paraphrase-multilingual-MiniLM-L12-v2 is the default because resumes in
@@ -188,6 +206,16 @@ class Settings(BaseSettings):
 
     def collection_for_version(self, version: int) -> str:
         return f"{self.qdrant_collection}_v{version}"
+
+    @property
+    def active_candidate_collection(self) -> str:
+        """Personal-resume collection, e.g. ``candidate_resume_chunks_v1``."""
+        return f"{self.qdrant_candidate_collection}_v{self.qdrant_collection_version}"
+
+    @property
+    def active_vacancy_collection(self) -> str:
+        """Vacancy index collection, e.g. ``vacancy_chunks_v1``."""
+        return f"{self.qdrant_vacancy_collection}_v{self.qdrant_collection_version}"
 
 
 @lru_cache(maxsize=1)

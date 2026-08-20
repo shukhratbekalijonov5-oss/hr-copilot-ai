@@ -3,11 +3,20 @@ import { navigationFor } from "@/lib/workspace/navigation";
 import { ROLES, type Role } from "@/lib/types";
 import en from "@/lib/i18n/dictionaries/en";
 import { ALL_DICTIONARIES } from "@/lib/i18n/dictionary";
-import type { OrganizationWorkspace } from "@/lib/workspace/types";
+import type {
+  OrganizationWorkspace,
+  PersonalWorkspace,
+} from "@/lib/workspace/types";
 
 function workspaceFor(role: Role): OrganizationWorkspace {
   return { kind: "organization", id: "org-1", name: "Northwind", slug: "nw", role };
 }
+
+const personalWorkspace: PersonalWorkspace = {
+  kind: "personal",
+  id: "personal",
+  name: "Aziza",
+};
 
 const hrefsFor = (role: Role) => {
   const { primary, secondary } = navigationFor(workspaceFor(role));
@@ -54,10 +63,13 @@ describe("role-sensitive AI navigation", () => {
 describe("navigation labels", () => {
   it("resolves every nav item's label key in every locale", () => {
     const keys = new Set(
-      ROLES.flatMap((role) => {
-        const { primary, secondary } = navigationFor(workspaceFor(role));
-        return [...primary, ...secondary].map((item) => item.labelKey);
-      }),
+      [
+        ...ROLES.flatMap((role) => {
+          const { primary, secondary } = navigationFor(workspaceFor(role));
+          return [...primary, ...secondary].map((item) => item.labelKey);
+        }),
+        ...navigationFor(personalWorkspace).primary.map((item) => item.labelKey),
+      ],
     );
 
     expect(keys.size).toBeGreaterThan(0);
@@ -69,18 +81,21 @@ describe("navigation labels", () => {
     }
   });
 
-  it("keeps the personal workspace navigation intact", () => {
-    const { primary } = navigationFor({
-      kind: "personal",
-      id: "personal",
-      name: "Aziza",
-    });
+  it("keeps AI Job Match in the personal workspace only", () => {
+    const { primary } = navigationFor(personalWorkspace);
     expect(primary.map((item) => item.href)).toEqual([
       "/jobs",
+      "/job-matches",
       "/my-applications",
       "/saved-jobs",
       "/my-profile",
     ]);
-    expect(en.nav.findJobs).toBeTruthy();
+    expect(en.nav.aiJobMatch).toBe("AI Job Match");
+
+    for (const role of ROLES) {
+      const { primary, secondary } = navigationFor(workspaceFor(role));
+      const hrefs = [...primary, ...secondary].map((item) => item.href);
+      expect(hrefs).not.toContain("/job-matches");
+    }
   });
 });

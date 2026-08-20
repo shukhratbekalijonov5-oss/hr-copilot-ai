@@ -9,6 +9,7 @@
  * spelling stays consistent with the locale label in `LOCALE_META`.
  */
 import type { Dictionary } from "@/lib/i18n/dictionary";
+import type { Plural } from "@/lib/i18n/dictionaries/en";
 
 const uz: Dictionary = {
   meta: {
@@ -62,6 +63,8 @@ const uz: Dictionary = {
     notSet: "Lavozim kiritilmagan",
     none: "Yoʻq",
     page: "sahifa",
+    showMore: "Toʻliq koʻrsatish",
+    showLess: "Yigʻish",
     pageOf: "{page} / {total}",
     pageNumber: "{page}-sahifa",
     language: "Til",
@@ -101,6 +104,7 @@ const uz: Dictionary = {
     processing: "Qayta ishlash",
     settings: "Sozlamalar",
     findJobs: "Ish topish",
+    aiJobMatch: "AI ish tanlash",
     myApplications: "Mening arizalarim",
     savedJobs: "Saqlangan vakansiyalar",
     myProfile: "Mening profilim",
@@ -384,6 +388,9 @@ const uz: Dictionary = {
     retrievalContext: "Qidiruv konteksti",
     unnamedCandidate: "Ismi koʻrsatilmagan nomzod",
     sourceDocument: "Manba hujjat",
+    summaryTitle: "AI xulosasi",
+    searchingEvidence: "Nomzod dalillari qidirilmoqda…",
+    generatingSummary: "Dalilga asoslangan xulosa tayyorlanmoqda…",
   },
 
   ai: {
@@ -404,6 +411,20 @@ const uz: Dictionary = {
       other: "{count} manba",
     },
     noCitations: "Ushbu javob bilan birga manba parchalari qaytmadi.",
+    supportingEvidence: "Tasdiqlovchi dalil",
+    viewOriginalEvidence: "Asl matnni koʻrsatish",
+    hideOriginalEvidence: "Asl matnni yashirish",
+    sectionLabels: {
+      summary: "Qisqacha maʼlumot",
+      experience: "Ish tajribasi",
+      projects: "Loyihalar",
+      skills: "Koʻnikmalar",
+      education: "Taʼlim",
+      certifications: "Sertifikatlar",
+      languages: "Tillar",
+    },
+    citationSourcesUnavailable:
+      "Javobda manbalarga havolalar bor, ammo ular bilan birga mos parchalar qaytarilmadi, shuning uchun havolalarni ochib boʻlmaydi. Daʼvolarni bevosita hujjatlar orqali tekshiring.",
     evidenceConsidered: "{count} ta parcha koʻrib chiqildi",
     model: "Model",
     regenerate: "Qayta yaratish",
@@ -912,6 +933,250 @@ const uz: Dictionary = {
     Principal: "Principal",
   },
 
+  workspaces: {
+    title: "Ish maydonini tanlang",
+    description:
+      "Bir marta kirasiz. Har bir ish maydonining oʻz maʼlumotlari va oʻz roli bor.",
+    candidate: "Nomzod",
+    candidateHint: "Oʻz profilingiz, arizalaringiz va saqlangan vakansiyalar.",
+    candidateNotSetUp: "Profil hali yaratilmagan",
+    organizations: "Tashkilotlar",
+    noOrganizations: "Siz hali birorta tashkilotga aʼzo emassiz.",
+    noOrganizationsHint:
+      "Tashkilot egasi yoki HR administratori sizni qoʻsha oladi. Shu paytgacha nomzod ish maydonidan foydalaning.",
+    current: "Joriy",
+    open: "Ochish",
+    switching: "Ish maydoni almashtirilmoqda…",
+    switchFailed: "Ish maydonini almashtirib boʻlmadi.",
+    switchedTo: "Endi «{name}» ichidasiz",
+    membershipRevoked: "Bu ish maydoniga ruxsatingiz olib tashlandi",
+    membershipRevokedHint:
+      "Davom etish uchun boshqa ish maydonini tanlang. Bu xato boʻlsa, oʻsha tashkilot administratoriga murojaat qiling.",
+  },
+
+  candidateProfile: {
+    title: "Mening profilim",
+    description: "Ariza berganingizda ishga qabul jamoasi nimani koʻradi.",
+    createTitle: "Ish izlovchi profilini yarating",
+    createHint:
+      "Profil siz ishlaydigan tashkilotlardan mustaqil. U sizniki va mazmunini siz belgilaysiz.",
+    create: "Profil yaratish",
+    notCreated: "Siz hali ish izlovchi profilini yaratmagansiz",
+    basics: "Asosiy maʼlumot",
+    basicsHint: "Profilingiz sarlavhasi.",
+    headline: "Qisqa taʼrif",
+    headlinePlaceholder: "Backend muhandis",
+    location: "Manzil",
+    phone: "Telefon",
+    summary: "Oʻzingiz haqingizda",
+    summaryPlaceholder: "Qanday ish qilganingiz haqida bir necha jumla.",
+    skills: "Koʻnikmalar",
+    skillsHint: "Har birini qoʻshish uchun Enter bosing.",
+    languages: "Tillar",
+    experience: "Tajriba",
+    experienceHint: "Eng yangisi birinchi. Sanalar erkin matn — «2021», «2021-03».",
+    addExperience: "Ish joyi qoʻshish",
+    removeExperience: "{index}-ish joyini oʻchirish",
+    jobTitle: "Lavozim",
+    company: "Kompaniya",
+    startDate: "Dan",
+    endDate: "Gacha",
+    roleDescription: "Nima qilgansiz",
+    education: "Taʼlim",
+    addEducation: "Taʼlim qoʻshish",
+    removeEducation: "{index}-taʼlimni oʻchirish",
+    institution: "Oʻquv muassasasi",
+    degree: "Daraja",
+    field: "Yoʻnalish",
+    startYear: "Boshlangan yil",
+    endYear: "Tugagan yil",
+    visibility: "Profil koʻrinishi",
+    visibilityHint:
+      "«Yopiq» — yuborgan maʼlumotingizni faqat siz ariza bergan tashkilotlar koʻradi.",
+    visibilityPrivate: "Yopiq",
+    visibilityPublic: "Ochiq",
+    resume: "Rezyume",
+    resumeHint: "PDF yoki DOCX, {size} gacha. Almashtirish yuborilgan arizalarni oʻzgartirmaydi.",
+    noResume: "Hali rezyume yuklanmagan",
+    uploadResume: "Rezyume yuklash",
+    replaceResume: "Rezyumeni almashtirish",
+    uploading: "Yuklanmoqda",
+    downloadResume: "Rezyumeni ochish",
+    uploadedOn: "{date} yuklangan",
+    personalResumeNote:
+      "Rezyumeingiz faqat sizda qoladi. Ariza berganingizda nusxasi faqat oʻsha tashkilotga yuboriladi.",
+    errTitleRequired: "Ish joyi uchun lavozim kerak.",
+    errInstitutionRequired: "Taʼlim yozuvi uchun oʻquv muassasasi kerak.",
+    saveFailed: "Profilni saqlab boʻlmadi.",
+    createFailed: "Profilni yaratib boʻlmadi.",
+    resumeUploadFailed: "Faylni yuklab boʻlmadi.",
+  },
+
+  jobs: {
+    title: "Ish topish",
+    description: "Profilingizdagi rezyume bilan ariza bera oladigan ochiq vakansiyalar.",
+    searchPlaceholder: "Lavozim nomi va tavsif boʻyicha qidirish",
+    searchLabel: "Vakansiyalarni qidirish",
+    locationPlaceholder: "Manzil",
+    locationLabel: "Manzil boʻyicha filtr",
+    submit: "Qidirish",
+    clear: "Filtrlarni tozalash",
+    resultCount: {
+      one: "{count} ochiq vakansiya",
+      other: "{count} ochiq vakansiya",
+    },
+    empty: "Hozircha ochiq vakansiya yoʻq",
+    emptyHint: "Tashkilotlar e’lon qilgach, yangi vakansiyalar shu yerda koʻrinadi.",
+    noMatches: "Bu soʻrovga mos vakansiya topilmadi",
+    noMatchesHint: "Kamroq soʻz bilan urinib koʻring yoki manzil filtrini olib tashlang.",
+    postedOn: "{date} e’lon qilingan",
+    save: "Saqlash",
+    saved: "Saqlangan",
+    unsave: "Saqlanganlardan olib tashlash",
+    aboutRole: "Lavozim haqida",
+    noDescription: "Bu vakansiyada tavsif yoʻq.",
+    requirements: "Ular nimani qidirmoqda",
+    mustHave: "Majburiy",
+    niceToHave: "Qoʻshimcha ustunlik",
+    apply: "Ariza berish",
+    applying: "Yuborilmoqda",
+    applied: "Ariza berilgan",
+    appliedHint: "Siz bu vakansiyaga ariza bergansiz. «Mening arizalarim»da kuzating.",
+    applySucceeded: "Ariza yuborildi",
+    applySucceededHint:
+      "Rezyume nusxasi «{organization}» ga yuborildi. Ular oʻqib qaror qiladi — hech narsa avtomatik baholanmaydi.",
+    viewApplications: "Arizalarimni koʻrish",
+    notFound: "Bu vakansiya endi ochiq emas",
+    notFoundHint: "U yopilgan yoki toʻldirilgan boʻlishi mumkin. Boshqa vakansiyalarni koʻring.",
+    backToJobs: "Vakansiyalarga qaytish",
+    needsProfile: "Avval profil yarating",
+    needsProfileHint:
+      "Ariza bilan profil va rezyume yuboriladi, shuning uchun ikkalasi ham kerak.",
+    goToProfile: "Profilimga oʻtish",
+    needsResume: "Avval rezyume yuklang",
+    needsResumeHint: "Arizaga rezyume nusxasi ilova qilinadi, shuning uchun u boʻlishi kerak.",
+    alreadyApplied: "Siz allaqachon ariza bergansiz",
+    alreadyAppliedHint:
+      "Har bir vakansiyaga bir marta. Arizani qaytarib olsangiz ham qayta bera olmaysiz — jamoa mavjud arizangiz bilan davom etishi mumkin.",
+    jobUnavailable: "Bu vakansiya endi ariza qabul qilmaydi",
+  },
+
+  applications: {
+    title: "Mening arizalarim",
+    description: "Siz ariza bergan barcha vakansiyalar va ularning bosqichi.",
+    empty: "Hali ariza yoʻq",
+    emptyHint: "Ariza bergan vakansiyalaringiz joriy bosqichi bilan shu yerda koʻrinadi.",
+    appliedOn: "{date} da ariza berilgan",
+    updatedOn: "{date} da yangilangan",
+    submittedResume: "{name} yuborilgan",
+    withdraw: "Qaytarib olish",
+    withdrawing: "Qaytarilmoqda",
+    withdrawn: "Ariza qaytarib olindi",
+    withdrawFailed: "Arizani qaytarib olib boʻlmadi.",
+    cannotWithdraw: "Bu arizani endi qaytarib olib boʻlmaydi",
+    cannotWithdrawHint:
+      "Uning bosqichi yakuniy. Endi holatni faqat ishga qabul jamoasi oʻzgartira oladi.",
+    stageNote:
+      "Bosqichlarni ishga qabul jamoasi belgilaydi. Sizning yagona amalingiz — arizani qaytarib olish.",
+    source: "Manba",
+  },
+
+  savedJobs: {
+    title: "Saqlangan vakansiyalar",
+    description: "Keyinroq qaytmoqchi boʻlgan vakansiyalaringiz.",
+    empty: "Hali hech narsa saqlanmagan",
+    emptyHint: "Vakansiyani saqlang — u shu yerda sizni kutadi.",
+    savedOn: "{date} saqlangan",
+    remove: "Olib tashlash",
+    closed: "Endi ochiq emas",
+    closedHint: "Bu vakansiya saqlaganingizdan keyin yopilgan, ariza berib boʻlmaydi.",
+    viewJob: "Vakansiyani koʻrish",
+  },
+
+  sessions: {
+    title: "Kirilgan qurilmalar",
+    description:
+      "Sessiyasi faol boʻlgan barcha brauzer va qurilmalar. Chiqish darhol kuchga kiradi.",
+    thisDevice: "Ushbu qurilma",
+    unknownDevice: "Nomaʼlum qurilma",
+    created: "{date} da kirilgan",
+    lastUsed: "Oxirgi faollik {date}",
+    expires: "{date} da tugaydi",
+    signOut: "Chiqish",
+    signOutTitle: "{device} qurilmasidan chiqish",
+    signingOut: "Chiqilmoqda",
+    signOutEverywhere: "Hamma joydan chiqish",
+    signOutEverywhereHint:
+      "Joriysi ham kiradigan barcha sessiyalarni tugatadi. Qurilma yoʻqolganda ishlating.",
+    revokeFailed: "Bu sessiyadan chiqib boʻlmadi.",
+    empty: "Boshqa qurilmalarda faol sessiya yoʻq.",
+    unavailable: "Sessiyalarni yuklab boʻlmadi",
+    unavailableHint: "Birozdan soʻng urinib koʻring — joriy sessiyaga taʼsir qilmaydi.",
+  },
+
+  authErrors: {
+    AUTH_INVALID_REFRESH_TOKEN: "Sessiyangiz endi yaroqsiz. Qaytadan kiring.",
+    AUTH_REFRESH_TOKEN_EXPIRED: "Sessiyangiz muddati tugadi. Qaytadan kiring.",
+    AUTH_REFRESH_TOKEN_REUSED:
+      "Hisob maʼlumotlari ikki marta ishlatilgani uchun xavfsizlik yuzasidan sessiya tugatildi. Qaytadan kiring.",
+    AUTH_SESSION_REVOKED: "Bu sessiyadan chiqilgan. Qaytadan kiring.",
+    AUTH_SESSION_NOT_FOUND: "Bunday sessiya endi mavjud emas. Qaytadan kiring.",
+    generic: "Sessiya tugadi. Qaytadan kiring.",
+  },
+
+  jobMatch: {
+    title: "AI ish tanlash",
+    description:
+      "Profilingiz va rezyumengizga mos ochiq vakansiyalar — har bir moslik ortidagi dalillar bilan.",
+    introTitle: "Menga qaysi ishlar mos?",
+    introHint:
+      "Tanlash profilingiz va rezyumengizni ochiq vakansiyalar bilan solishtiradi va har bir talab nimaga asoslanganini koʻrsatadi. Taxminan yigirma soniya davom etadi.",
+    run: "Mosliklarni topish",
+    refresh: "Yangilash",
+    matchCount: {
+      one: "{count} ta mos vakansiya",
+      other: "{count} ta mos vakansiya",
+    } as Plural,
+    loadingStages: [
+      "Profil va rezyume tahlil qilinmoqda…",
+      "Mos ochiq vakansiyalar qidirilmoqda…",
+      "Ish talablari solishtirilmoqda…",
+      "Dalilga asoslangan izohlar tayyorlanmoqda…",
+    ],
+    strength: {
+      STRONG: "Kuchli moslik",
+      PARTIAL: "Qisman moslik",
+      WEAK: "Kuchsiz moslik",
+    },
+    coverageNote:
+      "Moslik belgilari vakansiya talablarining qanchasi hujjatlaringiz bilan tasdiqlanganini bildiradi. Bu sizga berilgan baho ham, ariza topshirish tavsiyasi ham emas.",
+    explanationUnavailable:
+      "AI izohi vaqtincha mavjud emas. Quyidagi moslik dalillari toʻliq holda taqdim etiladi.",
+    requirementSummary: "Talablar xulosasi",
+    supported: "Mos keladigan jihatlarim",
+    missing: "Yetishmayotgan jihatlarim",
+    unclear: "Noaniq jihatlar",
+    noneInGroup: "Bu guruhda qayd etilgan band yoʻq.",
+    required: "majburiy",
+    viewEvidence: "Dalillarni koʻrish",
+    viewJob: "Vakansiyani ochish",
+    needProfileTitle: "Avval profil yarating",
+    needProfileHint:
+      "Ish tanlash profilingiz va rezyumengiz asosida ishlaydi. Boshlash uchun nomzod profilini yarating.",
+    notReadyTitle: "Tanlash uchun maʼlumot qoʻshing",
+    notReadyHint:
+      "Profilingizga koʻnikma, tajriba yoki qisqacha maʼlumot qoʻshing — yoki rezyume yuklang, shunda tanlash uchun dalil boʻladi.",
+    completeProfile: "Profilni toʻldirish",
+    resumeImproves:
+      "Rezyume tanlash sifatini oshiradi: talablar haqiqiy hujjatlaringiz bilan solishtiriladi.",
+    uploadResume: "Rezyume yuklash",
+    noMatches: "Hozircha mos vakansiya yoʻq",
+    noMatchesHint:
+      "Ochiq vakansiyalarning birortasi profilingizga mos kelmadi. Yangi vakansiyalar ochilganda yana tekshirib koʻring.",
+    unavailable: "Tanlash vaqtincha ishlamayapti",
+    unavailableHint:
+      "Tanlash xizmatiga hozir ulanib boʻlmadi. Hech narsa hisoblanmadi — birozdan soʻng qayta urinib koʻring.",
+  },
   status: {
     vacancy: {
       DRAFT: "Qoralama",

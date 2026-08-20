@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { hasInlineCitations, segmentAnswer } from "@/lib/ai/answer-citations";
+import {
+  hasInlineCitations,
+  hasOrphanedReferences,
+  segmentAnswer,
+} from "@/lib/ai/answer-citations";
 import type { Citation } from "@/lib/types";
 
 function citation(chunkId: string, page: number): Citation {
@@ -90,6 +94,22 @@ describe("segmentAnswer", () => {
       citation: citations[0],
     });
   });
+
+  it("renders an Uzbek grounded answer with numbered references and no raw UUID", () => {
+    // The shape /ai/answer returns for the org-wide recruiter search.
+    const segments = segmentAnswer(
+      `Rakhmatillo Andrew deploy bo'yicha tajribaga ega: Docker va GitHub Actions [${A}], hamda Nginx sozlash [${B}].`,
+      citations,
+    );
+
+    const rendered = segments
+      .map((s) => (s.kind === "text" ? s.text : `[${s.index}]`))
+      .join("");
+    expect(rendered).toBe(
+      "Rakhmatillo Andrew deploy bo'yicha tajribaga ega: Docker va GitHub Actions [1], hamda Nginx sozlash [2].",
+    );
+    expect(rendered).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+  });
 });
 
 describe("hasInlineCitations", () => {
@@ -147,5 +167,67 @@ describe("segmentAnswer — marker shapes the model actually emits", () => {
     expect(segments).toEqual([
       { kind: "text", text: "Ran [the migration] in 2024." },
     ]);
+  });
+});
+
+describe("hasOrphanedReferences — markers with no returned sources", () => {
+  it("flags the live failure shape: numeric markers with an empty citation list", () => {
+    // Observed: an Uzbek query answered in English, NEEDS_HUMAN_REVIEW,
+    // markers in the prose, citations: [].
+    expect(
+      hasOrphanedReferences(
+        "The strongest backend candidates are listed [1] [3] [5] [7].",
+        [],
+      ),
+    ).toBe(true);
+  });
+
+  it("flags a comma-separated numeric run with no citations", () => {
+    expect(hasOrphanedReferences("Uses PostgreSQL [1, 2] daily.", [])).toBe(true);
+  });
+
+  it("flags a chunk-id marker with no citations", () => {
+    expect(hasOrphanedReferences(`Claim [${A}] stands.`, [])).toBe(true);
+  });
+
+  it("stays quiet for prose without markers and no citations", () => {
+    expect(hasOrphanedReferences("No evidence supports this query.", [])).toBe(
+      false,
+    );
+  });
+
+  it("stays quiet for ordinary bracketed prose and years", () => {
+    expect(
+      hasOrphanedReferences("Worked on [internal tooling] since [2021].", []),
+    ).toBe(false);
+  });
+
+  it("stays quiet whenever real citations exist — the source list is the UI then", () => {
+    expect(
+      hasOrphanedReferences(`Both [1] and [${A}] appear.`, citations),
+    ).toBe(false);
+  });
+
+  it("is stateless across calls despite regex reuse", () => {
+    // A /g/-style regex would alternate results here via lastIndex.
+    for (let i = 0; i < 3; i += 1) {
+      expect(hasOrphanedReferences("See [1].", [])).toBe(true);
+    }
+  });
+});
+
+describe("segmentAnswer with an empty citation list", () => {
+  it("renders prose safely: no crash, no raw chunk id, numeric markers inert", () => {
+    const segments = segmentAnswer(
+      `Backend experience shown [1] [3] and also [${A}].`,
+      [],
+    );
+
+    expect(segments.every((s) => s.kind === "text")).toBe(true);
+    const rendered = segments.map((s) => (s.kind === "text" ? s.text : "")).join("");
+    expect(rendered).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+    // Numeric markers are the model's own prose and stay verbatim — they are
+    // never turned into clickable references.
+    expect(rendered).toContain("[1] [3]");
   });
 });

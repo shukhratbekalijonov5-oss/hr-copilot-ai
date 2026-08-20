@@ -7,6 +7,7 @@
  * avoided; labels are noun phrases, sentences use -습니다).
  */
 import type { Dictionary } from "@/lib/i18n/dictionary";
+import type { Plural } from "@/lib/i18n/dictionaries/en";
 
 const ko: Dictionary = {
   meta: {
@@ -51,6 +52,8 @@ const ko: Dictionary = {
     notSet: "직함 미입력",
     none: "없음",
     page: "페이지",
+    showMore: "더 보기",
+    showLess: "접기",
     pageOf: "{page} / {total}",
     pageNumber: "{page}페이지",
     language: "언어",
@@ -75,6 +78,7 @@ const ko: Dictionary = {
     processing: "처리 현황",
     settings: "설정",
     findJobs: "채용 공고 찾기",
+    aiJobMatch: "AI 잡 매칭",
     myApplications: "지원 현황",
     savedJobs: "저장한 공고",
     myProfile: "내 프로필",
@@ -342,6 +346,9 @@ const ko: Dictionary = {
     retrievalContext: "검색 컨텍스트",
     unnamedCandidate: "이름 없는 지원자",
     sourceDocument: "출처 문서",
+    summaryTitle: "AI 요약",
+    searchingEvidence: "지원자 근거를 검색하는 중…",
+    generatingSummary: "근거 기반 요약을 생성하는 중…",
   },
 
   ai: {
@@ -359,6 +366,20 @@ const ko: Dictionary = {
     citations: "출처",
     citationsCount: { other: "출처 {count}건" },
     noCitations: "이 답변과 함께 반환된 출처 구절이 없습니다.",
+    supportingEvidence: "관련 근거",
+    viewOriginalEvidence: "원문 근거 보기",
+    hideOriginalEvidence: "원문 근거 접기",
+    sectionLabels: {
+      summary: "요약",
+      experience: "경력",
+      projects: "프로젝트",
+      skills: "보유 기술",
+      education: "학력",
+      certifications: "자격증",
+      languages: "어학",
+    },
+    citationSourcesUnavailable:
+      "이 답변에는 출처 표시가 있지만 함께 반환된 출처 구절이 없어 참조를 열 수 없습니다. 내용은 문서에서 직접 확인하세요.",
     evidenceConsidered: "구절 {count}건 검토",
     model: "모델",
     regenerate: "다시 생성",
@@ -830,6 +851,246 @@ const ko: Dictionary = {
     Principal: "프린시펄",
   },
 
+  workspaces: {
+    title: "워크스페이스 선택",
+    description:
+      "로그인은 한 번이면 됩니다. 워크스페이스마다 데이터와 권한이 따로 있습니다.",
+    candidate: "지원자",
+    candidateHint: "내 프로필, 지원 현황, 저장한 공고.",
+    candidateNotSetUp: "프로필 미생성",
+    organizations: "조직",
+    noOrganizations: "아직 소속된 조직이 없습니다.",
+    noOrganizationsHint:
+      "조직 소유자나 인사 관리자가 초대하면 참여할 수 있습니다. 그전까지는 지원자 워크스페이스를 이용하세요.",
+    current: "현재",
+    open: "열기",
+    switching: "워크스페이스 전환 중…",
+    switchFailed: "워크스페이스를 전환하지 못했습니다.",
+    switchedTo: "{name}(으)로 전환됨",
+    membershipRevoked: "이 워크스페이스 접근 권한이 해제되었습니다",
+    membershipRevokedHint:
+      "다른 워크스페이스를 선택해 계속하세요. 잘못된 것 같다면 해당 조직 관리자에게 문의하세요.",
+  },
+
+  candidateProfile: {
+    title: "내 프로필",
+    description: "지원할 때 채용팀에 보이는 정보입니다.",
+    createTitle: "구직자 프로필 만들기",
+    createHint:
+      "프로필은 소속 조직과 무관한 본인의 정보입니다. 내용은 본인이 정합니다.",
+    create: "프로필 만들기",
+    notCreated: "아직 구직자 프로필을 만들지 않았습니다",
+    basics: "기본 정보",
+    basicsHint: "프로필 상단에 표시됩니다.",
+    headline: "한 줄 소개",
+    headlinePlaceholder: "백엔드 엔지니어",
+    location: "거주 지역",
+    phone: "전화번호",
+    summary: "소개",
+    summaryPlaceholder: "담당해 온 업무를 몇 문장으로 적어 주세요.",
+    skills: "보유 기술",
+    skillsHint: "Enter를 눌러 하나씩 추가합니다.",
+    languages: "사용 언어",
+    experience: "경력",
+    experienceHint: "최근 순으로 작성하세요. 날짜는 자유 형식입니다 — “2021”, “2021-03”.",
+    addExperience: "경력 추가",
+    removeExperience: "경력 {index} 삭제",
+    jobTitle: "직함",
+    company: "회사",
+    startDate: "시작",
+    endDate: "종료",
+    roleDescription: "담당 업무",
+    education: "학력",
+    addEducation: "학력 추가",
+    removeEducation: "학력 {index} 삭제",
+    institution: "학교",
+    degree: "학위",
+    field: "전공",
+    startYear: "입학 연도",
+    endYear: "졸업 연도",
+    visibility: "프로필 공개 범위",
+    visibilityHint:
+      "비공개로 두면 지원한 조직만 제출한 내용을 볼 수 있습니다.",
+    visibilityPrivate: "비공개",
+    visibilityPublic: "공개",
+    resume: "이력서",
+    resumeHint: "PDF 또는 DOCX, 최대 {size}. 교체해도 이미 제출한 지원 건은 바뀌지 않습니다.",
+    noResume: "업로드된 이력서가 없습니다",
+    uploadResume: "이력서 업로드",
+    replaceResume: "이력서 교체",
+    uploading: "업로드 중",
+    downloadResume: "이력서 열기",
+    uploadedOn: "{date} 업로드",
+    personalResumeNote:
+      "이력서는 본인에게만 보관됩니다. 지원하면 해당 조직에만 사본이 전달됩니다.",
+    errTitleRequired: "경력에는 직함이 필요합니다.",
+    errInstitutionRequired: "학력에는 학교명이 필요합니다.",
+    saveFailed: "프로필을 저장하지 못했습니다.",
+    createFailed: "프로필을 만들지 못했습니다.",
+    resumeUploadFailed: "파일을 업로드하지 못했습니다.",
+  },
+
+  jobs: {
+    title: "채용 공고 찾기",
+    description: "프로필에 등록된 이력서로 바로 지원할 수 있는 공고입니다.",
+    searchPlaceholder: "직무명과 설명 검색",
+    searchLabel: "공고 검색",
+    locationPlaceholder: "근무지",
+    locationLabel: "근무지로 필터",
+    submit: "검색",
+    clear: "필터 초기화",
+    resultCount: { other: "진행 중 공고 {count}건" },
+    empty: "현재 진행 중인 공고가 없습니다",
+    emptyHint: "조직이 공고를 게시하면 여기에 표시됩니다.",
+    noMatches: "검색 조건에 맞는 공고가 없습니다",
+    noMatchesHint: "검색어를 줄이거나 근무지 필터를 해제해 보세요.",
+    postedOn: "{date} 게시",
+    save: "저장",
+    saved: "저장됨",
+    unsave: "저장 해제",
+    aboutRole: "직무 소개",
+    noDescription: "이 공고에는 설명이 없습니다.",
+    requirements: "요구 사항",
+    mustHave: "필수",
+    niceToHave: "우대",
+    apply: "지원하기",
+    applying: "지원 중",
+    applied: "지원 완료",
+    appliedHint: "이 공고에 지원했습니다. 지원 현황에서 확인하세요.",
+    applySucceeded: "지원서가 전달되었습니다",
+    applySucceededHint:
+      "{organization}에 이력서 사본이 전달되었습니다. 채용팀이 직접 읽고 판단하며, 자동으로 점수가 매겨지지 않습니다.",
+    viewApplications: "지원 현황 보기",
+    notFound: "이 공고는 더 이상 진행되지 않습니다",
+    notFoundHint: "채용이 마감되었거나 종료되었습니다. 다른 공고를 확인해 보세요.",
+    backToJobs: "공고 목록으로",
+    needsProfile: "먼저 프로필을 만드세요",
+    needsProfileHint:
+      "지원 시 프로필과 이력서가 함께 전달되므로 둘 다 필요합니다.",
+    goToProfile: "내 프로필로 이동",
+    needsResume: "먼저 이력서를 업로드하세요",
+    needsResumeHint: "지원서에는 이력서 사본이 포함되므로 이력서가 필요합니다.",
+    alreadyApplied: "이미 지원한 공고입니다",
+    alreadyAppliedHint:
+      "공고당 한 번만 지원할 수 있습니다. 지원을 철회해도 다시 지원할 수는 없으며, 채용팀은 기존 지원 건을 계속 진행할 수 있습니다.",
+    jobUnavailable: "이 공고는 더 이상 지원을 받지 않습니다",
+  },
+
+  applications: {
+    title: "지원 현황",
+    description: "지원한 모든 공고와 각각의 진행 단계입니다.",
+    empty: "아직 지원 내역이 없습니다",
+    emptyHint: "지원한 공고가 현재 단계와 함께 여기에 표시됩니다.",
+    appliedOn: "{date} 지원",
+    updatedOn: "{date} 업데이트",
+    submittedResume: "{name} 제출",
+    withdraw: "지원 철회",
+    withdrawing: "철회 중",
+    withdrawn: "지원이 철회되었습니다",
+    withdrawFailed: "지원을 철회하지 못했습니다.",
+    cannotWithdraw: "이 지원은 더 이상 철회할 수 없습니다",
+    cannotWithdrawHint:
+      "최종 단계에 도달했습니다. 이제부터는 채용팀만 상태를 변경할 수 있습니다.",
+    stageNote:
+      "단계는 채용팀이 설정합니다. 지원자가 할 수 있는 변경은 철회뿐입니다.",
+    source: "지원 경로",
+  },
+
+  savedJobs: {
+    title: "저장한 공고",
+    description: "나중에 다시 보려고 저장해 둔 공고입니다.",
+    empty: "저장한 공고가 없습니다",
+    emptyHint: "공고 목록에서 저장하면 여기에 모입니다.",
+    savedOn: "{date} 저장",
+    remove: "삭제",
+    closed: "마감됨",
+    closedHint: "저장한 뒤 마감된 공고라 지원할 수 없습니다.",
+    viewJob: "공고 보기",
+  },
+
+  sessions: {
+    title: "로그인된 기기",
+    description:
+      "현재 세션이 살아 있는 모든 브라우저와 기기입니다. 로그아웃하면 즉시 적용됩니다.",
+    thisDevice: "현재 기기",
+    unknownDevice: "알 수 없는 기기",
+    created: "{date} 로그인",
+    lastUsed: "{date} 마지막 사용",
+    expires: "{date} 만료",
+    signOut: "로그아웃",
+    signOutTitle: "{device} 로그아웃",
+    signingOut: "로그아웃 중",
+    signOutEverywhere: "모든 기기에서 로그아웃",
+    signOutEverywhereHint:
+      "현재 기기를 포함한 모든 세션을 종료합니다. 기기를 분실했을 때 사용하세요.",
+    revokeFailed: "해당 세션을 로그아웃하지 못했습니다.",
+    empty: "다른 기기에서 로그인된 세션이 없습니다.",
+    unavailable: "세션 정보를 불러오지 못했습니다",
+    unavailableHint: "잠시 후 다시 시도하세요. 현재 세션에는 영향이 없습니다.",
+  },
+
+  authErrors: {
+    AUTH_INVALID_REFRESH_TOKEN: "세션이 더 이상 유효하지 않습니다. 다시 로그인하세요.",
+    AUTH_REFRESH_TOKEN_EXPIRED: "세션이 만료되었습니다. 다시 로그인하세요.",
+    AUTH_REFRESH_TOKEN_REUSED:
+      "인증 정보가 두 번 사용되어 보안을 위해 세션을 종료했습니다. 다시 로그인하세요.",
+    AUTH_SESSION_REVOKED: "이 세션은 로그아웃되었습니다. 다시 로그인하세요.",
+    AUTH_SESSION_NOT_FOUND: "이 세션은 더 이상 존재하지 않습니다. 다시 로그인하세요.",
+    generic: "세션이 종료되었습니다. 다시 로그인하세요.",
+  },
+
+  jobMatch: {
+    title: "AI 잡 매칭",
+    description:
+      "내 프로필과 이력서에 맞는 공고를 근거와 함께 찾아드립니다.",
+    introTitle: "나에게 맞는 공고는?",
+    introHint:
+      "매칭은 내 프로필과 이력서를 공개 채용 공고와 비교해 각 요건의 근거를 보여줍니다. 약 20초가 걸립니다.",
+    run: "매칭 실행",
+    refresh: "매칭 새로고침",
+    matchCount: {
+      other: "매칭된 공고 {count}건",
+    } as Plural,
+    loadingStages: [
+      "프로필과 이력서를 분석하는 중…",
+      "관련 공고를 찾는 중…",
+      "채용 요건을 비교하는 중…",
+      "근거 기반 설명을 준비하는 중…",
+    ],
+    strength: {
+      STRONG: "높은 일치",
+      PARTIAL: "부분 일치",
+      WEAK: "낮은 일치",
+    },
+    coverageNote:
+      "매칭 라벨은 각 공고의 요건이 내 문서로 얼마나 뒷받침되는지를 나타냅니다. 개인에 대한 점수나 지원 추천이 아닙니다.",
+    explanationUnavailable:
+      "AI 설명을 일시적으로 사용할 수 없습니다. 아래 매칭 근거는 그대로 제공됩니다.",
+    requirementSummary: "요건 요약",
+    supported: "내가 충족한 점",
+    missing: "부족한 점",
+    unclear: "불명확한 점",
+    noneInGroup: "이 그룹에 보고된 항목이 없습니다.",
+    required: "필수",
+    viewEvidence: "근거 보기",
+    viewJob: "공고 보기",
+    needProfileTitle: "먼저 프로필을 만드세요",
+    needProfileHint:
+      "잡 매칭은 내 프로필과 이력서를 기반으로 동작합니다. 후보자 프로필을 만들어 시작하세요.",
+    notReadyTitle: "매칭할 정보를 추가하세요",
+    notReadyHint:
+      "프로필에 기술, 경력, 요약을 추가하거나 이력서를 업로드하면 매칭에 사용할 근거가 생깁니다.",
+    completeProfile: "프로필 완성하기",
+    resumeImproves:
+      "이력서가 있으면 매칭 품질이 좋아집니다. 요건을 실제 문서와 대조해 확인합니다.",
+    uploadResume: "이력서 업로드",
+    noMatches: "지금은 맞는 공고가 없습니다",
+    noMatchesHint:
+      "현재 열려 있는 공고 중 프로필과 일치하는 것이 없습니다. 새 공고가 열리면 다시 확인해 보세요.",
+    unavailable: "매칭을 일시적으로 사용할 수 없습니다",
+    unavailableHint:
+      "매칭 서비스에 지금 연결할 수 없습니다. 아무것도 계산되지 않았으니 잠시 후 다시 시도하세요.",
+  },
   status: {
     vacancy: {
       DRAFT: "초안",

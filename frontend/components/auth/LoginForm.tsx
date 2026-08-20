@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { loginAction } from "@/lib/auth/actions";
 import { hasErrors, validateLogin } from "@/lib/validation";
@@ -16,8 +17,32 @@ import {
   MailIcon,
 } from "@/components/ui/icons";
 
+/**
+ * Codes the backend attaches to a 401 on refresh.
+ *
+ * Keyed off the dictionary so a new code cannot be displayed without also being
+ * translated; anything unrecognised falls back to the generic message rather
+ * than showing a raw identifier to a person.
+ */
+type AuthErrorCode = Exclude<
+  keyof ReturnType<typeof useI18n>["d"]["authErrors"],
+  "generic"
+>;
+
 export function LoginForm() {
   const { d } = useI18n();
+  const params = useSearchParams();
+  const next = params.get("next") ?? undefined;
+
+  /**
+   * Why the previous session ended, if it ended for a reason the backend
+   * named. An unknown code falls back to the generic message rather than
+   * showing a raw identifier.
+   */
+  const reason = params.get("reason");
+  const endedMessage = reason
+    ? (d.authErrors[reason as AuthErrorCode] ?? d.authErrors.generic)
+    : null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -38,7 +63,7 @@ export function LoginForm() {
     startTransition(async () => {
       // On success the action sets the session cookie and redirects, so
       // control never returns here.
-      const result = await loginAction({ email, password });
+      const result = await loginAction({ email, password }, next);
       setFormError(result.message ?? d.auth.couldNotSignIn);
       setErrors(result.fieldErrors ?? {});
     });
@@ -54,6 +79,16 @@ export function LoginForm() {
           {d.auth.signInSubtitle}
         </p>
       </div>
+
+      {endedMessage && !formError ? (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-[13px] text-warning"
+        >
+          <AlertIcon className="mt-px size-4 shrink-0" />
+          {endedMessage}
+        </p>
+      ) : null}
 
       {formError ? (
         <p
