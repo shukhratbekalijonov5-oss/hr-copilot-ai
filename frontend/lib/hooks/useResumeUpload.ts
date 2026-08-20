@@ -13,6 +13,16 @@ export interface RejectedFile {
   reason: string;
 }
 
+class UploadError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+  ) {
+    super(message);
+    this.name = "UploadError";
+  }
+}
+
 /** Client-side pre-check. The backend re-validates, including magic numbers. */
 export function validateResumeFile(file: File): string | null {
   const extension = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
@@ -68,7 +78,11 @@ function uploadOne(
         payload && typeof payload === "object" && "message" in payload
           ? String((payload as { message: unknown }).message)
           : "Upload failed.";
-      reject(new Error(message));
+      const code =
+        payload && typeof payload === "object" && "code" in payload
+          ? String((payload as { code: unknown }).code)
+          : null;
+      reject(new UploadError(message, code));
     };
 
     request.onerror = () =>
@@ -82,11 +96,13 @@ function uploadOne(
 interface UseResumeUploadOptions {
   candidateId?: string | null;
   onUploaded?: () => void;
+  formatError?: (error: { code: string | null; message: string }) => string;
 }
 
 export function useResumeUpload({
   candidateId = null,
   onUploaded,
+  formatError,
 }: UseResumeUploadOptions = {}) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
@@ -150,7 +166,15 @@ export function useResumeUpload({
           patch(row.id, {
             status: "FAILED",
             progress: 0,
-            error: error instanceof Error ? error.message : "Upload failed.",
+            error:
+              error instanceof UploadError
+                ? (formatError?.({
+                    code: error.code,
+                    message: error.message,
+                  }) ?? error.message)
+                : error instanceof Error
+                  ? error.message
+                  : "Upload failed.",
           });
         }
       }
@@ -158,7 +182,7 @@ export function useResumeUpload({
       setBusy(false);
       onUploaded?.();
     },
-    [candidateId, onUploaded, patch],
+    [candidateId, formatError, onUploaded, patch],
   );
 
   /** Applies a streamed pipeline event to whichever row owns that document. */

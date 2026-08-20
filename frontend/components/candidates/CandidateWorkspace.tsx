@@ -3,13 +3,17 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { setApplicationStatusAction } from "@/app/(app)/candidates/[id]/actions";
+import {
+  inviteToInterviewAction,
+  setApplicationStatusAction,
+} from "@/app/(app)/candidates/[id]/actions";
 import { AnswerPanel } from "@/components/ai/AnswerPanel";
 import { EvidenceMapPanel } from "@/components/ai/EvidenceMapPanel";
 import { InterviewQuestionsPanel } from "@/components/ai/InterviewQuestionsPanel";
 import { SummaryPanel } from "@/components/ai/SummaryPanel";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Select } from "@/components/ui/Field";
@@ -21,7 +25,12 @@ import {
 import { DocumentViewer } from "@/components/candidates/DocumentViewer";
 import { ResumeUploader } from "@/components/upload/ResumeUploader";
 import { ApplicationSourceBadge } from "@/components/candidates/ApplicationSourceBadge";
-import { AlertIcon, MailIcon, MapPinIcon } from "@/components/ui/icons";
+import {
+  AlertIcon,
+  MailIcon,
+  MapPinIcon,
+  MessageIcon,
+} from "@/components/ui/icons";
 import { aiReadiness } from "@/lib/api/adapters";
 import { useI18n } from "@/lib/i18n/context";
 import { APPLICATION_STATUSES } from "@/lib/types";
@@ -39,6 +48,7 @@ interface CandidateWorkspaceProps {
   candidate: Candidate;
   /** The candidate's primary application's vacancy, or null. */
   vacancy: Vacancy | null;
+  applicationConversationId: string | null;
   /** Stored requirement mapping, read server-side. Null when never run. */
   evidenceMap: EvidenceMap | null;
   evidenceMapFailure: AiFailureReason | null;
@@ -57,6 +67,7 @@ interface CandidateWorkspaceProps {
 export function CandidateWorkspace({
   candidate,
   vacancy,
+  applicationConversationId,
   evidenceMap,
   evidenceMapFailure,
   role,
@@ -73,6 +84,12 @@ export function CandidateWorkspace({
   const [pending, startTransition] = useTransition();
 
   const application = candidate.applications[0] ?? null;
+  const canUploadHrDocument = candidate.candidateAccountId === null;
+  const [primaryApplication, setPrimaryApplication] = useState(application);
+  const [conversationId, setConversationId] = useState(applicationConversationId);
+  const [chatUnavailable, setChatUnavailable] = useState(
+    application?.status === "INTERVIEW" && !applicationConversationId,
+  );
 
   /**
    * Which vacancy the AI panels work against.
@@ -108,17 +125,51 @@ export function CandidateWorkspace({
   }
 
   function changeStatus(status: ApplicationStatus) {
-    if (!application) return;
+    if (!primaryApplication) return;
     setStatusError(null);
     startTransition(async () => {
+      if (status === "INTERVIEW") {
+        const result = await inviteToInterviewAction(
+          primaryApplication.id,
+          candidate.id,
+        );
+        if (!result.ok) {
+          setStatusError(result.message ?? d.candidates.updateFailed);
+          return;
+        }
+        setPrimaryApplication(result.data.application);
+        setConversationId(result.data.conversation?.id ?? null);
+        setChatUnavailable(
+          result.data.chatUnavailableReason === "NO_CANDIDATE_ACCOUNT",
+        );
+        router.refresh();
+        return;
+      }
+
       const result = await setApplicationStatusAction(
-        application.id,
+        primaryApplication.id,
         candidate.id,
         status,
       );
-      if (!result.ok) setStatusError(result.message ?? d.candidates.updateFailed);
-      else router.refresh();
+      if (!result.ok) {
+        setStatusError(result.message ?? d.candidates.updateFailed);
+        return;
+      }
+      if (status === "REJECTED") {
+        setConversationId(null);
+        setChatUnavailable(false);
+      }
+      setPrimaryApplication({ ...primaryApplication, status });
+      router.refresh();
     });
+  }
+
+  function invite() {
+    changeStatus("INTERVIEW");
+  }
+
+  function reject() {
+    changeStatus("REJECTED");
   }
 
   /**
@@ -270,9 +321,17 @@ export function CandidateWorkspace({
               {d.candidates.uploadPrompt}
             </p>
           ) : null}
-          {/* Documents attach to this candidate, which is what links them to
-              the vacancy's requirement checks. */}
-          <ResumeUploader candidateId={candidate.id} />
+          {canUploadHrDocument ? (
+            <>
+              {/* Documents attach to this manual candidate, which is what links
+                  them to the vacancy's requirement checks. */}
+              <ResumeUploader candidateId={candidate.id} />
+            </>
+          ) : (
+            <p className="text-[13px] leading-relaxed text-ink-muted">
+              {d.candidates.linkedCandidateUploadNotAllowed}
+            </p>
+          )}
         </CardBody>
       </Card>
 
@@ -454,11 +513,42 @@ export function CandidateWorkspace({
             </div>
           </div>
 
-          {application ? (
-            <div className="flex flex-col items-end gap-1.5">
+          {primaryApplication ? (
+            <div className="flex flex-col items-start gap-2 sm:items-end">
+              <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+                {conversationId ? (
+                  <Link
+                    href={`/interview-chats?conversation=${conversationId}`}
+                    className="inline-flex h-9.5 items-center justify-center gap-2 rounded-lg border border-line bg-surface px-3.5 text-sm font-medium text-ink transition-colors hover:bg-surface-muted"
+                  >
+                    <MessageIcon className="size-4" />
+                    {d.chat.openChat}
+                  </Link>
+                ) : null}
+                {primaryApplication.status !== "INTERVIEW" ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    loading={pending}
+                    onClick={invite}
+                  >
+                    {d.chat.inviteToInterview}
+                  </Button>
+                ) : null}
+                {primaryApplication.status !== "REJECTED" ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={pending}
+                    onClick={reject}
+                  >
+                    {d.chat.reject}
+                  </Button>
+                ) : null}
+              </div>
               <Select
                 aria-label={d.candidates.applicationStage}
-                value={application.status}
+                value={primaryApplication.status}
                 disabled={pending}
                 options={APPLICATION_STATUSES.map((status) => ({
                   value: status,
@@ -475,6 +565,13 @@ export function CandidateWorkspace({
             </div>
           ) : null}
         </div>
+
+        {chatUnavailable ? (
+          <p className="mt-3 flex items-center gap-2 rounded-lg bg-warning-soft px-3 py-2 text-[13px] text-warning">
+            <AlertIcon className="size-4 shrink-0" />
+            {d.chat.noCandidateAccount}
+          </p>
+        ) : null}
 
         {statusError ? (
           <p

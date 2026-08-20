@@ -35,6 +35,7 @@ const CANDIDATE_ROUTE_PREFIXES = [
   "/jobs",
   "/job-matches",
   "/my-applications",
+  "/my-interview-chats",
   "/my-profile",
   "/saved-jobs",
 ];
@@ -43,6 +44,7 @@ const ORGANIZATION_ROUTE_PREFIXES = [
   "/search",
   "/vacancies",
   "/candidates",
+  "/interview-chats",
   "/compare",
   "/processing",
   "/settings",

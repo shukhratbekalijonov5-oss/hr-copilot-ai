@@ -10,12 +10,17 @@ import type {
   EvidenceMap,
   GroundedAnswer,
   InterviewQuestionSet,
+  InviteToInterviewResult,
 } from "@/lib/types";
 
 export interface ActionResult {
   ok: boolean;
   message?: string;
 }
+
+export type InviteInterviewActionResult =
+  | { ok: true; data: InviteToInterviewResult }
+  | { ok: false; message?: string };
 
 /**
  * Moves an application to another stage.
@@ -30,13 +35,34 @@ export async function setApplicationStatusAction(
   status: ApplicationStatus,
 ): Promise<ActionResult> {
   try {
-    await api.setApplicationStatus(applicationId, status);
+    const application = await api.setApplicationStatus(applicationId, status);
     revalidatePath(`/candidates/${candidateId}`);
     revalidatePath("/candidates");
+    revalidatePath("/interview-chats");
+    revalidatePath(`/vacancies/${application.vacancyId}`);
     return { ok: true };
   } catch (error) {
     if (error instanceof ApiError) return { ok: false, message: error.message };
     return { ok: false, message: "Could not update the application." };
+  }
+}
+
+export async function inviteToInterviewAction(
+  applicationId: string,
+  candidateId: string,
+): Promise<InviteInterviewActionResult> {
+  try {
+    const result = await api.inviteToInterview(applicationId);
+    revalidatePath(`/candidates/${candidateId}`);
+    revalidatePath("/candidates");
+    revalidatePath("/interview-chats");
+    if (result.application.vacancyId) {
+      revalidatePath(`/vacancies/${result.application.vacancyId}`);
+    }
+    return { ok: true, data: result };
+  } catch (error) {
+    if (error instanceof ApiError) return { ok: false, message: error.message };
+    return { ok: false, message: "Could not invite the candidate." };
   }
 }
 

@@ -58,6 +58,7 @@ describe('DocumentProcessingProcessor', () => {
     };
     ai = {
       enabled: true,
+      deleteDocument: jest.fn().mockResolvedValue(undefined),
       processDocument: jest.fn().mockResolvedValue(AI_RESULT),
       processPersonalResume: jest.fn().mockResolvedValue({
         documentId: 'pd1',
@@ -136,6 +137,41 @@ describe('DocumentProcessingProcessor', () => {
       } as never);
 
       expect(ai.deletePersonalResume).toHaveBeenCalledWith('acct-1', 'old');
+    });
+
+    describe('delete-during-processing (tombstone protection)', () => {
+      it('a document deleted before the job ran is evicted, never indexed', async () => {
+        prisma.document.findFirst.mockResolvedValue(null);
+
+        await expect(build().process(personalJob())).rejects.toBeInstanceOf(
+          UnrecoverableError,
+        );
+        // An earlier attempt may already have indexed vectors — evict them.
+        expect(ai.deletePersonalResume).toHaveBeenCalledWith('acct-1', 'pd1');
+        expect(ai.processPersonalResume).not.toHaveBeenCalled();
+      });
+
+      it('a delete landing WHILE indexing evicts the fresh vectors instead of completing', async () => {
+        // The guarded status write reports no matching row: the document was
+        // deleted between the ownership read and indexing finishing.
+        prisma.document.updateMany.mockResolvedValue({ count: 0 });
+
+        await build().process(personalJob());
+
+        expect(ai.processPersonalResume).toHaveBeenCalled();
+        expect(ai.deletePersonalResume).toHaveBeenCalledWith('acct-1', 'pd1');
+        // Nothing is resurrected: no COMPLETED write happened (count 0) and
+        // the job succeeds so BullMQ will not retry-and-reindex.
+      });
+
+      it('a failed eviction keeps the job retryable so it converges', async () => {
+        prisma.document.updateMany.mockResolvedValue({ count: 0 });
+        ai.deletePersonalResume.mockRejectedValue(new Error('qdrant down'));
+
+        await expect(build().process(personalJob())).rejects.toThrow(
+          'qdrant down',
+        );
+      });
     });
   });
 
@@ -252,6 +288,29 @@ describe('DocumentProcessingProcessor', () => {
       await build().process(makeJob());
 
       expect(processing.markCompleted).toHaveBeenCalledWith('d1', 2);
+    });
+
+    it('an org document deleted mid-indexing is evicted, not completed', async () => {
+      // First read (ownership) sees the document; the post-indexing
+      // existence check does not — HR deleted it while the AI call ran.
+      prisma.document.findFirst
+        .mockResolvedValueOnce(DOCUMENT)
+        .mockResolvedValueOnce(null);
+
+      await build().process(makeJob());
+
+      expect(ai.deleteDocument).toHaveBeenCalledWith(ORG_A, 'd1');
+      expect(processing.markCompleted).not.toHaveBeenCalled();
+    });
+
+    it('an org document deleted before the job ran is evicted and stopped for good', async () => {
+      prisma.document.findFirst.mockResolvedValue(null);
+
+      await expect(build().process(makeJob())).rejects.toBeInstanceOf(
+        UnrecoverableError,
+      );
+      expect(ai.deleteDocument).toHaveBeenCalledWith(ORG_A, 'd1');
+      expect(ai.processDocument).not.toHaveBeenCalled();
     });
 
     it('does not write intermediate stages itself', async () => {

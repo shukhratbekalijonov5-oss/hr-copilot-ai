@@ -22,6 +22,8 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
+    "seed:synthetic": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/synthetic-seed.ts",
+    "seed:synthetic:reset": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/synthetic-seed.ts --reset",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate"
   },

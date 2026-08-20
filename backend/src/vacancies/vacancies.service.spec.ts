@@ -8,7 +8,7 @@ const ORG_A = 'org-a';
 const ORG_B = 'org-b';
 
 function createPrismaMock() {
-  return {
+  const mock = {
     organization: {
       findUnique: jest.fn().mockResolvedValue({ slug: 'org-a-slug' }),
     },
@@ -27,22 +27,38 @@ function createPrismaMock() {
       update: jest.fn(),
       delete: jest.fn(),
     },
-    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    conversation: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    $transaction: jest.fn(),
   };
+  // Support both forms: the array form used by list queries and the callback
+  // form used by lifecycle transactions (the callback gets this same mock).
+  mock.$transaction.mockImplementation(
+    (arg: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)) =>
+      typeof arg === 'function' ? arg(mock) : Promise.all(arg),
+  );
+  return mock;
 }
 
 describe('VacanciesService', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
   let producer: { enqueueVacancyIndexSync: jest.Mock };
+  let chat: { purgeVacancyConversationsTx: jest.Mock };
+  let events: { publish: jest.Mock };
   let service: VacanciesService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
     producer = { enqueueVacancyIndexSync: jest.fn().mockResolvedValue('j1') };
+    chat = { purgeVacancyConversationsTx: jest.fn().mockResolvedValue([]) };
+    events = { publish: jest.fn() };
     service = new VacanciesService(
       prisma as unknown as PrismaService,
       new TenantService(),
       producer as never,
+      chat as never,
+      events as never,
     );
   });
 
@@ -245,6 +261,91 @@ describe('VacanciesService', () => {
       });
     });
 
+    it('purges every conversation INSIDE the close transaction', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({
+        id: 'v1',
+        status: VacancyStatus.OPEN,
+      });
+      prisma.vacancy.update.mockResolvedValue({ id: 'v1' });
+      chat.purgeVacancyConversationsTx.mockResolvedValue(['conv-1', 'conv-2']);
+
+      await service.setStatus(ORG_A, 'v1', VacancyStatus.CLOSED);
+
+      // The purge received the SAME transaction client as the status update.
+      expect(chat.purgeVacancyConversationsTx).toHaveBeenCalledWith(
+        prisma,
+        'v1',
+      );
+      expect(events.publish).toHaveBeenCalledWith(
+        'chat.conversations.deleted',
+        expect.objectContaining({
+          vacancyId: 'v1',
+          reason: 'VACANCY_CLOSED',
+          conversationIds: ['conv-1', 'conv-2'],
+        }),
+      );
+      expect(events.publish).toHaveBeenCalledWith(
+        'vacancy.closed',
+        expect.objectContaining({
+          organizationId: ORG_A,
+          vacancyId: 'v1',
+          deletedConversationIds: ['conv-1', 'conv-2'],
+        }),
+      );
+    });
+
+    it('archiving purges conversations too (direct OPEN→ARCHIVED must not bypass)', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({
+        id: 'v1',
+        status: VacancyStatus.OPEN,
+      });
+      prisma.vacancy.update.mockResolvedValue({ id: 'v1' });
+      chat.purgeVacancyConversationsTx.mockResolvedValue(['conv-1']);
+
+      await service.setStatus(ORG_A, 'v1', VacancyStatus.ARCHIVED);
+
+      expect(chat.purgeVacancyConversationsTx).toHaveBeenCalledWith(
+        prisma,
+        'v1',
+      );
+      // Archive is not a close for the (future) notification system.
+      expect(events.publish).not.toHaveBeenCalledWith(
+        'vacancy.closed',
+        expect.anything(),
+      );
+    });
+
+    it('a failed purge aborts the whole close (never CLOSED-with-chats)', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({
+        id: 'v1',
+        status: VacancyStatus.OPEN,
+      });
+      prisma.vacancy.update.mockResolvedValue({ id: 'v1' });
+      chat.purgeVacancyConversationsTx.mockRejectedValue(
+        new Error('purge failed'),
+      );
+
+      await expect(
+        service.setStatus(ORG_A, 'v1', VacancyStatus.CLOSED),
+      ).rejects.toThrow('purge failed');
+      // The rejection propagated out of $transaction — with a real database
+      // the status update rolls back with it.
+      expect(events.publish).not.toHaveBeenCalled();
+    });
+
+    it('opening a vacancy purges nothing', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({
+        id: 'v1',
+        status: VacancyStatus.DRAFT,
+      });
+      prisma.vacancy.update.mockResolvedValue({ id: 'v1' });
+
+      await service.setStatus(ORG_A, 'v1', VacancyStatus.OPEN);
+
+      expect(chat.purgeVacancyConversationsTx).not.toHaveBeenCalled();
+      expect(events.publish).not.toHaveBeenCalled();
+    });
+
     it('refuses to move an archived vacancy back into another state', async () => {
       prisma.vacancy.findFirst.mockResolvedValue({
         id: 'v1',
@@ -255,6 +356,56 @@ describe('VacanciesService', () => {
         service.setStatus(ORG_A, 'v1', VacancyStatus.OPEN),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.vacancy.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('update — the PATCH route cannot bypass the close invariant', () => {
+    it('a plain PATCH that sets status CLOSED purges conversations', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({
+        id: 'v1',
+        status: VacancyStatus.OPEN,
+      });
+      prisma.vacancy.update.mockResolvedValue({ id: 'v1' });
+      chat.purgeVacancyConversationsTx.mockResolvedValue(['conv-1']);
+
+      await service.update(ORG_A, 'v1', { status: VacancyStatus.CLOSED });
+
+      expect(chat.purgeVacancyConversationsTx).toHaveBeenCalledWith(
+        prisma,
+        'v1',
+      );
+      expect(events.publish).toHaveBeenCalledWith(
+        'vacancy.closed',
+        expect.objectContaining({ vacancyId: 'v1' }),
+      );
+    });
+
+    it('a PATCH without a status change purges nothing', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({
+        id: 'v1',
+        status: VacancyStatus.OPEN,
+      });
+      prisma.vacancy.update.mockResolvedValue({ id: 'v1' });
+
+      await service.update(ORG_A, 'v1', { title: 'Renamed' });
+
+      expect(chat.purgeVacancyConversationsTx).not.toHaveBeenCalled();
+    });
+
+    it('re-PATCHing an already CLOSED vacancy does not re-publish vacancy.closed', async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({
+        id: 'v1',
+        status: VacancyStatus.CLOSED,
+      });
+      prisma.vacancy.update.mockResolvedValue({ id: 'v1' });
+
+      await service.update(ORG_A, 'v1', { status: VacancyStatus.CLOSED });
+
+      // Idempotent purge still runs (deletes nothing), but no duplicate event.
+      expect(events.publish).not.toHaveBeenCalledWith(
+        'vacancy.closed',
+        expect.anything(),
+      );
     });
   });
 

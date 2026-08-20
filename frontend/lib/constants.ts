@@ -42,7 +42,7 @@ export const ACCEPTED_RESUME_MIME_TYPES = [
 export const ACCEPTED_RESUME_EXTENSIONS = [".pdf", ".docx"] as const;
 
 /** Backend default is MAX_FILE_SIZE_BYTES; keep this at or below it. */
-export const MAX_RESUME_SIZE_BYTES = 15 * 1024 * 1024;
+export const MAX_RESUME_SIZE_BYTES = 50 * 1024 * 1024;
 
 export const MAX_COMPARE_CANDIDATES = 5;
 export const MIN_COMPARE_CANDIDATES = 2;

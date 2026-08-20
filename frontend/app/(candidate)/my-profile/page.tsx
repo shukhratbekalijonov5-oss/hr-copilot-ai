@@ -25,6 +25,9 @@ export default async function MyProfilePage() {
     // normal starting state rather than an error.
     api.getCandidateAccount(),
   ]);
+  const documents = account
+    ? await api.getPersonalDocuments()
+    : { documents: [], limit: 3, remaining: 3, primaryDocumentId: null };
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -32,7 +35,7 @@ export default async function MyProfilePage() {
         title={d.candidateProfile.title}
         description={d.candidateProfile.description}
       />
-      <CandidateProfileWorkspace account={account} />
+      <CandidateProfileWorkspace account={account} documents={documents} />
     </div>
   );
 }

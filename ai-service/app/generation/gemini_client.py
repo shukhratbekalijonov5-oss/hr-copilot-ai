@@ -41,12 +41,16 @@ class GeminiGenerationClient(GenerationClient):
         max_tokens: int = 4096,
         timeout_seconds: float = 120.0,
         temperature: float = 0.0,
+        thinking_budget: int = 512,
+        max_attempts: int = 3,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._max_tokens = max_tokens
         self._timeout = timeout_seconds
         self._temperature = temperature
+        self._thinking_budget = thinking_budget
+        self._max_attempts = max(1, max_attempts)
         self._client: Any = None
 
     @property
@@ -174,88 +178,134 @@ class GeminiGenerationClient(GenerationClient):
     # -- transport ---------------------------------------------------------
 
     def _generate(self, *, system: str, prompt: str, schema: Any, operation: str) -> Any:
+        """One generation call, with bounded retries.
+
+        Two stochastic failure classes were measured against the live model
+        and both disappear on retry:
+
+        - transient provider errors (429/500/503/504);
+        - a response with no structured payload — most commonly MAX_TOKENS
+          truncation when the model overshoots its thinking budget (the
+          budget is a strong hint, not a hard cap), occasionally an empty
+          response.
+
+        Deterministic failures (bad request, auth, unknown model, safety
+        block) are NOT retried past the loop's classification: a non-listed
+        status raises immediately. The last error always surfaces — a
+        persistent outage is reported, never masked.
+        """
         if not self.enabled:
             raise GenerationDisabledError(operation)
 
         from google.genai import errors as genai_errors
         from google.genai import types
 
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            # JSON mode + schema: the model must return the exact shape
+            # the pipeline validates, not prose we would have to parse.
+            response_mime_type="application/json",
+            response_schema=schema,
+            max_output_tokens=self._max_tokens,
+            # Grounded extraction is a reporting task, not a creative
+            # one; determinism matters more than variety.
+            temperature=self._temperature,
+            # Thinking tokens count against max_output_tokens. Uncapped,
+            # this model was measured spending 2300-3900 thought-tokens on a
+            # routine summary and truncating the actual answer.
+            thinking_config=types.ThinkingConfig(
+                thinking_budget=self._thinking_budget
+            ),
+        )
+
         started = time.perf_counter()
-        try:
-            response = self._sdk().models.generate_content(
-                model=self._model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    # JSON mode + schema: the model must return the exact shape
-                    # the pipeline validates, not prose we would have to parse.
-                    response_mime_type="application/json",
-                    response_schema=schema,
-                    max_output_tokens=self._max_tokens,
-                    # Grounded extraction is a reporting task, not a creative
-                    # one; determinism matters more than variety.
-                    temperature=self._temperature,
-                ),
-            )
-        except genai_errors.APIError as exc:
-            raise self._as_failure(exc, operation) from exc
-        except Exception as exc:
-            # Timeouts and transport faults surface as plain exceptions.
-            logger.error(
-                "Generation transport error",
+        for attempt in range(1, self._max_attempts + 1):
+            last_attempt = attempt >= self._max_attempts
+            try:
+                response = self._sdk().models.generate_content(
+                    model=self._model, contents=prompt, config=config
+                )
+            except genai_errors.APIError as exc:
+                failure = self._as_failure(exc, operation)
+                status = getattr(exc, "code", None) or getattr(
+                    exc, "status_code", None
+                )
+                if last_attempt or status not in _RETRYABLE_STATUSES:
+                    raise failure from exc
+                self._log_retry(operation, attempt, f"provider {status}")
+                time.sleep(_BACKOFF_SECONDS * attempt)
+                continue
+            except Exception as exc:
+                # Timeouts and transport faults surface as plain exceptions.
+                logger.error(
+                    "Generation transport error",
+                    extra={
+                        "stage": "generation",
+                        "provider": self.provider,
+                        "operation": operation,
+                        "model": self._model,
+                        "errorType": type(exc).__name__,
+                    },
+                )
+                if last_attempt:
+                    raise GenerationFailedError(
+                        f"Generation request failed: {type(exc).__name__}"
+                    ) from exc
+                self._log_retry(operation, attempt, type(exc).__name__)
+                time.sleep(_BACKOFF_SECONDS * attempt)
+                continue
+
+            parsed = getattr(response, "parsed", None)
+            if parsed is None:
+                reason = _block_reason(response)
+                if last_attempt:
+                    logger.error(
+                        "Generation returned no structured output",
+                        extra={
+                            "stage": "generation",
+                            "provider": self.provider,
+                            "operation": operation,
+                            "model": self._model,
+                            "blockReason": reason,
+                        },
+                    )
+                    raise GenerationFailedError(
+                        f"The model returned no structured output ({reason})"
+                    )
+                self._log_retry(operation, attempt, reason)
+                continue
+
+            logger.info(
+                "Generation completed",
                 extra={
                     "stage": "generation",
                     "provider": self.provider,
                     "operation": operation,
                     "model": self._model,
-                    "errorType": type(exc).__name__,
+                    "attempt": attempt,
+                    "durationMs": int((time.perf_counter() - started) * 1000),
+                    # Token counts only — never prompt or response text, which
+                    # contain resume content.
+                    **_usage(response),
                 },
             )
-            raise GenerationFailedError(
-                f"Generation request failed: {type(exc).__name__}"
-            ) from exc
-
-        parsed = self._parsed_or_fail(response, operation)
-
-        logger.info(
-            "Generation completed",
-            extra={
-                "stage": "generation",
-                "provider": self.provider,
-                "operation": operation,
-                "model": self._model,
-                "durationMs": int((time.perf_counter() - started) * 1000),
-                # Token counts only — never prompt or response text, which
-                # contain resume content.
-                **_usage(response),
-            },
-        )
-        return parsed
-
-    def _parsed_or_fail(self, response: Any, operation: str) -> Any:
-        """Returns the structured payload, or fails loudly.
-
-        A blocked or truncated response yields no `parsed` object. Treating
-        that as an empty answer would present "no evidence" when the truth is
-        "the model did not answer".
-        """
-        parsed = getattr(response, "parsed", None)
-        if parsed is not None:
             return parsed
 
-        reason = _block_reason(response)
-        logger.error(
-            "Generation returned no structured output",
+        raise GenerationFailedError("Generation attempts exhausted")
+
+    def _log_retry(self, operation: str, attempt: int, reason: str) -> None:
+        """A retry is worth an operator's attention but is not yet a failure."""
+        logger.warning(
+            "Generation attempt failed; retrying",
             extra={
                 "stage": "generation",
                 "provider": self.provider,
                 "operation": operation,
                 "model": self._model,
-                "blockReason": reason,
+                "attempt": attempt,
+                "maxAttempts": self._max_attempts,
+                "reason": reason,
             },
-        )
-        raise GenerationFailedError(
-            f"The model returned no structured output ({reason})"
         )
 
     def _as_failure(self, exc: Any, operation: str) -> GenerationFailedError:
@@ -281,6 +331,16 @@ class GeminiGenerationClient(GenerationClient):
             },
         )
         return GenerationFailedError(f"Generation unavailable: {reason}")
+
+
+# Provider statuses that are worth one more attempt: overload, rate limiting
+# and gateway timeouts pass with the next call far more often than not. 4xx
+# request/auth/model errors are deterministic and never retried.
+_RETRYABLE_STATUSES: frozenset[int] = frozenset({429, 500, 503, 504})
+
+# Pause between attempts, multiplied by the attempt number. Short on purpose:
+# the caller (NestJS backend) has its own overall timeout budget.
+_BACKOFF_SECONDS = 0.5
 
 
 # Status -> caller-safe reason. Deliberately terse: enough for an operator to

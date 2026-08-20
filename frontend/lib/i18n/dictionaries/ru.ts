@@ -122,6 +122,7 @@ const ru: Dictionary = {
     findJobs: "Найти работу",
     aiJobMatch: "AI-подбор вакансий",
     myApplications: "Мои отклики",
+    interviewChats: "Интервью-чаты",
     savedJobs: "Сохранённые вакансии",
     myProfile: "Мой профиль",
     openNavigation: "Открыть меню",
@@ -381,10 +382,14 @@ const ru: Dictionary = {
     noDocumentHint: "Загрузите резюме этого кандидата, чтобы прочитать его здесь.",
     selectDocument: "Выбрать документ",
     documentOpenFailed: "Не удалось открыть документ. Повторите позже.",
+    previewUnavailable: "Не удалось показать PDF здесь.",
+    openPdf: "Открыть PDF",
     docxNotRenderable:
       "Браузеры не умеют показывать DOCX внутри страницы. Откройте файл отдельно — извлечённый текст и ссылки на источники остаются рядом.",
     openFile: "Открыть {name}",
     showingCitation: "Показан источник",
+    linkedCandidateUploadNotAllowed:
+      "Этот кандидат связан с аккаунтом соискателя, поэтому HR не может добавлять документы здесь. Организационные копии создаются из откликов кандидата.",
     noDocuments: "Нет документов",
   },
 
@@ -400,6 +405,14 @@ const ru: Dictionary = {
     remove: "Удалить",
     unattachedNote:
       "Загруженные здесь файлы сохраняются без кандидата. Чтобы сверить их с требованиями вакансии, загружайте со страницы кандидата.",
+    errorCodes: {
+      FILE_TOO_LARGE: "Файл больше лимита 50 МБ.",
+      UNSUPPORTED_FILE_TYPE: "Загрузите файл PDF или DOCX.",
+      PERSONAL_DOCUMENT_LIMIT_REACHED:
+        "Можно хранить до 3 документов. Удалите один, чтобы загрузить другой.",
+      HR_DOCUMENT_UPLOAD_NOT_ALLOWED:
+        "Документы можно загружать только для кандидатов, созданных вручную. Файлы этого кандидата приходят из его откликов.",
+    },
   },
 
   search: {
@@ -1049,12 +1062,20 @@ const ru: Dictionary = {
     visibilityPrivate: "Приватный",
     visibilityPublic: "Публичный",
     resume: "Резюме",
-    resumeHint: "PDF или DOCX, до {size}. Замена не меняет уже отправленные отклики.",
+    documents: "Документы резюме",
+    resumeHint:
+      "PDF или DOCX, до {size}. Самая новая загрузка станет резюме для будущих откликов.",
     noResume: "Резюме ещё не загружено",
     uploadResume: "Загрузить резюме",
+    addDocument: "Добавить документ",
     replaceResume: "Заменить резюме",
     uploading: "Загрузка",
     downloadResume: "Открыть резюме",
+    deleteDocument: "Удалить",
+    primaryResume: "Основное",
+    documentSlots: "Использовано {count} из {limit} документов",
+    documentLimitReached:
+      "Достигнут лимит в 3 документа. Удалите один документ, чтобы загрузить другой.",
     uploadedOn: "Загружено {date}",
     personalResumeNote:
       "Резюме остаётся только у вас. При отклике копия уходит в конкретную организацию — и только в неё.",
@@ -1063,6 +1084,7 @@ const ru: Dictionary = {
     saveFailed: "Не удалось сохранить профиль.",
     createFailed: "Не удалось создать профиль.",
     resumeUploadFailed: "Не удалось загрузить файл.",
+    documentDeleteFailed: "Не удалось удалить документ.",
   },
 
   jobs: {
@@ -1134,6 +1156,53 @@ const ru: Dictionary = {
     stageNote:
       "Этапы выставляет команда найма. Единственное ваше действие — отозвать отклик.",
     source: "Источник",
+  },
+
+  chat: {
+    title: "Интервью-чаты",
+    messages: "Сообщения",
+    hrDescription:
+      "Разговоры по вакансиям с кандидатами, приглашёнными на интервью.",
+    candidateDescription:
+      "Интервью-переписка по вакансиям, куда команда пригласила вас на интервью.",
+    conversations: "Разговоры",
+    conversationsHint: "Здесь показаны только интервью с доступным чатом.",
+    noConversations: "Разговоров нет",
+    noConversationsHint:
+      "Чаты появятся после приглашения на интервью с платформенным разговором.",
+    selectConversation: "Выберите разговор",
+    selectConversationHint: "Выберите интервью-чат из списка.",
+    loadingMessages: "Загрузка сообщений",
+    emptyConversation: "Сообщений пока нет",
+    emptyConversationHint: "Начните с короткого сообщения о деталях интервью.",
+    inviteToInterview: "Пригласить на интервью",
+    reject: "Отклонить",
+    openChat: "Открыть чат",
+    send: "Отправить",
+    typeMessage: "Введите сообщение",
+    you: "Вы",
+    viewVacancy: "Открыть вакансию",
+    viewJob: "Открыть вакансию",
+    chatUnavailable: "Чат недоступен",
+    noCandidateAccount:
+      "У этого кандидата нет платформенной учётной записи Candidate, поэтому чат в приложении недоступен.",
+    candidateRejectedNotice:
+      "Кандидат отклонён, и интервью-чат удалён.",
+    vacancyClosedNotice: "Вакансия закрыта, и интервью-чат удалён.",
+    chatDeleted: "Этот интервью-чат был удалён.",
+    connected: "Подключено",
+    connecting: "Подключение",
+    reconnecting: "Переподключение",
+    loadFailed: "Не удалось загрузить этот разговор.",
+    sendFailed: "Не удалось отправить сообщение.",
+    closeVacancy: "Закрыть вакансию",
+    closeVacancyFailed: "Не удалось закрыть вакансию.",
+    closeVacancyQuestion: "Вы уверены, что хотите закрыть эту вакансию?",
+    areYouSure: "Вы уверены?",
+    allChatsDeleted:
+      "Все интервью-чаты по этой вакансии будут окончательно удалены.",
+    yes: "Да",
+    no: "Нет",
   },
 
   savedJobs: {

@@ -26,6 +26,11 @@ import {
   validateUploadedFile,
   type ValidatableFile,
 } from '../documents/file-validation';
+import {
+  DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES,
+  MAX_PERSONAL_DOCUMENTS,
+  personalDocumentLimitReached,
+} from '../documents/document-policy';
 import type { CandidateAccount, Prisma } from '../generated/prisma/client';
 import type { PaginationQueryDto } from '../common/dto/pagination.dto';
 import type { UpsertCandidateAccountDto } from './dto/upsert-candidate-account.dto';
@@ -61,7 +66,7 @@ export class CandidateAccountService {
   ) {
     this.maxFileSizeBytes = configService.get<number>(
       'storage.maxFileSizeBytes',
-      10 * 1024 * 1024,
+      DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES,
     );
   }
 
@@ -102,20 +107,61 @@ export class CandidateAccountService {
   }
 
   /**
-   * Replaces the profile resume. The previous personal document (if any) is
-   * deleted — applications are unaffected because each one snapshots its own
-   * org-scoped copy of whatever was submitted at apply time.
+   * Legacy profile-resume endpoint: REPLACES the current primary resume (the
+   * previous primary's bytes, row and vectors are removed), so it never grows
+   * the personal collection past the limit on its own. Old applications are
+   * unaffected — each snapshots its own org-scoped copy at apply time.
    */
   async uploadResume(userId: string, file: ValidatableFile | undefined) {
     const account = await this.requireAccount(userId);
     const validated = validateUploadedFile(file, this.maxFileSizeBytes);
+    return this.storePersonalDocument(account, validated, {
+      replaceCurrentResume: true,
+    });
+  }
 
-    const previous = account.resumeDocumentId
-      ? await this.prisma.document.findUnique({
-          where: { id: account.resumeDocumentId },
-          select: { id: true, storageKey: true },
-        })
-      : null;
+  /**
+   * Adds one personal document (up to MAX_PERSONAL_DOCUMENTS). The newest
+   * upload becomes the primary resume — the one snapshotted at apply time.
+   */
+  async uploadPersonalDocument(
+    userId: string,
+    file: ValidatableFile | undefined,
+  ) {
+    const account = await this.requireAccount(userId);
+    const validated = validateUploadedFile(file, this.maxFileSizeBytes);
+    return this.storePersonalDocument(account, validated, {
+      replaceCurrentResume: false,
+    });
+  }
+
+  /**
+   * Shared write path for both upload flavours.
+   *
+   * The 3-file invariant is enforced INSIDE a transaction that first takes a
+   * row lock on the candidate account (`SELECT … FOR UPDATE`), which
+   * serializes concurrent uploads for the same account — two racing requests
+   * cannot both pass the count check, so the account can never end up with
+   * more than MAX_PERSONAL_DOCUMENTS files. Every existing personal document
+   * counts toward the limit, whatever its processing status; deleting one
+   * (including a FAILED one) frees the slot.
+   *
+   * Bytes are uploaded before the rows so a failed transaction can only leave
+   * an unreferenced object (which is deleted on the failure path), never a
+   * row pointing at nothing.
+   */
+  private async storePersonalDocument(
+    account: CandidateAccount,
+    validated: ValidatableFile,
+    { replaceCurrentResume }: { replaceCurrentResume: boolean },
+  ) {
+    const previous =
+      replaceCurrentResume && account.resumeDocumentId
+        ? await this.prisma.document.findUnique({
+            where: { id: account.resumeDocumentId },
+            select: { id: true, storageKey: true },
+          })
+        : null;
 
     const documentId = randomUUID();
     const storageKey = StorageService.buildPersonalKey(
@@ -132,6 +178,19 @@ export class CandidateAccountService {
 
     try {
       await this.prisma.$transaction(async (tx) => {
+        // Concurrency guard: serialize per-account uploads on the row lock.
+        await tx.$queryRaw`SELECT id FROM candidate_accounts WHERE id = ${account.id} FOR UPDATE`;
+        const active = await tx.document.count({
+          where: {
+            candidateAccountId: account.id,
+            // A replaced primary is deleted in this same transaction, so it
+            // does not occupy a slot the new file is about to take over.
+            ...(previous ? { id: { not: previous.id } } : {}),
+          },
+        });
+        if (active >= MAX_PERSONAL_DOCUMENTS) {
+          throw personalDocumentLimitReached();
+        }
         await tx.document.create({
           data: {
             id: documentId,
@@ -193,6 +252,130 @@ export class CandidateAccountService {
       mimeType: validated.mimetype,
       fileSize: validated.size,
     };
+  }
+
+  /** The caller's own personal documents, newest first. */
+  async listPersonalDocuments(userId: string) {
+    const account = await this.requireAccount(userId);
+    const documents = await this.prisma.document.findMany({
+      where: { candidateAccountId: account.id },
+      orderBy: { createdAt: 'desc' },
+      // storageKey deliberately excluded — internal keys never reach clients.
+      select: {
+        id: true,
+        originalFileName: true,
+        mimeType: true,
+        fileSize: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+    return {
+      data: documents,
+      limit: MAX_PERSONAL_DOCUMENTS,
+      remaining: Math.max(0, MAX_PERSONAL_DOCUMENTS - documents.length),
+      primaryDocumentId: account.resumeDocumentId,
+    };
+  }
+
+  /** Short-lived signed URL for ONE of the caller's own documents. */
+  async getPersonalDocumentDownload(userId: string, documentId: string) {
+    const account = await this.requireAccount(userId);
+    const document = await this.prisma.document.findFirst({
+      where: {
+        id: documentId,
+        candidateAccountId: account.id,
+        organizationId: null,
+      },
+      select: { storageKey: true, originalFileName: true },
+    });
+    if (!document) throw new NotFoundException('Document not found');
+    return {
+      url: await this.storage.getSignedUrl(document.storageKey),
+      originalFileName: document.originalFileName,
+    };
+  }
+
+  /**
+   * Permanently deletes ONE of the caller's own personal documents: the
+   * stored bytes, the Document row and its candidate-collection vectors.
+   *
+   * Guarantees, in order:
+   *  1. Bytes first. If the storage delete fails nothing else has changed and
+   *     the whole call errors — success is never reported while the private
+   *     file bytes provably remain. The delete is idempotent, so retrying is
+   *     always safe.
+   *  2. Rows next, atomically. If the deleted file was the primary resume the
+   *     pointer moves to the newest remaining personal document (apply keeps
+   *     working from the survivors).
+   *  3. Vectors last, via the queue job that owns candidate-index eviction
+   *     (BullMQ retries with backoff). If enqueueing fails the eviction runs
+   *     inline as a fallback so Job Match cannot keep retrieving a deleted
+   *     file. The processor additionally re-checks existence after indexing,
+   *     so a worker finishing AFTER this delete cannot resurrect vectors.
+   *
+   * Scope: only this document. The account, profile, applications, saved
+   * jobs, other personal documents and every org-side snapshot copy are
+   * untouched — an organization's copy of an application resume is that
+   * organization's record, not the candidate's to delete.
+   */
+  async deletePersonalDocument(userId: string, documentId: string) {
+    const account = await this.requireAccount(userId);
+    // Own personal documents only: a foreign id, an org-side copy or a
+    // guessed uuid are indistinguishable 404s by construction.
+    const document = await this.prisma.document.findFirst({
+      where: {
+        id: documentId,
+        candidateAccountId: account.id,
+        organizationId: null,
+      },
+      select: { id: true, storageKey: true },
+    });
+    if (!document) throw new NotFoundException('Document not found');
+
+    // 1 — bytes. A failure here aborts the delete with nothing changed.
+    await this.storage.delete(document.storageKey);
+
+    // 2 — rows. The FK from CandidateAccount.resumeDocumentId is SetNull, so
+    // the pointer never dangles even before the explicit repoint below.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.document.delete({ where: { id: document.id } });
+      if (account.resumeDocumentId === document.id) {
+        const newest = await tx.document.findFirst({
+          where: { candidateAccountId: account.id },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        });
+        await tx.candidateAccount.update({
+          where: { id: account.id },
+          data: { resumeDocumentId: newest?.id ?? null },
+        });
+      }
+    });
+
+    // 3 — vectors. The queue job is the established owner of candidate-index
+    // eviction; the inline call is only the fallback when Redis is down.
+    try {
+      await this.producer.enqueuePersonalResumeIndexDeletion({
+        documentId: document.id,
+        candidateAccountId: account.id,
+      });
+    } catch (queueError) {
+      this.logger.warn(
+        `Eviction enqueue failed for personal document ${document.id}; evicting inline: ${(queueError as Error).message}`,
+      );
+      try {
+        await this.ai.deletePersonalResume(account.id, document.id);
+      } catch (aiError) {
+        // Bytes and rows are gone; only stale vectors may remain. Surfaced
+        // loudly — Job Match verification would also catch this.
+        this.logger.error(
+          `Personal document ${document.id} deleted but its vectors could not be evicted: ${(aiError as Error).message}`,
+        );
+      }
+    }
+
+    return { id: document.id, deleted: true };
   }
 
   /** Short-lived signed URL for the caller's own resume. */
@@ -370,7 +553,12 @@ export class CandidateAccountService {
       profile.experience.length > 0 ||
       Boolean(profile.headline) ||
       Boolean(profile.summary);
-    if (!account.resumeDocumentId && !hasProfileSignal) {
+    // ANY personal document counts as signal, not just the primary pointer —
+    // the candidate index covers all of the account's (up to 3) files.
+    const personalDocuments = await this.prisma.document.count({
+      where: { candidateAccountId: account.id },
+    });
+    if (personalDocuments === 0 && !hasProfileSignal) {
       throw new UnprocessableEntityException(
         'Add profile details or upload a resume before matching jobs',
       );

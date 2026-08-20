@@ -133,6 +133,7 @@ const en = {
     findJobs: "Find jobs",
     aiJobMatch: "AI Job Match",
     myApplications: "My applications",
+    interviewChats: "Interview chats",
     savedJobs: "Saved jobs",
     myProfile: "My profile",
     openNavigation: "Open navigation",
@@ -398,10 +399,14 @@ const en = {
     noDocumentHint: "Upload a resume for this candidate to read it here.",
     selectDocument: "Select document",
     documentOpenFailed: "This document could not be opened. Try again shortly.",
+    previewUnavailable: "The PDF preview could not be rendered here.",
+    openPdf: "Open PDF",
     docxNotRenderable:
       "Browsers cannot render DOCX inline. Open the file to read it — the extracted text and its citations still appear alongside.",
     openFile: "Open {name}",
     showingCitation: "Showing citation",
+    linkedCandidateUploadNotAllowed:
+      "This candidate is linked to a job-seeker account, so HR cannot add documents here. Their organization-scoped copies come from applications they submit.",
     noDocuments: "No documents",
   },
 
@@ -417,6 +422,14 @@ const en = {
     remove: "Remove",
     unattachedNote:
       "Files uploaded here are stored without a candidate. To have them checked against a vacancy’s requirements, upload from a candidate’s page instead.",
+    errorCodes: {
+      FILE_TOO_LARGE: "That file is larger than the 50 MB limit.",
+      UNSUPPORTED_FILE_TYPE: "Upload a PDF or DOCX file.",
+      PERSONAL_DOCUMENT_LIMIT_REACHED:
+        "You can store up to 3 documents. Delete one to upload another.",
+      HR_DOCUMENT_UPLOAD_NOT_ALLOWED:
+        "Upload documents only for manual candidates. This candidate's files come from their own applications.",
+    },
   },
 
   search: {
@@ -1062,12 +1075,20 @@ const en = {
     visibilityPrivate: "Private",
     visibilityPublic: "Public",
     resume: "Resume",
-    resumeHint: "PDF or DOCX, up to {size}. Replacing it does not change applications you already sent.",
+    documents: "Resume documents",
+    resumeHint:
+      "PDF or DOCX, up to {size}. The newest upload becomes the resume used for future applications.",
     noResume: "No resume uploaded yet",
     uploadResume: "Upload resume",
+    addDocument: "Add document",
     replaceResume: "Replace resume",
     uploading: "Uploading",
     downloadResume: "Open resume",
+    deleteDocument: "Delete",
+    primaryResume: "Primary",
+    documentSlots: "{count} of {limit} documents used",
+    documentLimitReached:
+      "You have reached the 3-document limit. Delete one document to upload another.",
     uploadedOn: "Uploaded {date}",
     /**
      * The honest description of where a personal resume lives. It is not
@@ -1080,6 +1101,7 @@ const en = {
     saveFailed: "Could not save your profile.",
     createFailed: "Could not create your profile.",
     resumeUploadFailed: "Could not upload that file.",
+    documentDeleteFailed: "Could not delete that document.",
   },
 
   jobs: {
@@ -1151,6 +1173,54 @@ const en = {
     stageNote:
       "Stages are set by the hiring team. The only change you can make is withdrawing.",
     source: "Source",
+  },
+
+  chat: {
+    title: "Interview chats",
+    messages: "Messages",
+    hrDescription:
+      "Vacancy-scoped conversations with candidates who have been invited to interview.",
+    candidateDescription:
+      "Interview conversations for vacancies where the hiring team invited you.",
+    conversations: "Conversations",
+    conversationsHint: "Only interview invitations with chat access appear here.",
+    noConversations: "No conversations",
+    noConversationsHint:
+      "Chats appear after an interview invitation unlocks a platform conversation.",
+    selectConversation: "Select a conversation",
+    selectConversationHint: "Choose an interview chat from the list.",
+    loadingMessages: "Loading messages",
+    emptyConversation: "No messages yet",
+    emptyConversationHint: "Start with a short interview coordination note.",
+    inviteToInterview: "Invite to interview",
+    reject: "Reject",
+    openChat: "Open chat",
+    send: "Send",
+    typeMessage: "Type a message",
+    you: "You",
+    viewVacancy: "View vacancy",
+    viewJob: "View job",
+    chatUnavailable: "Chat unavailable",
+    noCandidateAccount:
+      "This candidate does not have a platform Candidate account, so in-app chat is unavailable.",
+    candidateRejectedNotice:
+      "The candidate was rejected and the interview chat was deleted.",
+    vacancyClosedNotice:
+      "This vacancy was closed and the interview chat was deleted.",
+    chatDeleted: "This interview chat was deleted.",
+    connected: "Connected",
+    connecting: "Connecting",
+    reconnecting: "Reconnecting",
+    loadFailed: "Could not load this conversation.",
+    sendFailed: "Could not send the message.",
+    closeVacancy: "Close vacancy",
+    closeVacancyFailed: "Could not close this vacancy.",
+    closeVacancyQuestion: "Are you sure you want to close this vacancy?",
+    areYouSure: "Are you sure?",
+    allChatsDeleted:
+      "All interview chats for this vacancy will be permanently deleted.",
+    yes: "Yes",
+    no: "No",
   },
 
   savedJobs: {

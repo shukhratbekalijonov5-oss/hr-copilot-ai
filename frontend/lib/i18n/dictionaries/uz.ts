@@ -106,6 +106,7 @@ const uz: Dictionary = {
     findJobs: "Ish topish",
     aiJobMatch: "AI ish tanlash",
     myApplications: "Mening arizalarim",
+    interviewChats: "Suhbat chatlari",
     savedJobs: "Saqlangan vakansiyalar",
     myProfile: "Mening profilim",
     openNavigation: "Menyuni ochish",
@@ -370,10 +371,14 @@ const uz: Dictionary = {
       "Shu yerda oʻqish uchun ushbu nomzodning rezyumesini yuklang.",
     selectDocument: "Hujjatni tanlash",
     documentOpenFailed: "Hujjat ochilmadi. Birozdan soʻng qayta urinib koʻring.",
+    previewUnavailable: "PDF oldindan koʻrish bu yerda koʻrsatilmadi.",
+    openPdf: "PDF’ni ochish",
     docxNotRenderable:
       "Brauzerlar DOCX’ni sahifa ichida koʻrsata olmaydi. Faylni alohida oching — ajratilgan matn va manbalar yonida qoladi.",
     openFile: "{name} faylini ochish",
     showingCitation: "Manba koʻrsatilmoqda",
+    linkedCandidateUploadNotAllowed:
+      "Bu nomzod ish qidiruvchi hisobiga bogʻlangan, shuning uchun HR bu yerda hujjat qoʻsha olmaydi. Tashkilot nusxalari nomzod yuborgan arizalardan yaratiladi.",
     noDocuments: "Hujjat yoʻq",
   },
 
@@ -389,6 +394,14 @@ const uz: Dictionary = {
     remove: "Oʻchirish",
     unattachedNote:
       "Bu yerdan yuklangan fayllar nomzodsiz saqlanadi. Vakansiya talablari bilan solishtirish uchun nomzod sahifasidan yuklang.",
+    errorCodes: {
+      FILE_TOO_LARGE: "Fayl 50 MB cheklovidan katta.",
+      UNSUPPORTED_FILE_TYPE: "PDF yoki DOCX fayl yuklang.",
+      PERSONAL_DOCUMENT_LIMIT_REACHED:
+        "3 tagacha hujjat saqlash mumkin. Boshqasini yuklash uchun bittasini oʻchiring.",
+      HR_DOCUMENT_UPLOAD_NOT_ALLOWED:
+        "Hujjatlarni faqat qoʻlda yaratilgan nomzodlarga yuklash mumkin. Bu nomzodning fayllari oʻzi yuborgan arizalardan olinadi.",
+    },
   },
 
   search: {
@@ -1030,12 +1043,20 @@ const uz: Dictionary = {
     visibilityPrivate: "Yopiq",
     visibilityPublic: "Ochiq",
     resume: "Rezyume",
-    resumeHint: "PDF yoki DOCX, {size} gacha. Almashtirish yuborilgan arizalarni oʻzgartirmaydi.",
+    documents: "Rezyume hujjatlari",
+    resumeHint:
+      "PDF yoki DOCX, {size} gacha. Eng soʻnggi yuklangan fayl keyingi arizalar uchun rezyume boʻladi.",
     noResume: "Hali rezyume yuklanmagan",
     uploadResume: "Rezyume yuklash",
+    addDocument: "Hujjat qoʻshish",
     replaceResume: "Rezyumeni almashtirish",
     uploading: "Yuklanmoqda",
     downloadResume: "Rezyumeni ochish",
+    deleteDocument: "Oʻchirish",
+    primaryResume: "Asosiy",
+    documentSlots: "{limit} hujjatdan {count} tasi ishlatilgan",
+    documentLimitReached:
+      "3 hujjatlik cheklovga yetdingiz. Boshqa hujjat yuklash uchun bittasini oʻchiring.",
     uploadedOn: "{date} yuklangan",
     personalResumeNote:
       "Rezyumeingiz faqat sizda qoladi. Ariza berganingizda nusxasi faqat oʻsha tashkilotga yuboriladi.",
@@ -1044,6 +1065,7 @@ const uz: Dictionary = {
     saveFailed: "Profilni saqlab boʻlmadi.",
     createFailed: "Profilni yaratib boʻlmadi.",
     resumeUploadFailed: "Faylni yuklab boʻlmadi.",
+    documentDeleteFailed: "Hujjatni oʻchirib boʻlmadi.",
   },
 
   jobs: {
@@ -1113,6 +1135,53 @@ const uz: Dictionary = {
     stageNote:
       "Bosqichlarni ishga qabul jamoasi belgilaydi. Sizning yagona amalingiz — arizani qaytarib olish.",
     source: "Manba",
+  },
+
+  chat: {
+    title: "Suhbat chatlari",
+    messages: "Xabarlar",
+    hrDescription:
+      "Suhbatga taklif qilingan nomzodlar bilan vakansiyaga bogʻlangan suhbatlar.",
+    candidateDescription:
+      "Ishga qabul jamoasi sizni suhbatga taklif qilgan vakansiyalar bo‘yicha chatlar.",
+    conversations: "Suhbatlar",
+    conversationsHint: "Bu yerda faqat chat ochilgan suhbat takliflari koʻrinadi.",
+    noConversations: "Suhbatlar yoʻq",
+    noConversationsHint:
+      "Suhbat taklifi platformadagi chatni ochgandan keyin u shu yerda chiqadi.",
+    selectConversation: "Suhbatni tanlang",
+    selectConversationHint: "Roʻyxatdan suhbat chatini tanlang.",
+    loadingMessages: "Xabarlar yuklanmoqda",
+    emptyConversation: "Hali xabar yoʻq",
+    emptyConversationHint: "Suhbatni kelishish uchun qisqa xabar yozing.",
+    inviteToInterview: "Suhbatga taklif qilish",
+    reject: "Rad etish",
+    openChat: "Chatni ochish",
+    send: "Yuborish",
+    typeMessage: "Xabar yozing",
+    you: "Siz",
+    viewVacancy: "Vakansiyani koʻrish",
+    viewJob: "Vakansiyani koʻrish",
+    chatUnavailable: "Chat mavjud emas",
+    noCandidateAccount:
+      "Bu nomzodda platformadagi Candidate hisobi yoʻq, shuning uchun ilova ichidagi chat mavjud emas.",
+    candidateRejectedNotice:
+      "Nomzod rad etildi va suhbat chati oʻchirildi.",
+    vacancyClosedNotice: "Vakansiya yopildi va suhbat chati oʻchirildi.",
+    chatDeleted: "Bu suhbat chati oʻchirildi.",
+    connected: "Ulangan",
+    connecting: "Ulanmoqda",
+    reconnecting: "Qayta ulanmoqda",
+    loadFailed: "Bu suhbatni yuklab boʻlmadi.",
+    sendFailed: "Xabarni yuborib boʻlmadi.",
+    closeVacancy: "Vakansiyani yopish",
+    closeVacancyFailed: "Vakansiyani yopib boʻlmadi.",
+    closeVacancyQuestion: "Bu vakansiyani yopmoqchimisiz?",
+    areYouSure: "Ishonchingiz komilmi?",
+    allChatsDeleted:
+      "Bu vakansiyadagi barcha suhbat chatlari butunlay oʻchiriladi.",
+    yes: "Ha",
+    no: "Yoʻq",
   },
 
   savedJobs: {

@@ -25,6 +25,7 @@ import type {
   CandidateAccount,
   CandidateEducation,
   CandidateExperience,
+  PersonalDocumentCollection,
   ProfileVisibility,
 } from "@/lib/types";
 
@@ -38,8 +39,10 @@ import type {
  */
 export function CandidateProfileWorkspace({
   account,
+  documents,
 }: {
   account: CandidateAccount | null;
+  documents: PersonalDocumentCollection;
 }) {
   const { d, f } = useI18n();
   const router = useRouter();
@@ -91,13 +94,15 @@ export function CandidateProfileWorkspace({
     );
   }
 
-  return <ProfileForm account={account} labelFor={f} />;
+  return <ProfileForm account={account} documents={documents} labelFor={f} />;
 }
 
 function ProfileForm({
   account,
+  documents,
 }: {
   account: CandidateAccount;
+  documents: PersonalDocumentCollection;
   labelFor: (template: string, values?: Record<string, string | number>) => string;
 }) {
   const { d, f } = useI18n();
@@ -184,7 +189,7 @@ function ProfileForm({
         </p>
       ) : null}
 
-      <PersonalResumeCard resume={account.resume} />
+      <PersonalResumeCard resume={account.resume} collection={documents} />
 
       <Card>
         <CardHeader

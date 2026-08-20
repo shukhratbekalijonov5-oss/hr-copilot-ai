@@ -6,6 +6,7 @@ const ORGANIZATION_ROUTE_PREFIXES = [
   "/search",
   "/vacancies",
   "/candidates",
+  "/interview-chats",
   "/compare",
   "/processing",
   "/settings",

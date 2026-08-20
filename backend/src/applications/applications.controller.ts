@@ -48,6 +48,22 @@ export class ApplicationsController {
     return this.applicationsService.findOne(organizationId, id);
   }
 
+  /**
+   * The interview invitation: moves the pipeline to INTERVIEW and unlocks
+   * (or idempotently returns) the ONE conversation for this vacancy +
+   * candidate-account pair. For manual candidates without a platform account
+   * the pipeline still transitions, but the response reports
+   * chatAvailable=false / NO_CANDIDATE_ACCOUNT instead of fabricating one.
+   */
+  @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
+  @Post(':id/invite-interview')
+  inviteToInterview(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.applicationsService.inviteToInterview(organizationId, id);
+  }
+
   /** Manual stage change by an HR user. */
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Patch(':id/status')

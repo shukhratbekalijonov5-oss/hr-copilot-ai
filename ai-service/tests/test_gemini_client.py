@@ -85,9 +85,14 @@ def fake_sdk(monkeypatch):
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
 
+    class ThinkingConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
     types_mod = pytypes.ModuleType("google.genai.types")
     types_mod.HttpOptions = HttpOptions
     types_mod.GenerateContentConfig = GenerateContentConfig
+    types_mod.ThinkingConfig = ThinkingConfig
 
     class APIError(Exception):
         def __init__(self, code, message="provider said no"):
@@ -109,6 +114,11 @@ def fake_sdk(monkeypatch):
         "google.genai.errors": errors_mod,
     }.items():
         monkeypatch.setitem(sys.modules, name, mod)
+
+    # Retries back off with time.sleep; tests must never actually wait.
+    import time as _time
+
+    monkeypatch.setattr(_time, "sleep", lambda _s: None)
 
     state["APIError"] = APIError
     return state
@@ -327,6 +337,122 @@ class TestErrorHandling:
                 question="q", evidence=[hit()], locale="en"
             )
         assert fake_sdk["models"].calls == []
+
+
+class SequencedModels:
+    """A fake transport that plays a scripted sequence of outcomes.
+
+    Each entry is either an Exception (raised) or a response (returned), so
+    "fails once, then succeeds" — the shape of a transient provider error —
+    can be exercised deterministically.
+    """
+
+    def __init__(self, outcomes):
+        self._outcomes = list(outcomes)
+        self.calls: list[dict] = []
+
+    def generate_content(self, *, model, contents, config):
+        self.calls.append({"model": model, "contents": contents, "config": config})
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+GOOD = AnswerPayload(answer="x", cited_chunk_ids=[], status="GROUNDED")
+
+
+class TestRetries:
+    """Transient failures are retried; deterministic ones are not.
+
+    Measured against the live model: transient 5xx and MAX_TOKENS truncation
+    each caused roughly one user-visible failure per three generation calls.
+    Both are stochastic and pass on the next attempt.
+    """
+
+    def test_transient_provider_error_is_retried_to_success(self, fake_sdk):
+        fake_sdk["models"] = SequencedModels(
+            [fake_sdk["APIError"](503), FakeResponse(GOOD)]
+        )
+
+        answer = client().generate_grounded_answer(
+            question="q", evidence=[hit()], locale="en"
+        )
+
+        assert answer.answer == "x"
+        assert len(fake_sdk["models"].calls) == 2
+
+    def test_truncated_output_is_retried_to_success(self, fake_sdk):
+        fake_sdk["models"] = SequencedModels(
+            [FakeResponse(parsed=None, finish_reason="MAX_TOKENS"), FakeResponse(GOOD)]
+        )
+
+        answer = client().generate_grounded_answer(
+            question="q", evidence=[hit()], locale="en"
+        )
+
+        assert answer.answer == "x"
+        assert len(fake_sdk["models"].calls) == 2
+
+    def test_deterministic_errors_are_never_retried(self, fake_sdk):
+        """Auth/model/bad-request failures do not change on a second call."""
+        fake_sdk["models"] = FakeModels(raises=fake_sdk["APIError"](401))
+
+        with pytest.raises(GenerationFailedError):
+            client().generate_grounded_answer(
+                question="q", evidence=[hit()], locale="en"
+            )
+
+        assert len(fake_sdk["models"].calls) == 1
+
+    def test_persistent_failure_surfaces_after_bounded_attempts(self, fake_sdk):
+        """A real outage is reported, not masked — after max_attempts calls."""
+        fake_sdk["models"] = FakeModels(raises=fake_sdk["APIError"](503))
+
+        with pytest.raises(GenerationFailedError) as exc:
+            client(max_attempts=3).generate_grounded_answer(
+                question="q", evidence=[hit()], locale="en"
+            )
+
+        assert "temporarily unavailable" in str(exc.value)
+        assert len(fake_sdk["models"].calls) == 3
+
+    def test_transport_faults_are_retried(self, fake_sdk):
+        fake_sdk["models"] = SequencedModels(
+            [TimeoutError("read timeout"), FakeResponse(GOOD)]
+        )
+
+        answer = client().generate_grounded_answer(
+            question="q", evidence=[hit()], locale="en"
+        )
+
+        assert answer.answer == "x"
+        assert len(fake_sdk["models"].calls) == 2
+
+
+class TestThinkingBudget:
+    """Thoughts share max_output_tokens; an uncapped thinking model was
+    measured spending 2300-3900 thought-tokens on a routine summary and
+    truncating the answer ~50% of the time."""
+
+    def test_thinking_budget_is_passed_to_the_sdk(self, fake_sdk):
+        fake_sdk["models"] = FakeModels(FakeResponse(GOOD))
+
+        client(thinking_budget=512).generate_grounded_answer(
+            question="q", evidence=[hit()], locale="en"
+        )
+
+        config = fake_sdk["models"].calls[0]["config"]
+        assert config.thinking_config.kwargs == {"thinking_budget": 512}
+
+    def test_factory_wires_budget_and_attempts_from_settings(self):
+        settings = Settings(
+            gemini_api_key="k", llm_thinking_budget=256, llm_max_attempts=2
+        )
+        built = build_generation_client(settings)
+        assert isinstance(built, GeminiGenerationClient)
+        assert built._thinking_budget == 256  # noqa: SLF001
+        assert built._max_attempts == 2  # noqa: SLF001
 
 
 class TestTimeoutConfiguration:

@@ -92,6 +92,13 @@ export class DocumentProcessingProcessor extends WorkerHost {
         },
       });
       if (!document) {
+        // Tombstone: the document was deleted after this job was enqueued —
+        // or between attempts, in which case an EARLIER attempt may already
+        // have indexed vectors. Evict (idempotent) before giving up so a
+        // delete can never leave stale personal vectors behind. If the
+        // eviction call itself fails, the thrown error is retryable and
+        // BullMQ tries again.
+        await this.ai.deletePersonalResume(candidateAccountId, documentId);
         throw new UnrecoverableError(
           `Personal document ${documentId} no longer exists for this account`,
         );
@@ -111,10 +118,21 @@ export class DocumentProcessingProcessor extends WorkerHost {
         );
       }
 
-      await this.prisma.document.updateMany({
+      const updated = await this.prisma.document.updateMany({
         where: { id: documentId, candidateAccountId },
         data: { status: DocumentStatus.COMPLETED, pageCount: result.pageCount },
       });
+      if (updated.count === 0) {
+        // Deleted while indexing was in flight: the delete's own eviction may
+        // have run BEFORE the vectors above were written. Remove them now so
+        // the deletion stays authoritative — nothing may resurrect a deleted
+        // document's evidence.
+        await this.ai.deletePersonalResume(candidateAccountId, documentId);
+        this.logger.log(
+          `Personal resume ${documentId} was deleted mid-processing; freshly indexed vectors evicted`,
+        );
+        return;
+      }
       this.logger.log(
         `Personal resume ${documentId} indexed: ${result.vectorsIndexed} vector(s)`,
       );
@@ -219,6 +237,10 @@ export class DocumentProcessingProcessor extends WorkerHost {
       });
 
       if (!document) {
+        // Deleted after enqueue (or between attempts, when an earlier attempt
+        // may already have indexed vectors). Evict — idempotent — so a delete
+        // can never leave stale tenant vectors behind.
+        await this.ai.deleteDocument(organizationId, documentId);
         throw new UnrecoverableError(
           `Document ${documentId} no longer exists in organization ${organizationId}`,
         );
@@ -247,6 +269,21 @@ export class DocumentProcessingProcessor extends WorkerHost {
         throw new Error(
           `AI service indexed no vectors for document ${documentId}`,
         );
+      }
+
+      // Deleted while indexing was in flight? The delete's vector eviction
+      // may have run before the vectors above were written — remove them so
+      // the deletion stays authoritative.
+      const stillExists = await this.prisma.document.findFirst({
+        where: { id: documentId, organizationId },
+        select: { id: true },
+      });
+      if (!stillExists) {
+        await this.ai.deleteDocument(organizationId, documentId);
+        this.logger.log(
+          `Document ${documentId} was deleted mid-processing; freshly indexed vectors evicted`,
+        );
+        return;
       }
 
       await this.processing.markCompleted(documentId, result.pageCount);

@@ -141,6 +141,13 @@ describe("toCandidate", () => {
     expect(candidate.primaryVacancyTitle).toBe("Senior Backend Engineer");
   });
 
+  it("preserves the candidate account linkage discriminator", () => {
+    expect(toCandidate({ ...base, candidateAccountId: null }).candidateAccountId).toBeNull();
+    expect(
+      toCandidate({ ...base, candidateAccountId: "account-1" }).candidateAccountId,
+    ).toBe("account-1");
+  });
+
   it("infers a document's mime type when the endpoint omits it", () => {
     const candidate = toCandidate({
       ...base,

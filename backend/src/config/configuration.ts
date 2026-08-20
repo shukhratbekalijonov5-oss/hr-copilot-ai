@@ -91,7 +91,9 @@ export default (): AppConfiguration => ({
   storage: {
     driver: (process.env.STORAGE_DRIVER as StorageDriver) ?? 'local',
     localRoot: process.env.STORAGE_LOCAL_ROOT ?? './storage',
-    maxFileSizeBytes: toInt(process.env.MAX_FILE_SIZE_BYTES, 10 * 1024 * 1024),
+    // 50 MB per document (PDF/DOCX). One knob for every upload path: the
+    // Multer interceptors and the service-level validators all read this key.
+    maxFileSizeBytes: toInt(process.env.MAX_FILE_SIZE_BYTES, 50 * 1024 * 1024),
     signedUrlTtlSeconds: toInt(process.env.SIGNED_URL_TTL_SECONDS, 900),
     r2: {
       accountId: process.env.R2_ACCOUNT_ID ?? '',

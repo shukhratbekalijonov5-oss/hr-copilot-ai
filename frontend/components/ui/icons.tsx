@@ -187,6 +187,20 @@ export const MailIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const MessageIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4.5 5.5h15A1.5 1.5 0 0 1 21 7v9a1.5 1.5 0 0 1-1.5 1.5H9l-4.5 3v-3A1.5 1.5 0 0 1 3 16V7a1.5 1.5 0 0 1 1.5-1.5Z" />
+    <path d="M7.5 10h9M7.5 13.5h5.5" />
+  </Icon>
+);
+
+export const SendIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 3 10.8 13.2" />
+    <path d="m21 3-6.5 18-3.7-7.8L3 9.5z" />
+  </Icon>
+);
+
 export const LockIcon = (p: IconProps) => (
   <Icon {...p}>
     <rect x="4" y="10" width="16" height="11" rx="2" />

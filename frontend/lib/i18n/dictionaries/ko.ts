@@ -80,6 +80,7 @@ const ko: Dictionary = {
     findJobs: "채용 공고 찾기",
     aiJobMatch: "AI 잡 매칭",
     myApplications: "지원 현황",
+    interviewChats: "인터뷰 채팅",
     savedJobs: "저장한 공고",
     myProfile: "내 프로필",
     openNavigation: "메뉴 열기",
@@ -329,10 +330,14 @@ const ko: Dictionary = {
     noDocumentHint: "이 지원자의 이력서를 업로드하면 여기에서 볼 수 있습니다.",
     selectDocument: "문서 선택",
     documentOpenFailed: "문서를 열지 못했습니다. 잠시 후 다시 시도하세요.",
+    previewUnavailable: "PDF 미리보기를 여기에서 표시하지 못했습니다.",
+    openPdf: "PDF 열기",
     docxNotRenderable:
       "브라우저는 DOCX를 바로 표시할 수 없습니다. 파일을 열어 확인하세요. 추출된 텍스트와 출처는 옆에 그대로 표시됩니다.",
     openFile: "{name} 열기",
     showingCitation: "출처 표시 중",
+    linkedCandidateUploadNotAllowed:
+      "이 지원자는 구직자 계정과 연결되어 있어 HR이 여기에서 문서를 추가할 수 없습니다. 조직용 사본은 지원자가 제출한 지원서에서 생성됩니다.",
     noDocuments: "문서 없음",
   },
 
@@ -348,6 +353,14 @@ const ko: Dictionary = {
     remove: "삭제",
     unattachedNote:
       "여기에서 업로드한 파일은 지원자 없이 저장됩니다. 채용 공고 요건과 대조하려면 지원자 페이지에서 업로드하세요.",
+    errorCodes: {
+      FILE_TOO_LARGE: "파일이 50MB 제한보다 큽니다.",
+      UNSUPPORTED_FILE_TYPE: "PDF 또는 DOCX 파일을 업로드하세요.",
+      PERSONAL_DOCUMENT_LIMIT_REACHED:
+        "문서는 최대 3개까지 보관할 수 있습니다. 하나를 삭제한 뒤 다시 업로드하세요.",
+      HR_DOCUMENT_UPLOAD_NOT_ALLOWED:
+        "수동으로 만든 지원자에게만 문서를 업로드할 수 있습니다. 이 지원자의 파일은 본인이 제출한 지원서에서 옵니다.",
+    },
   },
 
   search: {
@@ -946,12 +959,20 @@ const ko: Dictionary = {
     visibilityPrivate: "비공개",
     visibilityPublic: "공개",
     resume: "이력서",
-    resumeHint: "PDF 또는 DOCX, 최대 {size}. 교체해도 이미 제출한 지원 건은 바뀌지 않습니다.",
+    documents: "이력서 문서",
+    resumeHint:
+      "PDF 또는 DOCX, 최대 {size}. 가장 최근 업로드가 이후 지원에 사용할 이력서가 됩니다.",
     noResume: "업로드된 이력서가 없습니다",
     uploadResume: "이력서 업로드",
+    addDocument: "문서 추가",
     replaceResume: "이력서 교체",
     uploading: "업로드 중",
     downloadResume: "이력서 열기",
+    deleteDocument: "삭제",
+    primaryResume: "기본",
+    documentSlots: "문서 {limit}개 중 {count}개 사용",
+    documentLimitReached:
+      "문서 3개 제한에 도달했습니다. 다른 문서를 올리려면 하나를 삭제하세요.",
     uploadedOn: "{date} 업로드",
     personalResumeNote:
       "이력서는 본인에게만 보관됩니다. 지원하면 해당 조직에만 사본이 전달됩니다.",
@@ -960,6 +981,7 @@ const ko: Dictionary = {
     saveFailed: "프로필을 저장하지 못했습니다.",
     createFailed: "프로필을 만들지 못했습니다.",
     resumeUploadFailed: "파일을 업로드하지 못했습니다.",
+    documentDeleteFailed: "문서를 삭제하지 못했습니다.",
   },
 
   jobs: {
@@ -1026,6 +1048,54 @@ const ko: Dictionary = {
     stageNote:
       "단계는 채용팀이 설정합니다. 지원자가 할 수 있는 변경은 철회뿐입니다.",
     source: "지원 경로",
+  },
+
+  chat: {
+    title: "인터뷰 채팅",
+    messages: "메시지",
+    hrDescription:
+      "인터뷰 초대를 받은 지원자와 나누는 채용 공고별 대화입니다.",
+    candidateDescription:
+      "채용팀이 인터뷰로 초대한 공고의 인터뷰 대화입니다.",
+    conversations: "대화",
+    conversationsHint: "채팅이 가능한 인터뷰 초대만 여기에 표시됩니다.",
+    noConversations: "대화가 없습니다",
+    noConversationsHint:
+      "인터뷰 초대로 플랫폼 대화가 열리면 채팅이 표시됩니다.",
+    selectConversation: "대화 선택",
+    selectConversationHint: "목록에서 인터뷰 채팅을 선택하세요.",
+    loadingMessages: "메시지 불러오는 중",
+    emptyConversation: "아직 메시지가 없습니다",
+    emptyConversationHint: "짧은 인터뷰 조율 메시지로 시작하세요.",
+    inviteToInterview: "인터뷰 초대",
+    reject: "불합격",
+    openChat: "채팅 열기",
+    send: "보내기",
+    typeMessage: "메시지 입력",
+    you: "나",
+    viewVacancy: "공고 보기",
+    viewJob: "공고 보기",
+    chatUnavailable: "채팅을 사용할 수 없음",
+    noCandidateAccount:
+      "이 지원자는 플랫폼 Candidate 계정이 없어 인앱 채팅을 사용할 수 없습니다.",
+    candidateRejectedNotice:
+      "지원자가 불합격 처리되어 인터뷰 채팅이 삭제되었습니다.",
+    vacancyClosedNotice:
+      "채용 공고가 마감되어 인터뷰 채팅이 삭제되었습니다.",
+    chatDeleted: "이 인터뷰 채팅은 삭제되었습니다.",
+    connected: "연결됨",
+    connecting: "연결 중",
+    reconnecting: "재연결 중",
+    loadFailed: "이 대화를 불러오지 못했습니다.",
+    sendFailed: "메시지를 보내지 못했습니다.",
+    closeVacancy: "공고 마감",
+    closeVacancyFailed: "공고를 마감하지 못했습니다.",
+    closeVacancyQuestion: "이 채용 공고를 마감하시겠습니까?",
+    areYouSure: "확실합니까?",
+    allChatsDeleted:
+      "이 공고의 모든 인터뷰 채팅이 영구적으로 삭제됩니다.",
+    yes: "예",
+    no: "아니요",
   },
 
   savedJobs: {

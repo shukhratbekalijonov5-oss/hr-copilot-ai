@@ -10,6 +10,7 @@ import {
   MAX_RESUME_SIZE_BYTES,
 } from "@/lib/constants";
 import { useI18n } from "@/lib/i18n/context";
+import { localizedDocumentError } from "@/lib/documents/errors";
 import { cn, formatFileSize } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { DocumentStatusBadge } from "@/components/ui/StatusBadge";
@@ -42,6 +43,8 @@ export function ResumeUploader({
   const { items, rejected, busy, addFiles, applyEvent, remove, clear } =
     useResumeUpload({
       candidateId,
+      formatError: (error) =>
+        localizedDocumentError(error.code, d, error.message),
       // New documents change server-rendered lists on the page.
       onUploaded: () => router.refresh(),
     });

@@ -183,8 +183,47 @@ request) — an ORGANIZATION account gets `403 AUTH_ACCOUNT_TYPE_MISMATCH`.
 | `POST /candidate-account` | Mostly vestigial: registration already creates the profile. `409` if it exists, `403` for ORGANIZATION accounts. |
 | `GET /candidate-account/me` | `404` until created. Includes `resumeDocument` (id, originalFileName, mimeType, fileSize, createdAt) or `null`. |
 | `PATCH /candidate-account/me` | Partial update, same fields as create. |
-| `POST /candidate-account/me/resume` | multipart `file` (PDF/DOCX ≤10MB). Replaces the profile resume; old applications keep their submitted snapshot. |
-| `GET /candidate-account/me/resume` | `{ url, originalFileName }` (short-lived signed URL). `404` when none. |
+| `POST /candidate-account/me/resume` | multipart `file` (PDF/DOCX ≤50MB). LEGACY replace flow: swaps the current PRIMARY resume (old bytes/row/vectors removed); old applications keep their submitted snapshot. New UI should use `me/documents` below. |
+| `GET /candidate-account/me/resume` | `{ url, originalFileName }` (short-lived signed URL for the primary). `404` when none. |
+
+### 6b. Personal document collection (NEW — max 3 files, 50 MB each)
+
+A CandidateAccount owns at most **3 personal files** (PDF/DOCX, ≤50 MB per
+file). Every existing file counts toward the limit whatever its processing
+status (FAILED files hold their slot until deleted); deleting one frees the
+slot immediately. The **newest upload is the primary resume** — the document
+snapshotted at apply time — and Candidate AI Job Match draws on ALL indexed
+personal files, not just the primary.
+
+| Route | Notes |
+|---|---|
+| `GET /candidate-account/me/documents` | `{ data: [{id, originalFileName, mimeType, fileSize, status, createdAt}], limit: 3, remaining, primaryDocumentId }`, newest first. |
+| `POST /candidate-account/me/documents` | multipart `file`. Adds a file; at the cap → `409` code `PERSONAL_DOCUMENT_LIMIT_REACHED`. Concurrency-safe: two racing uploads can never end at 4 files. |
+| `GET /candidate-account/me/documents/:id/download-url` | `{ url, originalFileName }` (short-lived signed URL). Foreign/org ids: `404`. |
+| `DELETE /candidate-account/me/documents/:id` | PERMANENT: removes the stored bytes, the row and the candidate-index vectors (Job Match stops using the file). If the primary was deleted the pointer moves to the newest survivor. Foreign ids and org-side snapshot copies are `404` — an organization's copy of an application resume is that organization's record. |
+
+Upload/limit error codes (localize on `code`, like the AUTH_* codes):
+
+| Code | Status | When |
+|---|---|---|
+| `FILE_TOO_LARGE` | 413 | File over 50 MB (`MAX_FILE_SIZE_BYTES`, default 52428800) — whichever layer rejects it. |
+| `UNSUPPORTED_FILE_TYPE` | 400 | Not PDF/DOCX by MIME, extension or magic-number content check. |
+| `PERSONAL_DOCUMENT_LIMIT_REACHED` | 409 | 4th personal file. |
+| `HR_DOCUMENT_UPLOAD_NOT_ALLOWED` | 403 | HR upload targeting an application-derived candidate (see below). |
+
+### 6c. HR upload policy (BREAKING for the recruiter frontend)
+
+`POST /documents` now **requires `candidateId`** and the target must be a
+**manually added candidate of the caller's organization** (a Candidate row
+with no linked platform account). Generic/unattached uploads are gone from
+the backend — the Dashboard / Candidates-list / Processing upload buttons
+must be removed in the frontend follow-up (processing MONITORING endpoints
+`GET /processing-jobs*` are unchanged). Rejections: missing `candidateId` →
+`400`; cross-tenant or unknown candidate → `404` (no existence leak);
+application-derived candidate → `403 HR_DOCUMENT_UPLOAD_NOT_ALLOWED` (their
+documents are the org-scoped snapshots their own applications created).
+There is no document-count limit for HR manual candidates; the 50 MB
+per-file limit applies.
 
 Profile fields: `headline?, location?, phone?, summary?, skills: string[],
 languages: string[], experience: [{title, company?, startDate?, endDate?,

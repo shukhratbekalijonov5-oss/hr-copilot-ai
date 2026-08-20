@@ -87,6 +87,7 @@ describe("navigation labels", () => {
       "/jobs",
       "/job-matches",
       "/my-applications",
+      "/my-interview-chats",
       "/saved-jobs",
       "/my-profile",
     ]);
@@ -96,6 +97,8 @@ describe("navigation labels", () => {
       const { primary, secondary } = navigationFor(workspaceFor(role));
       const hrefs = [...primary, ...secondary].map((item) => item.href);
       expect(hrefs).not.toContain("/job-matches");
+      expect(hrefs).toContain("/interview-chats");
+      expect(hrefs).not.toContain("/my-interview-chats");
     }
   });
 });

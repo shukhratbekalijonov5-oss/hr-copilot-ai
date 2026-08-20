@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/LoadingSkeleton";
@@ -11,6 +11,12 @@ import {
   FileIcon,
 } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
+import {
+  documentPreviewPath,
+  isPdfMimeType,
+  isSameDocumentPreview,
+  pdfFrameSource,
+} from "@/lib/documents/pdf-preview";
 import { cn, formatFileSize } from "@/lib/utils";
 import type { CandidateDocument, Citation } from "@/lib/types";
 
@@ -25,21 +31,26 @@ interface DocumentViewerProps {
 }
 
 interface SignedUrlState {
+  documentId: string | null;
   status: "idle" | "loading" | "ready" | "error";
   url: string | null;
   message: string | null;
 }
 
-const PDF_MIME = "application/pdf";
+interface PdfPreviewState {
+  documentId: string | null;
+  status: "idle" | "loading" | "ready" | "error";
+  url: string | null;
+  message: string | null;
+}
 
 /**
  * Renders the candidate's own document.
  *
- * The file is fetched through a short-lived signed URL minted by the backend —
- * resume files are never publicly readable, and the frontend holds no storage
- * credential. Rendering uses the browser's built-in PDF viewer via an iframe
- * with a `#page=` fragment, which gives page navigation and citation jumps
- * without shipping a multi-megabyte PDF engine to every visitor.
+ * The file is fetched through a frontend-owned preview route which mints a
+ * short-lived signed URL server-side and streams the bytes back through this
+ * app's origin. Resume files are never publicly readable, and the browser never
+ * receives a storage credential or the signed backend URL.
  *
  * Tradeoff: the `#page=` fragment is honoured by Chrome, Edge and Firefox but
  * only partially by Safari, and the embedded viewer does not report its page
@@ -60,35 +71,44 @@ export function DocumentViewer({
 }: DocumentViewerProps) {
   const { d, f } = useI18n();
   const active = documents.find((doc) => doc.id === activeDocumentId) ?? null;
+  const activeId = active?.id ?? null;
+  const isPdf = isPdfMimeType(active?.mimeType);
   const [signed, setSigned] = useState<SignedUrlState>({
+    documentId: null,
+    status: "idle",
+    url: null,
+    message: null,
+  });
+  const [pdfPreview, setPdfPreview] = useState<PdfPreviewState>({
+    documentId: null,
     status: "idle",
     url: null,
     message: null,
   });
 
-  // Signed URLs expire, so one is minted per document view rather than cached.
-  const requestedIdRef = useRef<string | null>(null);
-
   useEffect(() => {
-    if (!active) return;
-    if (requestedIdRef.current === active.id) return;
-    requestedIdRef.current = active.id;
+    if (!activeId || isPdf) return;
 
     let cancelled = false;
-    setSigned({ status: "loading", url: null, message: null });
 
-    fetch(`/api/documents/${active.id}/url`)
+    fetch(`/api/documents/${activeId}/url`)
       .then(async (response) => {
         if (!response.ok) throw new Error(String(response.status));
         return (await response.json()) as { url: string };
       })
       .then((body) => {
         if (cancelled) return;
-        setSigned({ status: "ready", url: body.url, message: null });
+        setSigned({
+          documentId: activeId,
+          status: "ready",
+          url: body.url,
+          message: null,
+        });
       })
       .catch(() => {
         if (cancelled) return;
         setSigned({
+          documentId: activeId,
           status: "error",
           url: null,
           message: d.candidates.documentOpenFailed,
@@ -98,7 +118,71 @@ export function DocumentViewer({
     return () => {
       cancelled = true;
     };
-  }, [active, d.candidates.documentOpenFailed]);
+  }, [activeId, d.candidates.documentOpenFailed, isPdf]);
+
+  useEffect(() => {
+    if (!activeId || !isPdf) return;
+
+    const documentId = activeId;
+    const controller = new AbortController();
+    let cancelled = false;
+    let timedOut = false;
+    let objectUrl: string | null = null;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      setPdfPreview({
+        documentId,
+        status: "error",
+        url: null,
+        message: d.candidates.documentOpenFailed,
+      });
+    }, 15000);
+
+    fetch(documentPreviewPath(documentId), {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        const blob = await response.blob();
+        window.clearTimeout(timeout);
+        objectUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setPdfPreview({
+          documentId,
+          status: "loading",
+          url: objectUrl,
+          message: null,
+        });
+      })
+      .catch((error: unknown) => {
+        if (
+          cancelled ||
+          timedOut ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        window.clearTimeout(timeout);
+        setPdfPreview({
+          documentId,
+          status: "error",
+          url: null,
+          message: d.candidates.documentOpenFailed,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [activeId, d.candidates.documentOpenFailed, isPdf]);
 
   if (!active) {
     return (
@@ -117,14 +201,25 @@ export function DocumentViewer({
     );
   }
 
-  const isPdf = active.mimeType === PDF_MIME;
   const pageCount = active.pageCount;
   const canPage = isPdf && pageCount !== null && pageCount > 1;
+  const previewPath = documentPreviewPath(active.id);
+  const previewForActive = isSameDocumentPreview(
+    pdfPreview.documentId,
+    active.id,
+  )
+    ? pdfPreview
+    : { documentId: active.id, status: "loading", url: null, message: null };
+  const signedForActive = isSameDocumentPreview(signed.documentId, active.id)
+    ? signed
+    : { documentId: active.id, status: "loading", url: null, message: null };
 
   // Re-keying on the page number forces the embedded viewer to honour the new
   // fragment; browsers ignore a fragment-only change on a live iframe.
   const frameSrc =
-    signed.url && isPdf ? `${signed.url}#page=${page}&view=FitH` : null;
+    previewForActive.url && isPdf
+      ? pdfFrameSource(previewForActive.url, page)
+      : null;
 
   return (
     <div
@@ -161,23 +256,33 @@ export function DocumentViewer({
       </div>
 
       <div className="relative flex min-h-96 flex-1 bg-surface-muted/60">
-        {signed.status === "loading" ? (
-          <div className="flex flex-1 flex-col gap-3 p-4">
+        {isPdf && previewForActive.status === "loading" ? (
+          <div className="absolute inset-0 z-10 flex flex-col gap-3 bg-surface-muted/90 p-4">
             <Skeleton className="h-3 w-32" />
             <Skeleton className="flex-1" />
           </div>
         ) : null}
 
-        {signed.status === "error" ? (
+        {isPdf && previewForActive.status === "error" ? (
           <div className="flex flex-1 items-center justify-center p-6">
-            <p className="flex max-w-xs items-start gap-2 text-[13px] leading-relaxed text-critical">
-              <AlertIcon className="mt-px size-4 shrink-0" />
-              {signed.message}
-            </p>
+            <div className="flex max-w-xs flex-col items-center gap-3 text-center">
+              <p className="flex items-start gap-2 text-[13px] leading-relaxed text-critical">
+                <AlertIcon className="mt-px size-4 shrink-0" />
+                {previewForActive.message ?? d.candidates.previewUnavailable}
+              </p>
+              <a
+                href={previewPath}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[13px] font-medium text-brand hover:underline"
+              >
+                {d.candidates.openPdf}
+              </a>
+            </div>
           </div>
         ) : null}
 
-        {signed.status === "ready" && frameSrc ? (
+        {isPdf && previewForActive.status !== "error" && frameSrc ? (
           <iframe
             key={`${active.id}-${page}`}
             src={frameSrc}
@@ -185,11 +290,45 @@ export function DocumentViewer({
               name: active.originalFileName,
               page,
             })}
-            className="size-full flex-1 border-0"
+            onLoad={() =>
+              setPdfPreview((current) =>
+                current.documentId === active.id
+                  ? { ...current, status: "ready" }
+                  : current,
+              )
+            }
+            onError={() =>
+              setPdfPreview({
+                documentId: active.id,
+                status: "error",
+                url: null,
+                message: d.candidates.documentOpenFailed,
+              })
+            }
+            className={cn(
+              "size-full flex-1 border-0",
+              previewForActive.status === "ready" ? "opacity-100" : "opacity-0",
+            )}
           />
         ) : null}
 
-        {signed.status === "ready" && !isPdf ? (
+        {!isPdf && signedForActive.status === "loading" ? (
+          <div className="flex flex-1 flex-col gap-3 p-4">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="flex-1" />
+          </div>
+        ) : null}
+
+        {!isPdf && signedForActive.status === "error" ? (
+          <div className="flex flex-1 items-center justify-center p-6">
+            <p className="flex max-w-xs items-start gap-2 text-[13px] leading-relaxed text-critical">
+              <AlertIcon className="mt-px size-4 shrink-0" />
+              {signedForActive.message}
+            </p>
+          </div>
+        ) : null}
+
+        {!isPdf && signedForActive.status === "ready" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
             <div className="flex size-10 items-center justify-center rounded-lg border border-line bg-surface text-ink-subtle">
               <FileIcon className="size-5" />
@@ -198,7 +337,7 @@ export function DocumentViewer({
               {d.candidates.docxNotRenderable}
             </p>
             <a
-              href={signed.url ?? "#"}
+              href={signedForActive.url ?? "#"}
               target="_blank"
               rel="noreferrer"
               className="text-[13px] font-medium text-brand hover:underline"

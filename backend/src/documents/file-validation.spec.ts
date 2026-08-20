@@ -1,10 +1,15 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, PayloadTooLargeException } from '@nestjs/common';
 import { validateUploadedFile, type ValidatableFile } from './file-validation';
+import {
+  DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES,
+  DOCUMENT_ERROR_CODES,
+} from './document-policy';
 
 const PDF_MIME = 'application/pdf';
 const DOCX_MIME =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const MAX = 10 * 1024 * 1024;
+// The product limit: 50 MB per document.
+const MAX = DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES;
 
 /** Builds a file whose bytes start with the given magic number. */
 function makeFile(
@@ -104,22 +109,62 @@ describe('validateUploadedFile', () => {
     });
   });
 
-  describe('size validation', () => {
+  describe('size validation (50 MB product limit)', () => {
+    // Sizes are asserted through the metadata field, never by allocating
+    // multi-megabyte buffers — the magic-number check only reads the head.
+    it('the default limit is exactly 50 MB', () => {
+      expect(MAX).toBe(50 * 1024 * 1024);
+    });
+
     it('rejects an empty file', () => {
       const file = makeFile({ size: 0 });
       expect(() => validateUploadedFile(file, MAX)).toThrow(/File is empty/);
     });
 
-    it('rejects a file above the limit', () => {
-      const file = makeFile({ size: MAX + 1 });
-      expect(() => validateUploadedFile(file, MAX)).toThrow(
-        /exceeds the 10 MB limit/,
-      );
+    it('accepts a 20 MB file (the old lower limit is gone)', () => {
+      const file = makeFile({ size: 20 * 1024 * 1024 });
+      expect(() => validateUploadedFile(file, MAX)).not.toThrow();
     });
 
-    it('accepts a file exactly at the limit', () => {
+    it('accepts a 49 MB file', () => {
+      const file = makeFile({ size: 49 * 1024 * 1024 });
+      expect(() => validateUploadedFile(file, MAX)).not.toThrow();
+    });
+
+    it('accepts a file of exactly 50 MB', () => {
       const file = makeFile({ size: MAX });
       expect(() => validateUploadedFile(file, MAX)).not.toThrow();
+    });
+
+    it('rejects one byte over the limit as 413 FILE_TOO_LARGE', () => {
+      const file = makeFile({ size: MAX + 1 });
+      try {
+        validateUploadedFile(file, MAX);
+        fail('expected the validator to throw');
+      } catch (error) {
+        expect(error).toBeInstanceOf(PayloadTooLargeException);
+        expect((error as PayloadTooLargeException).getResponse()).toMatchObject(
+          {
+            code: DOCUMENT_ERROR_CODES.FILE_TOO_LARGE,
+            message: 'File exceeds the 50 MB limit',
+          },
+        );
+      }
+    });
+  });
+
+  describe('stable error codes', () => {
+    it('type rejections carry UNSUPPORTED_FILE_TYPE for localization', () => {
+      const file = makeFile({ mimetype: 'application/zip' });
+      try {
+        validateUploadedFile(file, MAX);
+        fail('expected the validator to throw');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect((error as BadRequestException).getResponse()).toMatchObject({
+          code: DOCUMENT_ERROR_CODES.UNSUPPORTED_FILE_TYPE,
+        });
+      }
     });
   });
 });

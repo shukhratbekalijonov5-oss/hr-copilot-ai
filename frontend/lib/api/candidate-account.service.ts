@@ -3,12 +3,14 @@ import "server-only";
 import { apiFetch, type Paginated } from "@/lib/api/http";
 import {
   toCandidateAccount,
+  toPersonalDocument,
   toMyApplication,
   toSavedJob,
   toJobMatchResult,
 } from "@/lib/api/adapters";
 import type {
   CandidateAccountResponse,
+  CandidatePersonalDocumentsResponse,
   MyApplicationResponse,
   SavedJobResponse,
   JobMatchesResponse,
@@ -19,6 +21,8 @@ import type {
   CandidateAccountInput,
   MyApplication,
   MyApplicationPage,
+  PersonalDocument,
+  PersonalDocumentCollection,
   PersonalResume,
   SavedJobPage,
   JobMatchResult,
@@ -94,6 +98,53 @@ export function uploadPersonalResume(file: File): Promise<PersonalResume> {
     fileSize: response.fileSize,
     createdAt: new Date().toISOString(),
   }));
+}
+
+/** GET /candidate-account/me/documents — the caller's private document list. */
+export function getPersonalDocuments(): Promise<PersonalDocumentCollection> {
+  return apiFetch<CandidatePersonalDocumentsResponse>(
+    "/candidate-account/me/documents",
+  ).then((response) => ({
+    documents: response.data.map(toPersonalDocument),
+    limit: response.limit,
+    remaining: response.remaining,
+    primaryDocumentId: response.primaryDocumentId,
+  }));
+}
+
+/** POST /candidate-account/me/documents — adds one private document. */
+export function uploadPersonalDocument(file: File): Promise<PersonalDocument> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return apiFetch<{
+    id: string;
+    originalFileName: string;
+    mimeType: string | null;
+    fileSize: number | null;
+  }>("/candidate-account/me/documents", {
+    method: "POST",
+    formData,
+  }).then((response) => ({
+    ...response,
+    status: "UPLOADED",
+    createdAt: new Date().toISOString(),
+  }));
+}
+
+/** GET /candidate-account/me/documents/:id/download-url. */
+export function getPersonalDocumentUrl(id: string): Promise<{
+  url: string;
+  originalFileName: string;
+}> {
+  return apiFetch(`/candidate-account/me/documents/${id}/download-url`);
+}
+
+/** DELETE /candidate-account/me/documents/:id. */
+export function deletePersonalDocument(id: string): Promise<{ id: string }> {
+  return apiFetch(`/candidate-account/me/documents/${id}`, {
+    method: "DELETE",
+  });
 }
 
 /** GET /candidate-account/me/resume — a short-lived signed URL. */

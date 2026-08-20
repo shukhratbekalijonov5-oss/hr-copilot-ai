@@ -60,20 +60,30 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
   if (file.size > MAX_RESUME_SIZE_BYTES) {
     return NextResponse.json(
-      { message: "File is larger than the 15 MB limit." },
+      {
+        message: `File is larger than the ${MAX_RESUME_SIZE_BYTES / 1024 / 1024} MB limit.`,
+        code: "FILE_TOO_LARGE",
+      },
       { status: 400 },
     );
   }
 
   const candidateIdValue = formData.get("candidateId");
+  if (typeof candidateIdValue !== "string" || !candidateIdValue) {
+    return NextResponse.json(
+      {
+        message: "Upload from a manual candidate page.",
+        code: "HR_DOCUMENT_UPLOAD_NOT_ALLOWED",
+      },
+      { status: 400 },
+    );
+  }
+
   const typeValue = formData.get("type");
 
   try {
     const document = await api.uploadDocument(file, {
-      candidateId:
-        typeof candidateIdValue === "string" && candidateIdValue
-          ? candidateIdValue
-          : undefined,
+      candidateId: candidateIdValue,
       type:
         typeof typeValue === "string" && typeValue
           ? (typeValue as DocumentType)
@@ -83,7 +93,11 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch (error) {
     if (error instanceof ApiError) {
       return NextResponse.json(
-        { message: error.message, fieldErrors: error.fieldErrors },
+        {
+          message: error.message,
+          fieldErrors: error.fieldErrors,
+          code: error.code,
+        },
         { status: error.status || 500 },
       );
     }

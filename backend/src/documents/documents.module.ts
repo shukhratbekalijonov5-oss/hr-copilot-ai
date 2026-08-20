@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { memoryStorage } from 'multer';
 import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
+import { DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES } from './document-policy';
 import { QueueModule } from '../queue/queue.module';
 import { ProcessingModule } from '../processing/processing.module';
 
@@ -19,7 +20,7 @@ import { ProcessingModule } from '../processing/processing.module';
         limits: {
           fileSize: config.get<number>(
             'storage.maxFileSizeBytes',
-            10 * 1024 * 1024,
+            DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES,
           ),
           files: 1,
         },

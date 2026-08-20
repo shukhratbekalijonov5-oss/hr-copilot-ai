@@ -58,6 +58,13 @@ export class DocumentsController {
    * the HMAC signature and expiry minted in LocalStorageService.getSignedUrl,
    * exactly like a presigned R2 URL. With STORAGE_DRIVER=r2 this route is
    * unused — clients are sent straight to Cloudflare.
+   *
+   * The response must carry the REAL content type: the candidate-detail page
+   * renders this URL in an iframe, and a PDF served as
+   * `application/octet-stream` is downloaded (or ignored) by the browser
+   * instead of rendered — the preview panel just stays blank. Metadata is
+   * looked up by the signed key AFTER the signature verified; it grants
+   * nothing. `inline` (never `attachment`) is what allows in-page rendering.
    */
   @Public()
   @Get('download')
@@ -72,7 +79,19 @@ export class DocumentsController {
       Number.parseInt(expires ?? '', 10),
       signature ?? '',
     );
-    res.setHeader('content-type', 'application/octet-stream');
+    const metadata = await this.documentsService.getServingMetadata(key ?? '');
+
+    res.setHeader(
+      'content-type',
+      metadata?.mimeType ?? 'application/octet-stream',
+    );
+    res.setHeader(
+      'content-disposition',
+      inlineDisposition(metadata?.originalFileName ?? 'document'),
+    );
+    // Short-lived signed responses with resume content must never land in a
+    // shared cache.
+    res.setHeader('cache-control', 'private, no-store');
     res.setHeader('content-length', body.byteLength);
     res.send(body);
   }
@@ -111,4 +130,19 @@ export class DocumentsController {
   ) {
     return this.documentsService.remove(organizationId, id);
   }
+}
+
+/**
+ * `inline` Content-Disposition with a safely encoded filename. The plain
+ * `filename` fallback strips CR/LF/quotes (header-injection hygiene); the
+ * RFC 5987 `filename*` carries the exact UTF-8 name for modern browsers —
+ * uploads are routinely Korean/Russian/Uzbek.
+ */
+export function inlineDisposition(originalFileName: string): string {
+  const fallback = originalFileName.replace(/[\r\n"\\]/g, '_');
+  const encoded = encodeURIComponent(originalFileName).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `inline; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }

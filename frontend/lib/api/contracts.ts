@@ -205,12 +205,18 @@ export interface ApplicationResponse {
   createdAt: string;
   updatedAt: string;
   vacancy?: { id: string; title: string; status: VacancyStatus };
-  candidate?: { id: string; fullName: string; currentTitle: string | null };
+  candidate?: {
+    id: string;
+    fullName: string;
+    email?: string | null;
+    currentTitle?: string | null;
+  };
 }
 
 export interface CandidateResponse {
   id: string;
   organizationId: string;
+  candidateAccountId?: string | null;
   fullName: string;
   email: string | null;
   phone: string | null;
@@ -221,6 +227,47 @@ export interface CandidateResponse {
   updatedAt: string;
   documents?: DocumentResponse[];
   applications?: ApplicationResponse[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Interview chat                                                              */
+/* -------------------------------------------------------------------------- */
+
+export interface InviteToInterviewResponse {
+  application: ApplicationResponse;
+  conversation: { id: string; vacancyId: string; createdAt: string } | null;
+  chatAvailable: boolean;
+  chatUnavailableReason?: "NO_CANDIDATE_ACCOUNT";
+}
+
+export interface OrganizationConversationResponse {
+  id: string;
+  vacancyId: string;
+  createdAt: string;
+  updatedAt: string;
+  vacancy: { id: string; title: string; status: VacancyStatus };
+  candidate: { id: string; fullName: string; email: string | null };
+}
+
+export interface CandidateConversationResponse {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  vacancy: {
+    publicSlug: string;
+    title: string;
+    status: VacancyStatus;
+    organization: { name: string };
+  };
+}
+
+export interface ConversationMessageResponse {
+  id: string;
+  conversationId: string;
+  senderParty: "ORGANIZATION" | "CANDIDATE";
+  senderName: string;
+  content: string;
+  createdAt: string;
 }
 
 export interface ProcessingJobResponse {
@@ -434,7 +481,15 @@ export interface CandidateResumeResponse {
   originalFileName: string;
   mimeType: string | null;
   fileSize: number | null;
+  status?: DocumentStatus;
   createdAt: string;
+}
+
+export interface CandidatePersonalDocumentsResponse {
+  data: Array<CandidateResumeResponse & { status: DocumentStatus }>;
+  limit: number;
+  remaining: number;
+  primaryDocumentId: string | null;
 }
 
 export interface CandidateAccountResponse {

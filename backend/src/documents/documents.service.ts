@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -15,6 +16,10 @@ import { AiServiceClient } from '../ai/ai-service.client';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import { DocumentStatus, DocumentType } from '../generated/prisma/enums';
 import { validateUploadedFile, type ValidatableFile } from './file-validation';
+import {
+  DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES,
+  hrUploadNotAllowed,
+} from './document-policy';
 import type { UploadDocumentDto } from './dto/upload-document.dto';
 import type { QueryDocumentsDto } from './dto/query-documents.dto';
 
@@ -34,7 +39,7 @@ export class DocumentsService {
   ) {
     this.maxFileSizeBytes = configService.get<number>(
       'storage.maxFileSizeBytes',
-      10 * 1024 * 1024,
+      DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES,
     );
   }
 
@@ -57,13 +62,31 @@ export class DocumentsService {
     // 1 + 2
     const validated = validateUploadedFile(file, this.maxFileSizeBytes);
 
-    // The candidate must belong to the caller's organization.
-    if (dto.candidateId) {
-      const candidate = await this.prisma.candidate.findFirst({
-        where: { id: dto.candidateId, ...this.tenant.scope(organizationId) },
-        select: { id: true },
-      });
-      this.tenant.assertFound(candidate, 'Candidate');
+    // Defence in depth behind the (required) DTO field: there is no generic
+    // organization upload, from ANY caller.
+    if (!dto.candidateId) {
+      throw new BadRequestException(
+        'A candidateId is required: documents are always uploaded for a specific candidate',
+      );
+    }
+
+    // HR upload policy (see document-policy.ts): the target must be a
+    // manually added candidate of the CALLER's organization. Cross-tenant (or
+    // unknown) ids stay 404 per the tenant-disclosure convention; a candidate
+    // who applied through the platform themselves (candidateAccountId set) is
+    // visible to the caller, so refusing them is an honest 403 — HR must not
+    // graft files onto an identity whose evidence comes from the person's own
+    // application snapshots.
+    const candidate = await this.prisma.candidate.findFirst({
+      where: { id: dto.candidateId, ...this.tenant.scope(organizationId) },
+      select: { id: true, candidateAccountId: true },
+    });
+    this.tenant.assertFound(candidate, 'Candidate');
+    if (candidate!.candidateAccountId !== null) {
+      throw hrUploadNotAllowed(
+        'Documents can only be uploaded for manually added candidates. ' +
+          'This candidate applied through the platform and manages their own documents.',
+      );
     }
 
     const documentId = randomUUID();
@@ -222,6 +245,23 @@ export class DocumentsService {
       url: await this.storage.getSignedUrl(document!.storageKey),
       originalFileName: document!.originalFileName,
     };
+  }
+
+  /**
+   * Serving metadata for the LOCAL-driver download route, looked up by the
+   * signed key. Carries NO authorization: access to the bytes is granted by
+   * the HMAC signature alone (same contract as a presigned R2 URL) — this
+   * lookup only lets the response carry the true Content-Type and filename
+   * so a browser can render a PDF inline instead of treating an opaque
+   * octet-stream as a download (which left the preview iframe blank).
+   */
+  async getServingMetadata(
+    storageKey: string,
+  ): Promise<{ mimeType: string; originalFileName: string } | null> {
+    return this.prisma.document.findUnique({
+      where: { storageKey },
+      select: { mimeType: true, originalFileName: true },
+    });
   }
 
   /**

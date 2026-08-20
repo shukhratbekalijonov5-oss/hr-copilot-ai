@@ -20,7 +20,6 @@ import {
   BriefcaseIcon,
   PlusIcon,
   SparkIcon,
-  UploadIcon,
   UsersIcon,
 } from "@/components/ui/icons";
 import { getI18n } from "@/lib/i18n/server";
@@ -47,12 +46,6 @@ export default async function DashboardPage() {
       label: d.dashboard.quickAddCandidate,
       description: d.dashboard.quickAddCandidateHint,
       icon: UsersIcon,
-    },
-    {
-      href: "/processing",
-      label: d.dashboard.quickUploadResumes,
-      description: d.dashboard.quickUploadResumesHint,
-      icon: UploadIcon,
     },
   ];
 

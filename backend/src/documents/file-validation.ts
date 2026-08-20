@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { fileTooLarge, unsupportedFileType } from './document-policy';
 
 /** PDF and DOCX only, per the Phase 1 scope. */
 export const ALLOWED_MIME_TYPES: Record<string, string[]> = {
@@ -42,14 +43,14 @@ export function validateUploadedFile(
 
   const allowedExtensions = ALLOWED_MIME_TYPES[file.mimetype];
   if (!allowedExtensions) {
-    throw new BadRequestException(
+    throw unsupportedFileType(
       `Unsupported file type. Allowed: ${Object.keys(ALLOWED_MIME_TYPES).join(', ')}`,
     );
   }
 
   const extension = extensionOf(file.originalname);
   if (!allowedExtensions.includes(extension)) {
-    throw new BadRequestException(
+    throw unsupportedFileType(
       `File extension ${extension || '(none)'} does not match its content type`,
     );
   }
@@ -58,14 +59,11 @@ export function validateUploadedFile(
     throw new BadRequestException('File is empty');
   }
   if (file.size > maxFileSizeBytes) {
-    const limitMb = Math.floor(maxFileSizeBytes / (1024 * 1024));
-    throw new BadRequestException(`File exceeds the ${limitMb} MB limit`);
+    throw fileTooLarge(maxFileSizeBytes);
   }
 
   if (!hasExpectedMagicNumber(file)) {
-    throw new BadRequestException(
-      'File content does not match its declared type',
-    );
+    throw unsupportedFileType('File content does not match its declared type');
   }
 
   return file;

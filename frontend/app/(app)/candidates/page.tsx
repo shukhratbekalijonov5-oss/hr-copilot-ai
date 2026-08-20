@@ -3,7 +3,6 @@ import { api } from "@/lib/api";
 import { requireSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CandidateListView } from "@/components/candidates/CandidateListView";
-import { UploadPanel } from "@/components/upload/UploadPanel";
 import { getTranslations } from "@/lib/i18n/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -32,7 +31,6 @@ export default async function CandidatesPage(
       <PageHeader
         title={d.candidates.title}
         description={d.candidates.description}
-        actions={<UploadPanel />}
       />
       <CandidateListView
         candidates={candidates}

@@ -13,7 +13,8 @@ import {
   VacancyStatusBadge,
 } from "@/components/ui/StatusBadge";
 import { buttonStyles } from "@/components/ui/Button";
-import { CompareIcon, PlusIcon, UsersIcon } from "@/components/ui/icons";
+import { CompareIcon, MessageIcon, PlusIcon, UsersIcon } from "@/components/ui/icons";
+import { VacancyCloseButton } from "@/components/vacancies/VacancyCloseButton";
 import { getI18n } from "@/lib/i18n/server";
 import { formatDateFor } from "@/lib/i18n/format";
 import { format, plural } from "@/lib/i18n/format";
@@ -47,7 +48,16 @@ export default async function VacancyDetailPage(
     throw error;
   }
 
-  const { applications } = await api.getApplications({ vacancyId: vacancy.id });
+  const [{ applications }, conversationsPage] = await Promise.all([
+    api.getApplications({ vacancyId: vacancy.id }),
+    api.getOrganizationConversations({ vacancyId: vacancy.id, page: 1, limit: 100 }),
+  ]);
+  const conversationByCandidate = new Map(
+    conversationsPage.conversations.map((conversation) => [
+      conversation.candidate.id,
+      conversation,
+    ]),
+  );
 
   const mustHaves = vacancy.requirements.filter(
     (requirement) => requirement.required,
@@ -118,6 +128,12 @@ export default async function VacancyDetailPage(
               <PlusIcon className="size-4" />
               {d.candidates.add}
             </Link>
+            {vacancy.status !== "CLOSED" && vacancy.status !== "ARCHIVED" ? (
+              <VacancyCloseButton
+                vacancyId={vacancy.id}
+                chatCount={conversationsPage.conversations.length}
+              />
+            ) : null}
           </>
         }
       />
@@ -233,11 +249,15 @@ export default async function VacancyDetailPage(
               />
             ) : (
               <ul className="divide-y divide-[var(--line)]">
-                {applications.map((application) => (
-                  <li key={application.id}>
+                {applications.map((application) => {
+                  const conversation = conversationByCandidate.get(
+                    application.candidateId,
+                  );
+                  return (
+                  <li key={application.id} className="flex items-center gap-3 px-4 py-3">
                     <Link
                       href={`/candidates/${application.candidateId}`}
-                      className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-muted/60"
+                      className="flex min-w-0 flex-1 items-center gap-3 transition-colors hover:text-brand"
                     >
                       <Avatar
                         name={application.candidate?.fullName ?? "?"}
@@ -254,8 +274,18 @@ export default async function VacancyDetailPage(
                       </div>
                       <ApplicationStatusBadge status={application.status} />
                     </Link>
+                    {conversation ? (
+                      <Link
+                        href={`/interview-chats?conversation=${conversation.id}`}
+                        className={buttonStyles("secondary", "sm")}
+                      >
+                        <MessageIcon className="size-4" />
+                        {d.chat.openChat}
+                      </Link>
+                    ) : null}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </Card>

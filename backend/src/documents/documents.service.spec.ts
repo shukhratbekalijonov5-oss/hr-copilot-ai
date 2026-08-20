@@ -1,8 +1,12 @@
-import { NotFoundException } from '@nestjs/common';
-import { TenantService } from '../common/tenant/tenant.service';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentsService } from './documents.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { DOCUMENT_ERROR_CODES } from './document-policy';
 import { DocumentType } from '../generated/prisma/enums';
 import type { StorageService } from '../storage/storage.service';
 
@@ -31,7 +35,13 @@ describe('DocumentsService.upload', () => {
 
   beforeEach(() => {
     prisma = {
-      candidate: { findFirst: jest.fn().mockResolvedValue({ id: 'c1' }) },
+      candidate: {
+        // A manually added candidate of the caller's organization — the only
+        // target the HR upload policy allows.
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: 'c1', candidateAccountId: null }),
+      },
       document: {
         create: jest.fn(({ data }: any) =>
           Promise.resolve({
@@ -78,7 +88,7 @@ describe('DocumentsService.upload', () => {
   });
 
   it('stores the document under the caller organization', async () => {
-    await service.upload(ORG_A, pdfFile(), {});
+    await service.upload(ORG_A, pdfFile(), { candidateId: 'c1' });
 
     expect(prisma.document.create.mock.calls[0][0].data.organizationId).toBe(
       ORG_A,
@@ -86,7 +96,7 @@ describe('DocumentsService.upload', () => {
   });
 
   it('namespaces the storage key by organization', async () => {
-    await service.upload(ORG_A, pdfFile(), {});
+    await service.upload(ORG_A, pdfFile(), { candidateId: 'c1' });
 
     const key = storage.upload.mock.calls[0][0].key;
     expect(key).toMatch(new RegExp(`^org/${ORG_A}/documents/`));
@@ -96,9 +106,9 @@ describe('DocumentsService.upload', () => {
   it('rejects an invalid file before creating any row', async () => {
     const bad = { ...pdfFile(), mimetype: 'image/png', originalname: 'x.png' };
 
-    await expect(service.upload(ORG_A, bad, {})).rejects.toThrow(
-      /Unsupported file type/,
-    );
+    await expect(
+      service.upload(ORG_A, bad, { candidateId: 'c1' }),
+    ).rejects.toThrow(/Unsupported file type/);
     expect(prisma.document.create).not.toHaveBeenCalled();
     expect(storage.upload).not.toHaveBeenCalled();
     expect(producer.enqueueDocument).not.toHaveBeenCalled();
@@ -111,6 +121,47 @@ describe('DocumentsService.upload', () => {
       service.upload(ORG_A, pdfFile(), { candidateId: 'c-other' }),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.document.create).not.toHaveBeenCalled();
+  });
+
+  describe('HR upload policy (manual candidates only)', () => {
+    it('always resolves the candidate inside the caller organization', async () => {
+      await service.upload(ORG_A, pdfFile(), { candidateId: 'c1' });
+
+      expect(prisma.candidate.findFirst.mock.calls[0][0].where).toMatchObject({
+        id: 'c1',
+        organizationId: ORG_A,
+      });
+    });
+
+    it('refuses a generic upload with no candidate, even from an internal caller', async () => {
+      await expect(
+        service.upload(ORG_A, pdfFile(), {} as never),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.document.create).not.toHaveBeenCalled();
+      expect(storage.upload).not.toHaveBeenCalled();
+    });
+
+    it('refuses an application-derived candidate with 403 HR_DOCUMENT_UPLOAD_NOT_ALLOWED', async () => {
+      // candidateAccountId set = the person applied through the platform and
+      // manages their own documents; HR must not graft files onto them.
+      prisma.candidate.findFirst.mockResolvedValue({
+        id: 'c-linked',
+        candidateAccountId: 'acct-1',
+      });
+
+      try {
+        await service.upload(ORG_A, pdfFile(), { candidateId: 'c-linked' });
+        fail('expected the upload to be refused');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ForbiddenException);
+        expect((error as ForbiddenException).getResponse()).toMatchObject({
+          code: DOCUMENT_ERROR_CODES.HR_DOCUMENT_UPLOAD_NOT_ALLOWED,
+        });
+      }
+      expect(prisma.document.create).not.toHaveBeenCalled();
+      expect(storage.upload).not.toHaveBeenCalled();
+      expect(producer.enqueueDocument).not.toHaveBeenCalled();
+    });
   });
 
   describe('queue job creation', () => {
@@ -129,7 +180,7 @@ describe('DocumentsService.upload', () => {
     });
 
     it('never puts file contents or a signed URL in the job payload', async () => {
-      await service.upload(ORG_A, pdfFile(), {});
+      await service.upload(ORG_A, pdfFile(), { candidateId: 'c1' });
 
       const payload = producer.enqueueDocument.mock.calls[0][0];
       const serialised = JSON.stringify(payload);
@@ -139,7 +190,7 @@ describe('DocumentsService.upload', () => {
     });
 
     it('creates a ProcessingJob row and marks it queued', async () => {
-      await service.upload(ORG_A, pdfFile(), {});
+      await service.upload(ORG_A, pdfFile(), { candidateId: 'c1' });
 
       expect(processing.createJob).toHaveBeenCalledWith(
         ORG_A,
@@ -149,7 +200,9 @@ describe('DocumentsService.upload', () => {
     });
 
     it('returns without doing any AI work on the request thread', async () => {
-      const result = await service.upload(ORG_A, pdfFile(), {});
+      const result = await service.upload(ORG_A, pdfFile(), {
+        candidateId: 'c1',
+      });
 
       expect(result.status).toBe('UPLOADED');
       expect(result.processingJobId).toBe('pj1');
@@ -158,7 +211,9 @@ describe('DocumentsService.upload', () => {
     it('records a failure rather than losing the upload when Redis is down', async () => {
       producer.enqueueDocument.mockRejectedValue(new Error('ECONNREFUSED'));
 
-      const result = await service.upload(ORG_A, pdfFile(), {});
+      const result = await service.upload(ORG_A, pdfFile(), {
+        candidateId: 'c1',
+      });
 
       // The document row and stored bytes survive; the job is marked failed.
       expect(result.id).toEqual(expect.any(String));
@@ -173,15 +228,15 @@ describe('DocumentsService.upload', () => {
   it('rolls the document row back when storage upload fails', async () => {
     storage.upload.mockRejectedValue(new Error('bucket unreachable'));
 
-    await expect(service.upload(ORG_A, pdfFile(), {})).rejects.toThrow(
-      'bucket unreachable',
-    );
+    await expect(
+      service.upload(ORG_A, pdfFile(), { candidateId: 'c1' }),
+    ).rejects.toThrow('bucket unreachable');
     expect(prisma.document.delete).toHaveBeenCalled();
     expect(producer.enqueueDocument).not.toHaveBeenCalled();
   });
 
   it('defaults the document type to RESUME', async () => {
-    await service.upload(ORG_A, pdfFile(), {});
+    await service.upload(ORG_A, pdfFile(), { candidateId: 'c1' });
 
     expect(prisma.document.create.mock.calls[0][0].data.type).toBe(
       DocumentType.RESUME,
@@ -189,7 +244,9 @@ describe('DocumentsService.upload', () => {
   });
 
   it('never exposes the storage key in the upload response', async () => {
-    const result = await service.upload(ORG_A, pdfFile(), {});
+    const result = await service.upload(ORG_A, pdfFile(), {
+      candidateId: 'c1',
+    });
 
     expect(result).not.toHaveProperty('storageKey');
   });

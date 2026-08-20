@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ProcessingIoAdapter } from './processing/io.adapter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { PayloadTooLargeFilter } from './common/filters/payload-too-large.filter';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -55,7 +56,10 @@ async function bootstrap(): Promise<void> {
   );
 
   // Ensures an unexpected error never returns a driver message to the client.
-  app.useGlobalFilters(new AllExceptionsFilter());
+  // The more specific filter (later in the list) wins for 413s, so an
+  // oversized upload always carries the stable FILE_TOO_LARGE code whether
+  // Multer or the service-level validator rejected it.
+  app.useGlobalFilters(new AllExceptionsFilter(), new PayloadTooLargeFilter());
 
   app.enableShutdownHooks();
 

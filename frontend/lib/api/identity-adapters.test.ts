@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   toAuthSession,
   toCandidateAccount,
+  toPersonalDocument,
   toMyApplication,
   toPublicJob,
   toPublicJobDetail,
@@ -168,6 +169,25 @@ describe("toCandidateAccount", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     expect(account.resume).toBeNull();
+  });
+});
+
+describe("toPersonalDocument", () => {
+  it("maps candidate-owned document rows with processing status", () => {
+    const document = toPersonalDocument({
+      id: "doc-1",
+      originalFileName: "resume.pdf",
+      mimeType: "application/pdf",
+      fileSize: 2048,
+      status: "FAILED",
+      createdAt: "2026-08-20T00:00:00.000Z",
+    });
+
+    expect(document).toMatchObject({
+      id: "doc-1",
+      originalFileName: "resume.pdf",
+      status: "FAILED",
+    });
   });
 });
 

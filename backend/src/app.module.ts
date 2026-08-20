@@ -28,7 +28,9 @@ import { SearchModule } from './search/search.module';
 import { EvidenceMapModule } from './evidence-map/evidence-map.module';
 import { ProcessingModule } from './processing/processing.module';
 import { QueueModule } from './queue/queue.module';
+import { ChatModule } from './chat/chat.module';
 import { IdentityModule } from './common/identity/identity.module';
+import { EventsModule } from './common/events/events.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { CandidateContextGuard } from './common/guards/candidate-context.guard';
@@ -62,6 +64,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     TenantModule,
     MembershipModule,
     IdentityModule,
+    EventsModule,
     StorageModule,
     AiModule,
 
@@ -81,6 +84,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     EvidenceMapModule,
     ProcessingModule,
     QueueModule,
+    ChatModule,
   ],
   providers: [
     // Order matters: authenticate, then verify the account-type boundary of

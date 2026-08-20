@@ -14,6 +14,7 @@ import * as compare from "@/lib/api/compare.service";
 import * as dashboard from "@/lib/api/dashboard.service";
 import * as documents from "@/lib/api/documents.service";
 import * as evidence from "@/lib/api/evidence.service";
+import * as interviewChat from "@/lib/api/interview-chat.service";
 import * as processing from "@/lib/api/processing.service";
 import * as publicJobs from "@/lib/api/public-jobs.service";
 import * as search from "@/lib/api/search.service";
@@ -56,6 +57,17 @@ export const api = {
   getApplications: applications.getApplications,
   createApplication: applications.createApplication,
   setApplicationStatus: applications.setApplicationStatus,
+  inviteToInterview: interviewChat.inviteToInterview,
+
+  // interview chat
+  getOrganizationConversations: interviewChat.getOrganizationConversations,
+  getOrganizationConversation: interviewChat.getOrganizationConversation,
+  getOrganizationMessages: interviewChat.getOrganizationMessages,
+  sendOrganizationMessage: interviewChat.sendOrganizationMessage,
+  getCandidateConversations: interviewChat.getCandidateConversations,
+  getCandidateConversation: interviewChat.getCandidateConversation,
+  getCandidateMessages: interviewChat.getCandidateMessages,
+  sendCandidateMessage: interviewChat.sendCandidateMessage,
 
   // documents
   getDocuments: documents.getDocuments,
@@ -91,6 +103,10 @@ export const api = {
   createCandidateAccount: candidateAccount.createCandidateAccount,
   updateCandidateAccount: candidateAccount.updateCandidateAccount,
   uploadPersonalResume: candidateAccount.uploadPersonalResume,
+  getPersonalDocuments: candidateAccount.getPersonalDocuments,
+  uploadPersonalDocument: candidateAccount.uploadPersonalDocument,
+  getPersonalDocumentUrl: candidateAccount.getPersonalDocumentUrl,
+  deletePersonalDocument: candidateAccount.deletePersonalDocument,
   getPersonalResumeUrl: candidateAccount.getPersonalResumeUrl,
   getMyApplications: candidateAccount.getMyApplications,
   withdrawApplication: candidateAccount.withdrawApplication,

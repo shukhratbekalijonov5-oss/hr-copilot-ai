@@ -116,6 +116,21 @@ class Settings(BaseSettings):
     # Grounded extraction wants determinism, not creativity: the task is to
     # report what the passages say, so near-zero temperature is correct.
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    # Thinking models (gemini-2.5+/3.x) spend "thoughts" tokens INSIDE
+    # max_output_tokens. Left uncapped, gemini-3.6-flash was measured thinking
+    # 2300-3900 tokens on a routine candidate summary — starving the actual
+    # structured answer and finishing MAX_TOKENS with no parsable payload
+    # (~50% of calls). Grounded extraction is a reporting task, not a deep
+    # reasoning one, so a small budget is correct; it also roughly halves
+    # latency. The budget is a strong hint, not a hard cap — retries below
+    # absorb the residual overshoot. 0 requests no thinking at all.
+    llm_thinking_budget: int = Field(default=512, ge=0, le=24576)
+    # Total attempts per generation call. Two failure classes are stochastic
+    # and vanish on retry: transient provider errors (429/500/503/504) and
+    # truncated/empty structured output. Measured without retries: roughly one
+    # user-visible failure per three calls. Bounded attempts make that rare
+    # without masking a persistent outage — the final error still surfaces.
+    llm_max_attempts: int = Field(default=3, ge=1, le=5)
 
     # Default model per provider, used when LLM_MODEL is unset. Keeping the
     # default here rather than inline means the rest of the system never has to
@@ -151,7 +166,7 @@ class Settings(BaseSettings):
     chunk_min_split_chars: int = Field(default=350, ge=100, le=8000)
 
     # --- Uploads ----------------------------------------------------------
-    max_file_size_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    max_file_size_bytes: int = Field(default=50 * 1024 * 1024, ge=1)
 
     # --- Model warm-up ----------------------------------------------------
     # Loading the model at import time makes tests slow and startup fragile;

@@ -3,19 +3,23 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  deletePersonalDocumentAction,
+  getPersonalDocumentUrlAction,
   getPersonalResumeUrlAction,
-  uploadPersonalResumeAction,
+  uploadPersonalDocumentAction,
 } from "@/app/(candidate)/actions";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { AlertIcon, FileIcon, UploadIcon } from "@/components/ui/icons";
+import { DocumentStatusBadge } from "@/components/ui/StatusBadge";
 import { useI18n } from "@/lib/i18n/context";
 import {
   ACCEPTED_RESUME_EXTENSIONS,
   MAX_RESUME_SIZE_BYTES,
 } from "@/lib/constants";
+import { localizedDocumentError } from "@/lib/documents/errors";
 import { formatFileSize } from "@/lib/utils";
-import type { PersonalResume } from "@/lib/types";
+import type { PersonalDocumentCollection, PersonalResume } from "@/lib/types";
 
 /**
  * The personal resume.
@@ -28,8 +32,10 @@ import type { PersonalResume } from "@/lib/types";
  */
 export function PersonalResumeCard({
   resume,
+  collection,
 }: {
   resume: PersonalResume | null;
+  collection: PersonalDocumentCollection;
 }) {
   const { d, f, date } = useI18n();
   const router = useRouter();
@@ -38,10 +44,25 @@ export function PersonalResumeCard({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [opening, startOpen] = useTransition();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const documents = collection.documents;
+  const primaryDocumentId = collection.primaryDocumentId ?? resume?.id ?? null;
+  const atLimit = collection.remaining <= 0;
 
   function upload(file: File | undefined) {
     if (!file || pending) return;
     setError(null);
+
+    const extension = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
+    if (!(ACCEPTED_RESUME_EXTENSIONS as readonly string[]).includes(extension)) {
+      setError(
+        f(d.upload.unsupportedType, {
+          name: file.name,
+        }),
+      );
+      return;
+    }
 
     if (file.size > MAX_RESUME_SIZE_BYTES) {
       setError(
@@ -57,10 +78,14 @@ export function PersonalResumeCard({
     formData.append("file", file);
 
     startTransition(async () => {
-      const result = await uploadPersonalResumeAction(formData);
+      const result = await uploadPersonalDocumentAction(formData);
       if (!result.ok) {
         setError(
-          result.message ?? d.candidateProfile.resumeUploadFailed,
+          localizedDocumentError(
+            result.code,
+            d,
+            result.message ?? d.candidateProfile.resumeUploadFailed,
+          ),
         );
         return;
       }
@@ -68,20 +93,43 @@ export function PersonalResumeCard({
     });
   }
 
-  /** The signed URL is short-lived, so it is minted at the moment of opening. */
-  function open() {
+  /** Signed URLs are short-lived, so one is minted at the moment of opening. */
+  function open(documentId: string | null) {
     if (opening) return;
     startOpen(async () => {
-      const result = await getPersonalResumeUrlAction();
+      const result = documentId
+        ? await getPersonalDocumentUrlAction(documentId)
+        : await getPersonalResumeUrlAction();
       if (result.ok && result.data) window.open(result.data.url, "_blank");
       else setError(d.candidates.documentOpenFailed);
+    });
+  }
+
+  function remove(documentId: string) {
+    if (deletingId || pending) return;
+    setError(null);
+    setDeletingId(documentId);
+    startTransition(async () => {
+      const result = await deletePersonalDocumentAction(documentId);
+      setDeletingId(null);
+      if (!result.ok) {
+        setError(
+          localizedDocumentError(
+            result.code,
+            d,
+            result.message ?? d.candidateProfile.documentDeleteFailed,
+          ),
+        );
+        return;
+      }
+      router.refresh();
     });
   }
 
   return (
     <Card>
       <CardHeader
-        title={d.candidateProfile.resume}
+        title={d.candidateProfile.documents}
         description={f(d.candidateProfile.resumeHint, {
           size: formatFileSize(MAX_RESUME_SIZE_BYTES),
         })}
@@ -97,30 +145,57 @@ export function PersonalResumeCard({
           </p>
         ) : null}
 
-        {resume ? (
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface-muted/40 px-3 py-2.5">
-            <FileIcon className="size-4 shrink-0 text-ink-subtle" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13.5px] font-medium text-ink">
-                {resume.originalFileName}
-              </span>
-              <span className="block text-[12px] text-ink-subtle">
-                {f(d.candidateProfile.uploadedOn, {
-                  date: date(resume.createdAt),
-                })}
-                {resume.fileSize ? ` · ${formatFileSize(resume.fileSize)}` : ""}
-              </span>
-            </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              loading={opening}
-              onClick={open}
-            >
-              {d.candidateProfile.downloadResume}
-            </Button>
-          </div>
+        {documents.length > 0 ? (
+          <ul className="flex flex-col gap-2">
+            {documents.map((document) => (
+              <li
+                key={document.id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface-muted/40 px-3 py-2.5"
+              >
+                <FileIcon className="size-4 shrink-0 text-ink-subtle" />
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="truncate text-[13.5px] font-medium text-ink">
+                      {document.originalFileName}
+                    </span>
+                    {document.id === primaryDocumentId ? (
+                      <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand-ink">
+                        {d.candidateProfile.primaryResume}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="block text-[12px] text-ink-subtle">
+                    {f(d.candidateProfile.uploadedOn, {
+                      date: date(document.createdAt),
+                    })}
+                    {document.fileSize
+                      ? ` · ${formatFileSize(document.fileSize)}`
+                      : ""}
+                  </span>
+                </span>
+                <DocumentStatusBadge status={document.status} />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  loading={opening}
+                  onClick={() => open(document.id)}
+                >
+                  {d.candidateProfile.downloadResume}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  loading={deletingId === document.id}
+                  disabled={pending}
+                  onClick={() => remove(document.id)}
+                >
+                  {d.candidateProfile.deleteDocument}
+                </Button>
+              </li>
+            ))}
+          </ul>
         ) : (
           <p className="text-[13px] text-ink-muted">
             {d.candidateProfile.noResume}
@@ -130,19 +205,25 @@ export function PersonalResumeCard({
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
-            variant={resume ? "secondary" : "primary"}
+            variant={documents.length > 0 ? "secondary" : "primary"}
             size="sm"
             loading={pending}
-            disabled={pending}
+            disabled={pending || atLimit}
             icon={<UploadIcon className="size-4" />}
             onClick={() => inputRef.current?.click()}
           >
             {pending
               ? d.candidateProfile.uploading
-              : resume
-                ? d.candidateProfile.replaceResume
+              : documents.length > 0
+                ? d.candidateProfile.addDocument
                 : d.candidateProfile.uploadResume}
           </Button>
+          <span className="text-[12.5px] text-ink-muted">
+            {f(d.candidateProfile.documentSlots, {
+              count: documents.length,
+              limit: collection.limit,
+            })}
+          </span>
           <input
             ref={inputRef}
             type="file"
@@ -156,7 +237,9 @@ export function PersonalResumeCard({
         </div>
 
         <p className="text-[12px] leading-relaxed text-ink-subtle">
-          {d.candidateProfile.personalResumeNote}
+          {atLimit
+            ? d.candidateProfile.documentLimitReached
+            : d.candidateProfile.personalResumeNote}
         </p>
       </CardBody>
     </Card>

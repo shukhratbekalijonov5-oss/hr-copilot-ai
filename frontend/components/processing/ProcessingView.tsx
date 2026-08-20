@@ -14,7 +14,6 @@ import {
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ProcessingProgress } from "@/components/processing/ProcessingProgress";
 import { StreamStatusPill } from "@/components/processing/StreamStatusPill";
-import { ResumeUploader } from "@/components/upload/ResumeUploader";
 import { ActivityIcon, SearchIcon } from "@/components/ui/icons";
 import { useProcessingStream } from "@/lib/hooks/useProcessingStream";
 import { useI18n } from "@/lib/i18n/context";
@@ -162,8 +161,8 @@ export function ProcessingView({ jobs, summary }: ProcessingViewProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <div className="grid gap-4">
+        <Card>
           <CardHeader
             title={d.processing.pipeline}
             description={p(d.processing.ingested, summary.total)}
@@ -174,15 +173,6 @@ export function ProcessingView({ jobs, summary }: ProcessingViewProps) {
           </CardBody>
         </Card>
 
-        <Card>
-          <CardHeader title={d.uploader.uploadResumes} />
-          <CardBody>
-            <ResumeUploader />
-            <p className="mt-3 text-[12px] leading-relaxed text-ink-subtle">
-              {d.upload.unattachedNote}
-            </p>
-          </CardBody>
-        </Card>
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

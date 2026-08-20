@@ -10,7 +10,10 @@ import type {
   AiAnswerResponse,
   AuthSessionRowResponse,
   CandidateAccountResponse,
+  CandidateConversationResponse,
+  ConversationMessageResponse,
   MyApplicationResponse,
+  OrganizationConversationResponse,
   PublicJobDetailResponse,
   PublicJobResponse,
   SavedJobResponse,
@@ -22,9 +25,11 @@ import type {
   EvidenceMapEvidenceResponse,
   EvidenceMapResponse,
   EvidenceSearchResponse,
+  CandidateResumeResponse,
   CandidateResponse,
   DocumentResponse,
   EvidenceResponse,
+  InviteToInterviewResponse,
   JobRequirementResponse,
   MeResponse,
   OrganizationResponse,
@@ -38,7 +43,9 @@ import type {
   AuthSessionRow,
   Candidate,
   CandidateAccount,
+  CandidateInterviewConversation,
   MyApplication,
+  OrganizationInterviewConversation,
   PublicJob,
   PublicJobDetail,
   SavedJob,
@@ -56,8 +63,11 @@ import type {
   DocumentStatus,
   Evidence,
   EvidenceStatus,
+  InterviewMessage,
+  InviteToInterviewResult,
   JobRequirement,
   Organization,
+  PersonalDocument,
   PipelineStage,
   ProcessingJob,
   ProcessingSummary,
@@ -341,9 +351,68 @@ export function toApplication(response: ApplicationResponse): Application {
       ? {
           id: response.candidate.id,
           fullName: response.candidate.fullName,
-          currentTitle: response.candidate.currentTitle,
+          currentTitle: response.candidate.currentTitle ?? null,
         }
       : undefined,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Interview chat                                                              */
+/* -------------------------------------------------------------------------- */
+
+export function toInterviewMessage(
+  response: ConversationMessageResponse,
+): InterviewMessage {
+  return {
+    id: response.id,
+    conversationId: response.conversationId,
+    senderParty: response.senderParty,
+    senderName: response.senderName,
+    content: response.content,
+    createdAt: response.createdAt,
+  };
+}
+
+export function toOrganizationConversation(
+  response: OrganizationConversationResponse,
+): OrganizationInterviewConversation {
+  return {
+    side: "organization",
+    id: response.id,
+    vacancyId: response.vacancyId,
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+    vacancy: response.vacancy,
+    candidate: response.candidate,
+  };
+}
+
+export function toCandidateConversation(
+  response: CandidateConversationResponse,
+): CandidateInterviewConversation {
+  return {
+    side: "candidate",
+    id: response.id,
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+    vacancy: {
+      publicSlug: response.vacancy.publicSlug,
+      title: response.vacancy.title,
+      status: response.vacancy.status,
+      organizationName: response.vacancy.organization.name,
+    },
+  };
+}
+
+export function toInviteToInterviewResult(
+  response: InviteToInterviewResponse,
+): InviteToInterviewResult {
+  return {
+    application: toApplication(response.application),
+    conversation: response.conversation,
+    chatAvailable: response.chatAvailable,
+    chatUnavailableReason: response.chatUnavailableReason,
   };
 }
 
@@ -357,6 +426,7 @@ export function toCandidate(response: CandidateResponse): Candidate {
   return {
     id: response.id,
     organizationId: response.organizationId,
+    candidateAccountId: response.candidateAccountId ?? null,
     fullName: response.fullName,
     email: response.email,
     phone: response.phone,
@@ -370,6 +440,19 @@ export function toCandidate(response: CandidateResponse): Candidate {
     processingStatus: aggregateDocumentStatus(documents),
     primaryVacancyId: primary?.vacancyId ?? null,
     primaryVacancyTitle: primary?.vacancy?.title ?? null,
+  };
+}
+
+export function toPersonalDocument(
+  response: CandidateResumeResponse & { status?: DocumentStatus },
+): PersonalDocument {
+  return {
+    id: response.id,
+    originalFileName: response.originalFileName,
+    mimeType: response.mimeType,
+    fileSize: response.fileSize,
+    status: response.status ?? "UPLOADED",
+    createdAt: response.createdAt,
   };
 }
 

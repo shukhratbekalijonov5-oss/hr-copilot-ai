@@ -54,6 +54,8 @@ def build_generation_client(settings: Settings) -> GenerationClient:
             max_tokens=settings.llm_max_tokens,
             timeout_seconds=settings.llm_timeout_seconds,
             temperature=settings.llm_temperature,
+            thinking_budget=settings.llm_thinking_budget,
+            max_attempts=settings.llm_max_attempts,
         )
 
     if provider == "anthropic":

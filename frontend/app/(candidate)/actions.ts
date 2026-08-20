@@ -11,6 +11,7 @@ import type {
   CandidateActionReason,
   JobMatchResult,
   MyApplication,
+  PersonalDocument,
   PersonalResume,
 } from "@/lib/types";
 
@@ -25,7 +26,12 @@ import type {
 
 export type CandidateResult<T> =
   | { ok: true; data: T }
-  | { ok: false; reason: CandidateActionReason; message?: string };
+  | {
+      ok: false;
+      reason: CandidateActionReason;
+      message?: string;
+      code?: string | null;
+    };
 
 async function run<T>(action: () => Promise<T>): Promise<CandidateResult<T>> {
   try {
@@ -35,6 +41,7 @@ async function run<T>(action: () => Promise<T>): Promise<CandidateResult<T>> {
       ok: false,
       reason: candidateFailureReason(error),
       message: error instanceof ApiError ? error.message : undefined,
+      code: error instanceof ApiError ? error.code : null,
     };
   }
 }
@@ -76,6 +83,33 @@ export async function uploadPersonalResumeAction(
   }
 
   const result = await run(() => api.uploadPersonalResume(file));
+  if (result.ok) revalidatePath("/my-profile");
+  return result;
+}
+
+export async function uploadPersonalDocumentAction(
+  formData: FormData,
+): Promise<CandidateResult<PersonalDocument>> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, reason: "error" };
+  }
+
+  const result = await run(() => api.uploadPersonalDocument(file));
+  if (result.ok) revalidatePath("/my-profile");
+  return result;
+}
+
+export async function getPersonalDocumentUrlAction(
+  id: string,
+): Promise<CandidateResult<{ url: string; originalFileName: string }>> {
+  return run(() => api.getPersonalDocumentUrl(id));
+}
+
+export async function deletePersonalDocumentAction(
+  id: string,
+): Promise<CandidateResult<{ id: string }>> {
+  const result = await run(() => api.deletePersonalDocument(id));
   if (result.ok) revalidatePath("/my-profile");
   return result;
 }

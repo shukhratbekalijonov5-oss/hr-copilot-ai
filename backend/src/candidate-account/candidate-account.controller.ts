@@ -56,6 +56,10 @@ export class CandidateAccountController {
     return this.service.updateMine(userId, dto);
   }
 
+  /**
+   * Legacy single-resume flow: REPLACES the current primary resume. Kept for
+   * the existing frontend; new UI should use the me/documents collection.
+   */
   @Post('me/resume')
   @UseInterceptors(FileInterceptor('file'))
   uploadResume(
@@ -68,6 +72,40 @@ export class CandidateAccountController {
   @Get('me/resume')
   resumeDownload(@CurrentUser('id') userId: string) {
     return this.service.getResumeDownload(userId);
+  }
+
+  // -- Personal document collection (max 3 files, owner-only) --------------
+
+  @Get('me/documents')
+  documents(@CurrentUser('id') userId: string) {
+    return this.service.listPersonalDocuments(userId);
+  }
+
+  /** Adds a document; 409 PERSONAL_DOCUMENT_LIMIT_REACHED when at the cap. */
+  @Post('me/documents')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDocument(
+    @CurrentUser('id') userId: string,
+    @UploadedFile() file: ValidatableFile | undefined,
+  ) {
+    return this.service.uploadPersonalDocument(userId, file);
+  }
+
+  @Get('me/documents/:id/download-url')
+  documentDownload(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.getPersonalDocumentDownload(userId, id);
+  }
+
+  /** Permanent delete of ONE own document: bytes, rows and vectors. */
+  @Delete('me/documents/:id')
+  deleteDocument(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.deletePersonalDocument(userId, id);
   }
 
   @Get('me/applications')

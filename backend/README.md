@@ -120,7 +120,7 @@ Every variable is documented in [`.env.example`](.env.example), which contains
 | `SECRET_TOKEN`                                                    | Backend auth signing secret, min 32 chars. **Required.**    |
 | `TOKEN_TTL`, `BCRYPT_ROUNDS`                                      | Token lifetime and password hashing cost.                   |
 | `STORAGE_DRIVER`                                                  | `local` (default) or `r2`.                                  |
-| `STORAGE_LOCAL_ROOT`, `MAX_FILE_SIZE_BYTES`, `SIGNED_URL_TTL_SECONDS` | Storage tuning.                                        |
+| `STORAGE_LOCAL_ROOT`, `MAX_FILE_SIZE_BYTES`, `SIGNED_URL_TTL_SECONDS` | Storage tuning. `MAX_FILE_SIZE_BYTES` defaults to 52428800 (50 MB/file). |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Required when `STORAGE_DRIVER=r2`.                |
 | `AI_SERVICE_URL`                                                  | Python AI service, e.g. `http://localhost:8000`. Empty disables AI. |
 | `INTERNAL_SERVICE_TOKEN`                                          | Shared backend↔AI service credential. Required when `AI_SERVICE_URL` is set. |
@@ -441,7 +441,7 @@ token except those marked public.
 | GET/POST | `/api/applications`                               |                           |
 | GET/DELETE | `/api/applications/:id`                         |                           |
 | PATCH  | `/api/applications/:id/status`                      | **human-controlled only** |
-| POST   | `/api/documents`                                    | multipart upload          |
+| POST   | `/api/documents`                                    | multipart upload — REQUIRES `candidateId` of an own MANUAL candidate |
 | GET    | `/api/documents`, `/api/documents/:id`              |                           |
 | GET    | `/api/documents/:id/download-url`                   | short-lived signed URL    |
 | GET    | `/api/documents/download`                           | signature-authorised (local driver) |
@@ -455,7 +455,9 @@ token except those marked public.
 | POST   | `/api/public/jobs/:slug/apply`                      | candidate account required — direct application |
 | POST   | `/api/candidate-account`                            | create own job-seeker profile |
 | GET/PATCH | `/api/candidate-account/me`                      | own profile only          |
-| POST/GET | `/api/candidate-account/me/resume`                | personal resume (upload / signed URL) |
+| POST/GET | `/api/candidate-account/me/resume`                | primary resume (legacy replace / signed URL) |
+| GET/POST | `/api/candidate-account/me/documents`             | personal files — max 3, 50 MB each |
+| GET/DELETE | `/api/candidate-account/me/documents/:id(/download-url)` | own-file signed URL / permanent delete (bytes+rows+vectors) |
 | GET    | `/api/candidate-account/me/applications(/:id)`      | own DIRECT applications   |
 | POST   | `/api/candidate-account/me/applications/:id/withdraw` | only candidate status mutation |
 | GET/POST/DELETE | `/api/candidate-account/me/saved-jobs(/:slug)` | bookmarks (OPEN jobs)  |
@@ -517,6 +519,45 @@ Development login: `recruiter@northwind-labs.test` / `DevPassword123!`
 No documents, evidence or processing jobs are seeded: those only exist as the
 result of a real upload, and faking them would misrepresent a pipeline that has
 not run.
+
+### Synthetic dataset (~200 users, for scale testing)
+
+```bash
+ALLOW_SYNTHETIC_SEED=true npm run seed:synthetic         # create
+ALLOW_SYNTHETIC_SEED=true npm run seed:synthetic:reset   # remove
+```
+
+Development only: it refuses to run without `ALLOW_SYNTHETIC_SEED=true`, with
+`NODE_ENV=production`, or against a production-looking `DATABASE_URL`. It
+produces ~140 CANDIDATE and ~62 ORGANIZATION accounts across 36 organizations,
+~190 vacancies, real applications and saved jobs, and resumes in en/ko/ru/uz —
+all invented (see `scripts/synthetic-seed.data.ts`), never real people.
+
+Everything AI-visible goes through the REAL pipeline: personal resumes are
+uploaded as DOCX through `CandidateAccountService.uploadResume`, applications go
+through `PublicJobsService.apply` (which is what creates the organization-scoped
+resume copies recruiter search reads), and vacancies are indexed by the normal
+`SYNC_VACANCY_INDEX` job. No vector is ever written directly, so privacy
+semantics and collection isolation are exactly the product's.
+
+Two conventions matter for safety and reproducibility:
+
+- **Markers.** Synthetic users are `candidate001@example.test`,
+  `owner001@example.test`, `recruiter001@example.test` (role word + three
+  digits) and every organization slug starts with `syn-`. Reset touches only
+  those, so hand-made dev accounts such as `jasur.toshmatov@example.test`
+  survive it.
+- **No in-place updates.** The seeder refuses to run when its own records exist;
+  re-seeding is reset-then-seed. With the fixed RNG seed (`20260821`) that
+  reproduces the identical dataset. Upserting was rejected because vacancy
+  `publicSlug`s carry a random suffix and applications create real stored
+  objects, so "update in place" would silently drift from a fresh run.
+
+Set `SYNTHETIC_APPLICATION_SCALE=0.5` to halve application volume (the dominant
+cost — each application indexes one organization-side resume copy) on a
+constrained machine.
+
+Dev login for every synthetic account: `DevPassword123!`
 
 ---
 

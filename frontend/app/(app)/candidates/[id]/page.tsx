@@ -44,9 +44,22 @@ export default async function CandidateDetailPage(
   let vacancy: Vacancy | null = null;
   let evidenceMap: EvidenceMap | null = null;
   let evidenceMapFailure: AiFailureReason | null = null;
+  let applicationConversationId: string | null = null;
 
   if (candidate.primaryVacancyId) {
-    vacancy = await api.getVacancy(candidate.primaryVacancyId);
+    const [candidateVacancy, conversationsPage] = await Promise.all([
+      api.getVacancy(candidate.primaryVacancyId),
+      api.getOrganizationConversations({
+        vacancyId: candidate.primaryVacancyId,
+        page: 1,
+        limit: 100,
+      }),
+    ]);
+    vacancy = candidateVacancy;
+    applicationConversationId =
+      conversationsPage.conversations.find(
+        (conversation) => conversation.candidate.id === candidate.id,
+      )?.id ?? null;
 
     /**
      * The stored map is read here so the requirement table is present on first
@@ -78,6 +91,7 @@ export default async function CandidateDetailPage(
       <CandidateWorkspace
         candidate={candidate}
         vacancy={vacancy}
+        applicationConversationId={applicationConversationId}
         evidenceMap={evidenceMap}
         evidenceMapFailure={evidenceMapFailure}
         role={

@@ -30,6 +30,9 @@ export const API_BASE_URL = `${API_ORIGIN}/api`;
 /** socket.io namespace exposed by the processing gateway. */
 export const PROCESSING_SOCKET_URL = `${API_ORIGIN}/processing`;
 
+/** socket.io namespace exposed by the interview chat gateway. */
+export const CHAT_SOCKET_URL = `${API_ORIGIN}/chat`;
+
 /**
  * Session cookies.
  *

@@ -369,6 +369,12 @@ export interface Application {
 export interface Candidate {
   id: ID;
   organizationId: ID;
+  /**
+   * Null means this is a manual recruiter-created candidate. A value means the
+   * row is linked to a job-seeker CandidateAccount, so HR must not upload files
+   * onto it.
+   */
+  candidateAccountId: ID | null;
   fullName: string;
   email: string | null;
   phone: string | null;
@@ -405,6 +411,65 @@ export interface CandidateQuery {
   minExperienceYears?: number;
   page?: number;
   limit?: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Interview chat — vacancy-scoped HR ↔ candidate conversations                */
+/* -------------------------------------------------------------------------- */
+
+export type InterviewChatParty = "ORGANIZATION" | "CANDIDATE";
+export type InterviewChatClosedReason = "VACANCY_CLOSED" | "CANDIDATE_REJECTED";
+
+export interface InterviewMessage {
+  id: ID;
+  conversationId: ID;
+  senderParty: InterviewChatParty;
+  senderName: string;
+  content: string;
+  createdAt: ISODateString;
+}
+
+export interface OrganizationInterviewConversation {
+  side: "organization";
+  id: ID;
+  vacancyId: ID;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+  vacancy: Pick<Vacancy, "id" | "title" | "status">;
+  candidate: Pick<Candidate, "id" | "fullName" | "email">;
+}
+
+export interface CandidateInterviewConversation {
+  side: "candidate";
+  id: ID;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+  vacancy: {
+    publicSlug: string;
+    title: string;
+    status: VacancyStatus;
+    organizationName: string;
+  };
+}
+
+export type InterviewConversation =
+  | OrganizationInterviewConversation
+  | CandidateInterviewConversation;
+
+export interface InterviewConversationPage<T extends InterviewConversation> {
+  conversations: T[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+export type ChatUnavailableReason = "NO_CANDIDATE_ACCOUNT";
+
+export interface InviteToInterviewResult {
+  application: Application;
+  conversation: { id: ID; vacancyId: ID; createdAt: ISODateString } | null;
+  chatAvailable: boolean;
+  chatUnavailableReason?: ChatUnavailableReason;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -769,6 +834,17 @@ export interface PersonalResume {
   mimeType: string | null;
   fileSize: number | null;
   createdAt: ISODateString;
+}
+
+export interface PersonalDocument extends PersonalResume {
+  status: DocumentStatus;
+}
+
+export interface PersonalDocumentCollection {
+  documents: PersonalDocument[];
+  limit: number;
+  remaining: number;
+  primaryDocumentId: ID | null;
 }
 
 export interface CandidateAccount {
