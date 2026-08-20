@@ -21,8 +21,7 @@ export default async function WorkspacesPage() {
   const session = await requireSession();
   const d = await getTranslations();
 
-  // Nothing to choose between: a pure job seeker goes straight to their side.
-  if (session.memberships.length === 0) redirect("/jobs");
+  if (session.accountType === "CANDIDATE") redirect("/jobs");
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col justify-center px-5 py-10">
@@ -35,8 +34,6 @@ export default async function WorkspacesPage() {
 
       <WorkspacePicker
         memberships={session.memberships}
-        candidateName={session.fullName}
-        hasCandidateAccount={session.hasCandidateAccount}
       />
     </main>
   );

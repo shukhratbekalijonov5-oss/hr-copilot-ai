@@ -9,7 +9,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
     <div className="grid min-h-dvh lg:grid-cols-[1fr_minmax(0,30rem)]">
       <section className="hidden flex-col justify-between border-r border-line bg-surface p-10 lg:flex">
         <Link
-          href="/dashboard"
+          href="/"
           className="flex items-center gap-2 text-sm font-semibold tracking-tight text-ink"
         >
           <span className="flex size-7 items-center justify-center rounded-lg bg-brand text-white">
@@ -40,7 +40,7 @@ export default async function AuthLayout({ children }: LayoutProps<"/">) {
       <section className="flex items-center justify-center px-5 py-10 sm:px-8">
         <div className="w-full max-w-sm">
           <Link
-            href="/dashboard"
+            href="/"
             className="mb-8 flex items-center gap-2 text-sm font-semibold tracking-tight text-ink lg:hidden"
           >
             <span className="flex size-7 items-center justify-center rounded-lg bg-brand text-white">

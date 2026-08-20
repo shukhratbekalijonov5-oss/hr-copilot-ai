@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -70,6 +71,14 @@ function createAiMock() {
   return { candidateJobMatches: jest.fn() };
 }
 
+function createAccountTypesMock() {
+  return {
+    getForUser: jest.fn().mockResolvedValue('CANDIDATE'),
+    assertCanOwnCandidateAccount: jest.fn().mockResolvedValue(undefined),
+    assertCanHoldMembership: jest.fn(),
+  };
+}
+
 const configService = {
   get: jest.fn((_: string, fallback?: unknown) => fallback),
 } as unknown as ConfigService;
@@ -79,6 +88,7 @@ describe('CandidateAccountService', () => {
   let storage: ReturnType<typeof createStorageMock>;
   let producer: ReturnType<typeof createProducerMock>;
   let ai: ReturnType<typeof createAiMock>;
+  let accountTypes: ReturnType<typeof createAccountTypesMock>;
   let service: CandidateAccountService;
 
   beforeEach(() => {
@@ -86,11 +96,13 @@ describe('CandidateAccountService', () => {
     storage = createStorageMock();
     producer = createProducerMock();
     ai = createAiMock();
+    accountTypes = createAccountTypesMock();
     service = new CandidateAccountService(
       prisma as never,
       storage,
       producer as never,
       ai as never,
+      accountTypes as never,
       configService,
     );
   });
@@ -120,6 +132,19 @@ describe('CandidateAccountService', () => {
       await expect(service.create(ME, {})).rejects.toBeInstanceOf(
         ConflictException,
       );
+    });
+
+    it('enforces the identity invariant on creation (CANDIDATE accounts only)', async () => {
+      accountTypes.assertCanOwnCandidateAccount.mockRejectedValue(
+        new ForbiddenException(
+          'An organization account cannot own a candidate profile',
+        ),
+      );
+
+      await expect(service.create(ME, {})).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(prisma.candidateAccount.create).not.toHaveBeenCalled();
     });
   });
 

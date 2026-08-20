@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/session";
+import { defaultRouteForAccountType } from "@/lib/auth/routing";
 
 /**
  * Where a signed-in person lands.
@@ -13,7 +14,10 @@ import { requireSession } from "@/lib/auth/session";
 export default async function Home() {
   const session = await requireSession();
 
-  if (session.activeOrganization) redirect("/dashboard");
-  if (session.memberships.length > 0) redirect("/workspaces");
-  redirect("/jobs");
+  redirect(
+    defaultRouteForAccountType(
+      session.accountType,
+      Boolean(session.activeOrganization),
+    ),
+  );
 }

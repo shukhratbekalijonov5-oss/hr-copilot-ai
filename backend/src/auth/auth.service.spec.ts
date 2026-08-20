@@ -1,6 +1,6 @@
 import {
-  BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -10,7 +10,8 @@ import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { MembershipService } from '../common/membership/membership.service';
-import { Locale, Role } from '../generated/prisma/enums';
+import { AccountTypeService } from '../common/identity/account-type.service';
+import { AccountType, Locale, Role } from '../generated/prisma/enums';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
@@ -39,6 +40,7 @@ function createPrismaMock() {
     },
     organization: { findUnique: jest.fn(), create: jest.fn() },
     organizationMember: { findUnique: jest.fn(), create: jest.fn() },
+    candidateAccount: { create: jest.fn() },
     $transaction: jest.fn(),
   };
 }
@@ -63,6 +65,7 @@ const actor = (
 ): AuthenticatedUser => ({
   id: 'user-1',
   email: 'dana@northwind-labs.test',
+  accountType: null,
   organizationId: null,
   role: null,
   activeOrganizationClaim: null,
@@ -85,13 +88,14 @@ describe('AuthService', () => {
     service = new AuthService(
       prisma as unknown as PrismaService,
       new MembershipService(prisma as unknown as PrismaService),
+      new AccountTypeService(prisma as unknown as PrismaService),
       sessions as unknown as AuthSessionService,
       jwtService,
       createConfigMock(),
     );
   });
 
-  const registerDto = {
+  const registerOrgDto = {
     organizationName: 'Northwind Labs',
     organizationSlug: 'northwind-labs',
     fullName: 'Dana Whitfield',
@@ -99,12 +103,13 @@ describe('AuthService', () => {
     password: 'CorrectHorseBattery1',
   };
 
-  /** Transaction stub for the recruiter registration path. */
-  function mockRegisterTransaction() {
+  /** Transaction stub for the organization registration path. */
+  function mockOrgRegisterTransaction() {
     const createUser = jest.fn().mockResolvedValue({
       id: 'user-1',
       email: 'dana@northwind-labs.test',
       fullName: 'Dana Whitfield',
+      accountType: AccountType.ORGANIZATION,
       preferredLocale: Locale.en,
     });
     const createOrg = jest.fn().mockResolvedValue({ id: 'org-1' });
@@ -114,27 +119,61 @@ describe('AuthService', () => {
       organizationId: 'org-1',
       role: Role.OWNER,
     });
+    const createCandidateAccount = jest.fn();
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
       fn({
         user: { create: createUser },
         organization: { create: createOrg },
         organizationMember: { create: createMembership },
+        candidateAccount: { create: createCandidateAccount },
       }),
     );
-    return { createUser, createOrg, createMembership };
+    return { createUser, createOrg, createMembership, createCandidateAccount };
   }
 
-  describe('register (hiring intent)', () => {
-    it('creates user, organization and OWNER membership; token carries org but no role', async () => {
+  /** Transaction stub for the candidate registration path. */
+  function mockCandidateRegisterTransaction() {
+    const createUser = jest.fn().mockResolvedValue({
+      id: 'user-9',
+      email: 'jasur@example.test',
+      fullName: 'Jasur Toshmatov',
+      accountType: AccountType.CANDIDATE,
+      preferredLocale: Locale.uz,
+    });
+    const createCandidateAccount = jest
+      .fn()
+      .mockResolvedValue({ id: 'acct-1', userId: 'user-9' });
+    const createOrg = jest.fn();
+    const createMembership = jest.fn();
+    prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+      fn({
+        user: { create: createUser },
+        organization: { create: createOrg },
+        organizationMember: { create: createMembership },
+        candidateAccount: { create: createCandidateAccount },
+      }),
+    );
+    return { createUser, createOrg, createMembership, createCandidateAccount };
+  }
+
+  describe('registerOrganization', () => {
+    it('creates user, organization and OWNER membership; token carries org but no role or type', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.organization.findUnique.mockResolvedValue(null);
-      const { createMembership } = mockRegisterTransaction();
+      const { createUser, createMembership, createCandidateAccount } =
+        mockOrgRegisterTransaction();
 
-      const result = await service.register(registerDto);
+      const result = await service.registerOrganization(registerOrgDto);
 
+      expect(createUser.mock.calls[0][0].data.accountType).toBe(
+        AccountType.ORGANIZATION,
+      );
       expect(createMembership.mock.calls[0][0].data.role).toBe(Role.OWNER);
+      // The other identity is NEVER created here.
+      expect(createCandidateAccount).not.toHaveBeenCalled();
       expect(result.user.role).toBe(Role.OWNER);
       expect(result.user.organizationId).toBe('org-1');
+      expect(result.user.accountType).toBe(AccountType.ORGANIZATION);
 
       const decoded = jwtService.verify(result.accessToken, {
         secret: CONFIG['auth.secretToken'] as string,
@@ -144,14 +183,17 @@ describe('AuthService', () => {
       expect(decoded.sid).toBe('sess-1');
       // Roles are organization-scoped and resolved live; never a token claim.
       expect(decoded.role).toBeUndefined();
+      // Account type is re-derived from the database per request, not cached
+      // in the token.
+      expect(decoded.accountType).toBeUndefined();
     });
 
     it('opens a refresh session and returns its raw token once', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.organization.findUnique.mockResolvedValue(null);
-      mockRegisterTransaction();
+      mockOrgRegisterTransaction();
 
-      const result = await service.register(registerDto);
+      const result = await service.registerOrganization(registerOrgDto);
 
       expect(sessions.createSession).toHaveBeenCalledWith('user-1', {
         activeOrganizationId: 'org-1',
@@ -164,9 +206,9 @@ describe('AuthService', () => {
     it('normalises the email to lowercase before storing it', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.organization.findUnique.mockResolvedValue(null);
-      const { createUser } = mockRegisterTransaction();
+      const { createUser } = mockOrgRegisterTransaction();
 
-      await service.register(registerDto);
+      await service.registerOrganization(registerOrgDto);
 
       expect(createUser.mock.calls[0][0].data.email).toBe(
         'dana@northwind-labs.test',
@@ -176,82 +218,167 @@ describe('AuthService', () => {
     it('stores a bcrypt hash, never the plaintext password', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.organization.findUnique.mockResolvedValue(null);
-      const { createUser } = mockRegisterTransaction();
+      const { createUser } = mockOrgRegisterTransaction();
 
-      await service.register(registerDto);
+      await service.registerOrganization(registerOrgDto);
 
       const stored = createUser.mock.calls[0][0].data.passwordHash;
-      expect(stored).not.toBe(registerDto.password);
+      expect(stored).not.toBe(registerOrgDto.password);
       expect(stored).toMatch(/^\$2[aby]\$/);
-      await expect(bcrypt.compare(registerDto.password, stored)).resolves.toBe(
-        true,
+      await expect(
+        bcrypt.compare(registerOrgDto.password, stored),
+      ).resolves.toBe(true);
+    });
+
+    it('rejects an email already registered as an ORGANIZATION account', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        accountType: AccountType.ORGANIZATION,
+      });
+      prisma.organization.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.registerOrganization(registerOrgDto),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          constructor: ConflictException,
+          response: expect.objectContaining({
+            code: 'AUTH_EMAIL_ALREADY_REGISTERED',
+          }),
+        }),
       );
     });
 
-    it('rejects a duplicate email', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'existing' });
+    it('rejects an email that belongs to a CANDIDATE account (cross-type)', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        accountType: AccountType.CANDIDATE,
+      });
       prisma.organization.findUnique.mockResolvedValue(null);
 
-      await expect(service.register(registerDto)).rejects.toBeInstanceOf(
-        ConflictException,
+      await expect(
+        service.registerOrganization(registerOrgDto),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          constructor: ConflictException,
+          response: expect.objectContaining({
+            code: 'AUTH_ACCOUNT_TYPE_CONFLICT',
+          }),
+        }),
       );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('rejects a duplicate organization slug', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.organization.findUnique.mockResolvedValue({ id: 'existing' });
 
-      await expect(service.register(registerDto)).rejects.toBeInstanceOf(
-        ConflictException,
-      );
-    });
-
-    it('rejects organizationName without organizationSlug (and vice versa)', async () => {
       await expect(
-        service.register({ ...registerDto, organizationSlug: undefined }),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      await expect(
-        service.register({ ...registerDto, organizationName: undefined }),
-      ).rejects.toBeInstanceOf(BadRequestException);
+        service.registerOrganization(registerOrgDto),
+      ).rejects.toBeInstanceOf(ConflictException);
     });
   });
 
-  describe('register (job-seeker intent)', () => {
-    it('creates a bare user with no organization and no role', async () => {
+  describe('registerCandidate', () => {
+    const registerCandidateDto = {
+      fullName: 'Jasur Toshmatov',
+      email: 'Jasur@Example.test',
+      password: 'CorrectHorseBattery1',
+      preferredLocale: Locale.uz,
+    };
+
+    it('creates the user AND their candidate account in one transaction — nothing else', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
-      prisma.user.create.mockResolvedValue({
-        id: 'user-9',
+      const {
+        createUser,
+        createOrg,
+        createMembership,
+        createCandidateAccount,
+      } = mockCandidateRegisterTransaction();
+
+      const result = await service.registerCandidate(registerCandidateDto);
+
+      expect(createUser.mock.calls[0][0].data).toMatchObject({
         email: 'jasur@example.test',
-        fullName: 'Jasur Toshmatov',
+        accountType: AccountType.CANDIDATE,
         preferredLocale: Locale.uz,
       });
-
-      const result = await service.register({
-        fullName: 'Jasur Toshmatov',
-        email: 'jasur@example.test',
-        password: 'CorrectHorseBattery1',
-        preferredLocale: Locale.uz,
+      expect(createCandidateAccount).toHaveBeenCalledWith({
+        data: { userId: 'user-9' },
       });
+      // No organization, no membership — ever.
+      expect(createOrg).not.toHaveBeenCalled();
+      expect(createMembership).not.toHaveBeenCalled();
 
-      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(result.user.accountType).toBe(AccountType.CANDIDATE);
       expect(result.user.role).toBeNull();
       expect(result.user.organizationId).toBeNull();
       expect(result.user.preferredLocale).toBe(Locale.uz);
+      expect(result.refreshToken).toBe('sess-1.raw-refresh-secret');
 
       const decoded = jwtService.verify(result.accessToken, {
         secret: CONFIG['auth.secretToken'] as string,
       });
       expect(decoded.org).toBeUndefined();
+      expect(decoded.accountType).toBeUndefined();
+    });
+
+    it('opens the session with no organization context', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      mockCandidateRegisterTransaction();
+
+      await service.registerCandidate(registerCandidateDto);
+
+      expect(sessions.createSession).toHaveBeenCalledWith('user-9', {
+        activeOrganizationId: null,
+        userAgent: null,
+        deviceName: null,
+      });
+    });
+
+    it('rejects an email already registered as a CANDIDATE account', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        accountType: AccountType.CANDIDATE,
+      });
+
+      await expect(
+        service.registerCandidate(registerCandidateDto),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          constructor: ConflictException,
+          response: expect.objectContaining({
+            code: 'AUTH_EMAIL_ALREADY_REGISTERED',
+          }),
+        }),
+      );
+    });
+
+    it('rejects an email that belongs to an ORGANIZATION account (cross-type)', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        accountType: AccountType.ORGANIZATION,
+      });
+
+      await expect(
+        service.registerCandidate(registerCandidateDto),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          constructor: ConflictException,
+          response: expect.objectContaining({
+            code: 'AUTH_ACCOUNT_TYPE_CONFLICT',
+          }),
+        }),
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
   });
 
   describe('login', () => {
     const storedUser = async (
       memberships: { organizationId: string; role: Role; createdAt: Date }[],
+      accountType: AccountType = AccountType.ORGANIZATION,
     ) => ({
       id: 'user-1',
       email: 'dana@northwind-labs.test',
       fullName: 'Dana Whitfield',
+      accountType,
       preferredLocale: Locale.en,
       passwordHash: await bcrypt.hash('CorrectHorseBattery1', 4),
       memberships,
@@ -281,10 +408,13 @@ describe('AuthService', () => {
       expect(decoded.role).toBeUndefined();
       expect(result.user.role).toBe(Role.RECRUITER);
       expect(result.user.organizationId).toBe('org-first');
+      expect(result.user.accountType).toBe(AccountType.ORGANIZATION);
     });
 
-    it('logs a membership-less user in with no organization context', async () => {
-      prisma.user.findUnique.mockResolvedValue(await storedUser([]));
+    it('logs a candidate in with no organization context', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        await storedUser([], AccountType.CANDIDATE),
+      );
 
       const result = await service.login({
         email: 'dana@northwind-labs.test',
@@ -293,6 +423,92 @@ describe('AuthService', () => {
 
       expect(result.user.role).toBeNull();
       expect(result.user.organizationId).toBeNull();
+      expect(result.user.accountType).toBe(AccountType.CANDIDATE);
+      const decoded = jwtService.verify(result.accessToken, {
+        secret: CONFIG['auth.secretToken'] as string,
+      });
+      expect(decoded.org).toBeUndefined();
+    });
+
+    it('accepts a matching explicit accountType (right door)', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        await storedUser([], AccountType.CANDIDATE),
+      );
+
+      await expect(
+        service.login({
+          email: 'dana@northwind-labs.test',
+          password: 'CorrectHorseBattery1',
+          accountType: AccountType.CANDIDATE,
+        }),
+      ).resolves.toMatchObject({
+        user: { accountType: AccountType.CANDIDATE },
+      });
+    });
+
+    it('rejects a CANDIDATE signing in through the organization door', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        await storedUser([], AccountType.CANDIDATE),
+      );
+
+      await expect(
+        service.login({
+          email: 'dana@northwind-labs.test',
+          password: 'CorrectHorseBattery1',
+          accountType: AccountType.ORGANIZATION,
+        }),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          constructor: ForbiddenException,
+          response: expect.objectContaining({
+            code: 'AUTH_ACCOUNT_TYPE_MISMATCH',
+          }),
+        }),
+      );
+      expect(sessions.createSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects an ORGANIZATION account signing in through the candidate door', async () => {
+      prisma.user.findUnique.mockResolvedValue(
+        await storedUser([
+          {
+            organizationId: 'org-1',
+            role: Role.OWNER,
+            createdAt: new Date('2026-01-01'),
+          },
+        ]),
+      );
+
+      await expect(
+        service.login({
+          email: 'dana@northwind-labs.test',
+          password: 'CorrectHorseBattery1',
+          accountType: AccountType.CANDIDATE,
+        }),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          constructor: ForbiddenException,
+          response: expect.objectContaining({
+            code: 'AUTH_ACCOUNT_TYPE_MISMATCH',
+          }),
+        }),
+      );
+    });
+
+    it('keeps the flat 401 for a WRONG password even with a mismatched accountType', async () => {
+      // The wrong-door distinction must never leak to a caller who has not
+      // proven the password: bad credentials stay "Invalid credentials".
+      prisma.user.findUnique.mockResolvedValue(
+        await storedUser([], AccountType.CANDIDATE),
+      );
+
+      await expect(
+        service.login({
+          email: 'dana@northwind-labs.test',
+          password: 'wrong',
+          accountType: AccountType.ORGANIZATION,
+        }),
+      ).rejects.toThrow('Invalid credentials');
     });
 
     it('never returns the password hash to the caller', async () => {
@@ -338,6 +554,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'dana@northwind-labs.test',
         fullName: 'Dana Whitfield',
+        accountType: AccountType.ORGANIZATION,
         preferredLocale: Locale.en,
       });
 
@@ -366,7 +583,7 @@ describe('AuthService', () => {
   });
 
   describe('inviteUser', () => {
-    it('creates account + membership in the CALLER organization for a new email', async () => {
+    it('creates an ORGANIZATION account + membership in the CALLER organization for a new email', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
       const createUser = jest.fn().mockResolvedValue({
         id: 'user-2',
@@ -392,17 +609,21 @@ describe('AuthService', () => {
         role: Role.RECRUITER,
       });
 
+      expect(createUser.mock.calls[0][0].data.accountType).toBe(
+        AccountType.ORGANIZATION,
+      );
       expect(createMembership.mock.calls[0][0].data.organizationId).toBe(
         'org-caller',
       );
       expect(result).not.toHaveProperty('passwordHash');
     });
 
-    it('adds a membership (not a new account) for an existing email', async () => {
+    it('adds a membership (not a new account) for an existing ORGANIZATION email', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-7',
         email: 'existing@example.test',
         fullName: 'Existing Person',
+        accountType: AccountType.ORGANIZATION,
       });
       prisma.organizationMember.findUnique.mockResolvedValue(null);
       prisma.organizationMember.create.mockResolvedValue({
@@ -423,8 +644,38 @@ describe('AuthService', () => {
       expect(result.role).toBe(Role.INTERVIEWER);
     });
 
+    it('refuses to invite a CANDIDATE email — no silent conversion, no dual identity', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-8',
+        email: 'seeker@example.test',
+        fullName: 'Jasur Toshmatov',
+        accountType: AccountType.CANDIDATE,
+      });
+
+      await expect(
+        service.inviteUser('org-caller', {
+          fullName: 'Any',
+          email: 'seeker@example.test',
+          password: 'AnotherLongPassword1',
+          role: Role.RECRUITER,
+        }),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          constructor: ConflictException,
+          response: expect.objectContaining({
+            code: 'AUTH_ACCOUNT_TYPE_CONFLICT',
+          }),
+        }),
+      );
+      expect(prisma.organizationMember.create).not.toHaveBeenCalled();
+      expect(prisma.organizationMember.findUnique).not.toHaveBeenCalled();
+    });
+
     it('rejects inviting someone who is already a member', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'user-7' });
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-7',
+        accountType: AccountType.ORGANIZATION,
+      });
       prisma.organizationMember.findUnique.mockResolvedValue({ id: 'm-11' });
 
       await expect(
@@ -439,12 +690,13 @@ describe('AuthService', () => {
   });
 
   describe('currentUser', () => {
-    const dbUser = {
+    const orgDbUser = {
       id: 'user-1',
       email: 'dana@northwind-labs.test',
       fullName: 'Dana Whitfield',
+      accountType: AccountType.ORGANIZATION,
       preferredLocale: Locale.ko,
-      candidateAccount: { id: 'acct-1' },
+      candidateAccount: null,
       memberships: [
         {
           organizationId: 'org-1',
@@ -461,14 +713,26 @@ describe('AuthService', () => {
       ],
     };
 
-    it('returns memberships, candidate flag and the CLAIMED active organization', async () => {
-      prisma.user.findUnique.mockResolvedValue(dbUser);
+    const candidateDbUser = {
+      id: 'user-9',
+      email: 'jasur@example.test',
+      fullName: 'Jasur Toshmatov',
+      accountType: AccountType.CANDIDATE,
+      preferredLocale: Locale.uz,
+      candidateAccount: { id: 'acct-1' },
+      memberships: [],
+    };
+
+    it('returns account type, memberships and the CLAIMED active organization', async () => {
+      prisma.user.findUnique.mockResolvedValue(orgDbUser);
 
       const result = await service.currentUser(
         actor({ activeOrganizationClaim: 'org-2' }),
       );
 
-      expect(result.candidateAccount).toEqual({ exists: true });
+      expect(result.accountType).toBe(AccountType.ORGANIZATION);
+      expect(result.user.accountType).toBe(AccountType.ORGANIZATION);
+      expect(result.candidateAccount).toEqual({ exists: false });
       expect(result.memberships).toHaveLength(2);
       expect(result.activeOrganization).toEqual({
         id: 'org-2',
@@ -483,8 +747,21 @@ describe('AuthService', () => {
       expect(JSON.stringify(result)).not.toContain('passwordHash');
     });
 
+    it('returns the candidate shape for a CANDIDATE account', async () => {
+      prisma.user.findUnique.mockResolvedValue(candidateDbUser);
+
+      const result = await service.currentUser(actor({ id: 'user-9' }));
+
+      expect(result.accountType).toBe(AccountType.CANDIDATE);
+      expect(result.candidateAccount).toEqual({ exists: true });
+      expect(result.memberships).toHaveLength(0);
+      expect(result.activeOrganization).toBeNull();
+      expect(result.role).toBeNull();
+      expect(result.organizationId).toBeNull();
+    });
+
     it('treats a stale org claim (revoked membership) as no active organization', async () => {
-      prisma.user.findUnique.mockResolvedValue(dbUser);
+      prisma.user.findUnique.mockResolvedValue(orgDbUser);
 
       const result = await service.currentUser(
         actor({ activeOrganizationClaim: 'org-revoked' }),
@@ -513,6 +790,7 @@ describe('AuthService', () => {
       id: 'user-1',
       email: 'dana@northwind-labs.test',
       fullName: 'Dana Whitfield',
+      accountType: AccountType.ORGANIZATION,
       preferredLocale: Locale.en,
     };
 
@@ -614,6 +892,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'dana@northwind-labs.test',
         fullName: 'Dana Whitfield',
+        accountType: AccountType.ORGANIZATION,
         preferredLocale: Locale.en,
       });
 

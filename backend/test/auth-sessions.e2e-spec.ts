@@ -44,8 +44,10 @@ describe('Auth sessions (e2e, real database)', () => {
     doomedEmail,
   ];
 
-  const register = (body: Record<string, unknown>) =>
-    request(http).post('/auth/register').send(body);
+  const registerOrganization = (body: Record<string, unknown>) =>
+    request(http).post('/auth/register/organization').send(body);
+  const registerCandidate = (body: Record<string, unknown>) =>
+    request(http).post('/auth/register/candidate').send(body);
   const login = (email: string, deviceName?: string) =>
     request(http)
       .post('/auth/login')
@@ -95,43 +97,43 @@ describe('Auth sessions (e2e, real database)', () => {
     secret = app.get(ConfigService).getOrThrow<string>('auth.secretToken');
     http = app.getHttpServer();
 
-    // Cast of this suite. Multi-org user: RECRUITER in A, INTERVIEWER in B.
-    await register({
+    // Cast of this suite. Multi-org user: RECRUITER in A, INTERVIEWER in B —
+    // an ORGANIZATION account created by org A's invite (account types are
+    // exclusive now, so members enter through registration-with-org or an
+    // invitation, never as converted candidates).
+    await registerOrganization({
       organizationName: `Sess Org A ${run}`,
       organizationSlug: orgASlug,
       fullName: 'Session Owner A',
       email: ownerAEmail,
       password: PASSWORD,
     }).expect(201);
-    await register({
+    await registerOrganization({
       organizationName: `Sess Org B ${run}`,
       organizationSlug: orgBSlug,
       fullName: 'Session Owner B',
       email: ownerBEmail,
       password: PASSWORD,
     }).expect(201);
-    await register({
+    await registerCandidate({
       fullName: 'Session Seeker',
       email: seekerEmail,
       password: PASSWORD,
       preferredLocale: 'ko',
     }).expect(201);
-    await register({
-      fullName: 'Multi Org Person',
-      email: multiEmail,
-      password: PASSWORD,
-    }).expect(201);
 
     const ownerA = await login(ownerAEmail);
     const ownerB = await login(ownerBEmail);
+    // First invite CREATES the account (this password is the real one)…
     await authed('post', '/auth/users', ownerA.body.accessToken as string)
       .send({
         fullName: 'Multi Org Person',
         email: multiEmail,
-        password: 'IgnoredForExisting1!',
+        password: PASSWORD,
         role: 'RECRUITER',
       })
       .expect(201);
+    // …the second one only adds a membership (password ignored).
     await authed('post', '/auth/users', ownerB.body.accessToken as string)
       .send({
         fullName: 'Multi Org Person',
@@ -259,7 +261,7 @@ describe('Auth sessions (e2e, real database)', () => {
     });
 
     it('a deleted user cannot refresh (session cascades away with the account)', async () => {
-      await register({
+      await registerCandidate({
         fullName: 'Doomed User',
         email: doomedEmail,
         password: PASSWORD,
@@ -401,10 +403,13 @@ describe('Auth sessions (e2e, real database)', () => {
         .body;
       expect(rotated.user.role).toBeNull();
 
-      // Candidate self-service works on the post-refresh access token.
-      await authed('post', '/candidate-account', rotated.accessToken as string)
+      // Candidate self-service works on the post-refresh access token (the
+      // profile itself was created at signup).
+      await request(http)
+        .patch('/candidate-account/me')
+        .set('Authorization', `Bearer ${rotated.accessToken as string}`)
         .send({ headline: '세션 테스트' })
-        .expect(201);
+        .expect(200);
       await authed(
         'get',
         '/candidate-account/me',

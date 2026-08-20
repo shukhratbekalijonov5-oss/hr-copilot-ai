@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { AccountTypeService } from '../common/identity/account-type.service';
 import { DocumentProcessingProducer } from '../queue/document-processing.producer';
 import {
   AiServiceClient,
@@ -55,6 +56,7 @@ export class CandidateAccountService {
     private readonly storage: StorageService,
     private readonly producer: DocumentProcessingProducer,
     private readonly ai: AiServiceClient,
+    private readonly accountTypes: AccountTypeService,
     configService: ConfigService,
   ) {
     this.maxFileSizeBytes = configService.get<number>(
@@ -64,6 +66,10 @@ export class CandidateAccountService {
   }
 
   async create(userId: string, dto: UpsertCandidateAccountDto) {
+    // Central identity invariant, enforced here as well as at the guard so
+    // no future caller (seed, script, other service) can hand an
+    // ORGANIZATION user a candidate identity.
+    await this.accountTypes.assertCanOwnCandidateAccount(userId);
     const existing = await this.prisma.candidateAccount.findUnique({
       where: { userId },
       select: { id: true },

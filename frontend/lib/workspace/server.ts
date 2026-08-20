@@ -2,6 +2,7 @@ import "server-only";
 
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/session";
+import { defaultRouteForAccountType } from "@/lib/auth/routing";
 import {
   activeOrganizationWorkspace,
   buildWorkspaceContext,
@@ -35,10 +36,15 @@ export async function requireOrganizationWorkspace(): Promise<{
   workspace: WorkspaceContext;
 }> {
   const session = await requireSession();
+
+  if (session.accountType === "CANDIDATE") {
+    redirect(defaultRouteForAccountType("CANDIDATE"));
+  }
+
   const active = activeOrganizationWorkspace(session);
 
   if (!active) {
-    redirect(session.memberships.length > 0 ? "/workspaces" : "/jobs");
+    redirect("/workspaces");
   }
 
   return { session, workspace: buildWorkspaceContext(session, active) };
@@ -50,6 +56,13 @@ export async function requirePersonalWorkspace(): Promise<{
   workspace: WorkspaceContext;
 }> {
   const session = await requireSession();
+
+  if (session.accountType === "ORGANIZATION") {
+    redirect(
+      defaultRouteForAccountType("ORGANIZATION", Boolean(session.activeOrganization)),
+    );
+  }
+
   return {
     session,
     workspace: buildWorkspaceContext(session, personalFromSession(session)),

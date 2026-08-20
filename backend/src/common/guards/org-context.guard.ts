@@ -9,6 +9,8 @@ import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ORG_SCOPED_KEY } from '../decorators/org-scoped.decorator';
 import { MembershipService } from '../membership/membership.service';
+import { AccountType } from '../../generated/prisma/enums';
+import { AUTH_ERROR_CODES, authForbidden } from '../../auth/auth-errors';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 /**
@@ -20,8 +22,8 @@ import type { AuthenticatedUser } from '../interfaces/authenticated-user.interfa
  *
  *  - a removed member is rejected on their next request, token or not;
  *  - a demoted member immediately acts under the new role;
- *  - a CandidateAccount-only user (no memberships) can never reach recruiter
- *    functionality, whatever their token claims;
+ *  - a CANDIDATE account (which can never hold memberships) can never reach
+ *    recruiter functionality, whatever its token claims;
  *  - the same user switching organizations gets exactly that organization's
  *    role — privileges never travel between tenants.
  *
@@ -64,7 +66,7 @@ export class OrgContextGuard implements CanActivate {
 
     if (!user.activeOrganizationClaim) {
       throw new ForbiddenException(
-        'No active organization selected. Use /auth/switch-organization first.',
+        'This endpoint requires an organization account with an active organization',
       );
     }
 
@@ -81,6 +83,18 @@ export class OrgContextGuard implements CanActivate {
       );
     }
 
+    // Defence in depth: the identity invariant (see AccountTypeService) means
+    // a membership row should only ever belong to an ORGANIZATION account,
+    // but org-scoped access is refused outright if the invariant was somehow
+    // bypassed — a candidate account must never act inside a tenant.
+    if (membership.user.accountType !== AccountType.ORGANIZATION) {
+      throw authForbidden(
+        AUTH_ERROR_CODES.ACCOUNT_TYPE_MISMATCH,
+        'This endpoint is only available to organization accounts',
+      );
+    }
+
+    user.accountType = membership.user.accountType;
     user.organizationId = membership.organizationId;
     user.role = membership.role;
     return true;

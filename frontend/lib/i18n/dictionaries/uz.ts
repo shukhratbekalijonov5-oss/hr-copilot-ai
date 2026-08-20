@@ -130,11 +130,31 @@ const uz: Dictionary = {
   },
 
   auth: {
+    candidate: "Nomzod",
+    organization: "Tashkilot",
+    chooseSignIn: "Qanday kirishni tanlang",
+    chooseRegistration: "Hisob turini tanlang",
+    chooseAccountTypeHint:
+      "Nomzod va tashkilot hisoblari alohida. Hisobingizga mos kirish joyini tanlang.",
+    candidateAuthHint:
+      "Ish qidiring, arizalarni boshqaring, vakansiyalarni saqlang va AI ish tanlashdan foydalaning.",
+    organizationAuthHint:
+      "Vakansiyalar, nomzodlar, dalil qidiruvi va ishga qabul jarayonlarini boshqaring.",
+    accountTypeExclusive:
+      "Bitta email yoki Nomzod, yoki Tashkilot hisobi boʻlishi mumkin — ikkalasi emas.",
     signIn: "Kirish",
+    candidateSignIn: "Nomzod sifatida kirish",
+    organizationSignIn: "Tashkilot sifatida kirish",
     signingIn: "Kirilmoqda",
     signInSubtitle:
       "Tashkilotingiz ishga qabul jarayoniga ish hisobingiz bilan kiring.",
+    candidateSignInSubtitle:
+      "Ish qidirish va arizalarni boshqarish uchun nomzod hisobingizga kiring.",
+    organizationSignInSubtitle:
+      "Ishga qabul ish maydonlarini boshqarish uchun tashkilot hisobingizga kiring.",
     createAccount: "Ish maydoni yaratish",
+    createCandidateAccount: "Nomzod hisobini yaratish",
+    createOrganizationAccount: "Tashkilot hisobini yaratish",
     createAccountSubtitle:
       "Tashkilot oching va uning birinchi administratori boʻling.",
     email: "Email",
@@ -151,6 +171,15 @@ const uz: Dictionary = {
     signInInstead: "Kirish",
     couldNotSignIn: "Kirib boʻlmadi.",
     couldNotRegister: "Ish maydoni yaratilmadi.",
+    candidateAccountUseCandidateSignIn:
+      "Bu nomzod hisobi. Nomzod kirish sahifasi orqali kiring.",
+    organizationAccountUseOrganizationSignIn:
+      "Bu hisob tashkilotga tegishli. Tashkilot kirish sahifasi orqali kiring.",
+    emailAlreadyRegistered: "Bu email allaqachon roʻyxatdan oʻtgan. Kirib koʻring.",
+    emailBelongsToCandidate:
+      "Bu email allaqachon nomzod hisobi sifatida roʻyxatdan oʻtgan.",
+    emailBelongsToOrganization:
+      "Bu email allaqachon tashkilot hisobi sifatida roʻyxatdan oʻtgan.",
     creating: "Yaratilmoqda",
     heroTitle: "Har bir rezyumeni oʻqimasdan, har birini puxta oʻqing.",
     heroPoints: [
@@ -175,6 +204,9 @@ const uz: Dictionary = {
 
   register: {
     subtitle: "Tashkilotingizni ochadi va sizni uning egasi qiladi.",
+    candidateSubtitle:
+      "Ish izlovchi hisobini yarating. Kompaniya yoki ish maydoni kerak emas.",
+    organizationSubtitle: "Tashkilotingizni ochadi va sizni uning egasi qiladi.",
     fullNamePlaceholder: "Aziza Rahimova",
     workEmail: "Ish emaili",
     workEmailPlaceholder: "aziza@company.com",
@@ -183,10 +215,15 @@ const uz: Dictionary = {
     slugLabel: "Ish maydoni manzili",
     slugPlaceholder: "northwind-talent",
     slugHint: "Kichik harflar, raqamlar va defis. Takrorlanmasligi kerak.",
+    preferredLanguage: "Afzal til",
     passwordPlaceholder: "Kamida {min} ta belgi",
     passwordHint: "Kamida {min} ta belgi.",
     submit: "Ish maydoni yaratish",
+    submitCandidate: "Nomzod hisobini yaratish",
+    submitOrganization: "Tashkilot hisobini yaratish",
     submitting: "Ish maydoni yaratilmoqda",
+    submittingCandidate: "Nomzod hisobi yaratilmoqda",
+    submittingOrganization: "Tashkilot hisobi yaratilmoqda",
   },
 
   dashboard: {
@@ -937,13 +974,10 @@ const uz: Dictionary = {
     title: "Ish maydonini tanlang",
     description:
       "Bir marta kirasiz. Har bir ish maydonining oʻz maʼlumotlari va oʻz roli bor.",
-    candidate: "Nomzod",
-    candidateHint: "Oʻz profilingiz, arizalaringiz va saqlangan vakansiyalar.",
-    candidateNotSetUp: "Profil hali yaratilmagan",
     organizations: "Tashkilotlar",
     noOrganizations: "Siz hali birorta tashkilotga aʼzo emassiz.",
     noOrganizationsHint:
-      "Tashkilot egasi yoki HR administratori sizni qoʻsha oladi. Shu paytgacha nomzod ish maydonidan foydalaning.",
+      "Tashkilot egasi yoki HR administratori sizni qoʻsha oladi. Ungacha ochiladigan tashkilot ish maydoni yoʻq.",
     current: "Joriy",
     open: "Ochish",
     switching: "Ish maydoni almashtirilmoqda…",
@@ -1133,6 +1167,7 @@ const uz: Dictionary = {
       "Tanlash profilingiz va rezyumengizni ochiq vakansiyalar bilan solishtiradi va har bir talab nimaga asoslanganini koʻrsatadi. Taxminan yigirma soniya davom etadi.",
     run: "Mosliklarni topish",
     refresh: "Yangilash",
+    clearResults: "Natijalarni tozalash",
     matchCount: {
       one: "{count} ta mos vakansiya",
       other: "{count} ta mos vakansiya",
@@ -1143,6 +1178,11 @@ const uz: Dictionary = {
       "Ish talablari solishtirilmoqda…",
       "Dalilga asoslangan izohlar tayyorlanmoqda…",
     ],
+    refreshing: "Yangilanmoqda…",
+    refreshingHint:
+      "Mosliklar fonda yangilanmoqda. Joriy natijalar ekranda qoladi.",
+    refreshFailed:
+      "Mosliklarni yangilab boʻlmadi. Oldingi natijalar ekranda qoladi.",
     strength: {
       STRONG: "Kuchli moslik",
       PARTIAL: "Qisman moslik",

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { RegisterForm } from "@/components/auth/RegisterForm";
+import { AuthChoice } from "@/components/auth/AuthChoice";
 import { getTranslations } from "@/lib/i18n/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -8,5 +8,5 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default function RegisterPage() {
-  return <RegisterForm />;
+  return <AuthChoice mode="register" />;
 }

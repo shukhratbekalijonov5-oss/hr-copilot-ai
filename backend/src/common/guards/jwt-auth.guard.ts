@@ -60,10 +60,13 @@ export class JwtAuthGuard implements CanActivate {
     // The token authenticates the USER only. The `org` claim is carried along
     // as an unvalidated pointer; OrgContextGuard turns it into a trusted
     // organizationId + role by checking a live membership row on org-scoped
-    // routes. A candidate-only token legitimately has no org claim.
+    // routes, and CandidateContextGuard fills accountType from the live user
+    // row on candidate-scoped routes. A candidate token legitimately has no
+    // org claim.
     const user: AuthenticatedUser = {
       id: payload.sub,
       email: payload.email,
+      accountType: null,
       organizationId: null,
       role: null,
       activeOrganizationClaim: payload.org ?? null,

@@ -28,8 +28,10 @@ import { SearchModule } from './search/search.module';
 import { EvidenceMapModule } from './evidence-map/evidence-map.module';
 import { ProcessingModule } from './processing/processing.module';
 import { QueueModule } from './queue/queue.module';
+import { IdentityModule } from './common/identity/identity.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { CandidateContextGuard } from './common/guards/candidate-context.guard';
 import { OrgContextGuard } from './common/guards/org-context.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -59,6 +61,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     RedisModule,
     TenantModule,
     MembershipModule,
+    IdentityModule,
     StorageModule,
     AiModule,
 
@@ -80,9 +83,11 @@ import { RolesGuard } from './common/guards/roles.guard';
     QueueModule,
   ],
   providers: [
-    // Order matters: authenticate, then resolve+verify the active
-    // organization membership, then check role, then rate limit.
+    // Order matters: authenticate, then verify the account-type boundary of
+    // whichever side the route belongs to (@CandidateScoped / @OrgScoped are
+    // mutually exclusive on any route), then check role, then rate limit.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: CandidateContextGuard },
     { provide: APP_GUARD, useClass: OrgContextGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },

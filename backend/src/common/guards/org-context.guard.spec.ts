@@ -5,12 +5,15 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { OrgContextGuard } from './org-context.guard';
-import { Role } from '../../generated/prisma/enums';
+import { AccountType, Role } from '../../generated/prisma/enums';
 import type { MembershipService } from '../membership/membership.service';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 const ORG_A = 'org-a';
 const ORG_B = 'org-b';
+
+/** What MembershipService.findMembership returns for an organization user. */
+const orgUser = { accountType: AccountType.ORGANIZATION };
 
 function contextFor(user?: Partial<AuthenticatedUser>): {
   context: ExecutionContext;
@@ -21,6 +24,7 @@ function contextFor(user?: Partial<AuthenticatedUser>): {
       ? {
           id: 'u1',
           email: 'a@b.test',
+          accountType: null,
           organizationId: null,
           role: null,
           activeOrganizationClaim: null,
@@ -62,6 +66,7 @@ describe('OrgContextGuard', () => {
     findMembership.mockResolvedValue({
       organizationId: ORG_A,
       role: Role.RECRUITER,
+      user: orgUser,
     });
     const { context, request } = contextFor({
       activeOrganizationClaim: ORG_A,
@@ -80,8 +85,8 @@ describe('OrgContextGuard', () => {
     findMembership.mockImplementation((_: string, org: string) =>
       Promise.resolve(
         org === ORG_A
-          ? { organizationId: ORG_A, role: Role.RECRUITER }
-          : { organizationId: ORG_B, role: Role.INTERVIEWER },
+          ? { organizationId: ORG_A, role: Role.RECRUITER, user: orgUser }
+          : { organizationId: ORG_B, role: Role.INTERVIEWER, user: orgUser },
       ),
     );
     const { context, request } = contextFor({
@@ -136,6 +141,7 @@ describe('OrgContextGuard', () => {
     findMembership.mockResolvedValue({
       organizationId: ORG_A,
       role: Role.INTERVIEWER,
+      user: orgUser,
     });
     const { context, request } = contextFor({
       activeOrganizationClaim: ORG_A,
@@ -144,6 +150,25 @@ describe('OrgContextGuard', () => {
     await guard.canActivate(context);
 
     expect(request.user!.role).toBe(Role.INTERVIEWER);
+  });
+
+  it('rejects a membership somehow held by a CANDIDATE account (invariant breach)', async () => {
+    // Identity invariant says this row cannot exist; if it ever does, the
+    // guard still refuses org access rather than trusting the row.
+    routeFlags(false, true);
+    findMembership.mockResolvedValue({
+      organizationId: ORG_A,
+      role: Role.RECRUITER,
+      user: { accountType: AccountType.CANDIDATE },
+    });
+    const { context, request } = contextFor({
+      activeOrganizationClaim: ORG_A,
+    });
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(request.user!.organizationId).toBeNull();
   });
 
   it('passes routes without @OrgScoped through untouched', async () => {

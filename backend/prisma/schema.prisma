@@ -32,6 +32,19 @@ enum Role {
   INTERVIEWER
 }
 
+/// What kind of account a User is — fixed at registration, never both.
+///
+/// CANDIDATE accounts own a CandidateAccount and can never hold an
+/// OrganizationMember row; ORGANIZATION accounts hold memberships and can
+/// never own a CandidateAccount. Postgres cannot express that cross-table
+/// exclusivity declaratively, so it is enforced centrally at the service
+/// layer (see src/common/identity) and guarded by tests — this column is the
+/// single authoritative discriminator everything checks against.
+enum AccountType {
+  CANDIDATE
+  ORGANIZATION
+}
+
 /// The product's supported UI/AI locales. A validated enum rather than a free
 /// string so an unsupported locale can never be persisted.
 enum Locale {
@@ -161,18 +174,21 @@ model Organization {
   @@map("organizations")
 }
 
-/// Account identity only. Organization access lives on OrganizationMember and
-/// job-seeker identity on CandidateAccount — a User row by itself grants
-/// neither. There is deliberately no role and no organizationId here: the same
-/// person may hold different roles in different organizations.
+/// Account identity. `accountType` decides which side of the product this
+/// account lives on — CANDIDATE (owns a CandidateAccount, never a membership)
+/// or ORGANIZATION (holds memberships, never a CandidateAccount). It is set at
+/// registration and immutable. There is deliberately no role and no
+/// organizationId here: an ORGANIZATION account may hold different roles in
+/// different organizations (multi-org stays supported).
 model User {
-  id              String   @id @default(uuid())
-  email           String   @unique
+  id              String      @id @default(uuid())
+  email           String      @unique
   passwordHash    String
   fullName        String
-  preferredLocale Locale   @default(en)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  accountType     AccountType
+  preferredLocale Locale      @default(en)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   memberships      OrganizationMember[]
   candidateAccount CandidateAccount?

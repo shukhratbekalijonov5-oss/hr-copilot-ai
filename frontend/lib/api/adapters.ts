@@ -84,6 +84,7 @@ export function toSessionUser(response: MeResponse): SessionUser {
     id: response.user.id,
     fullName: response.user.fullName,
     email: response.user.email,
+    accountType: response.user.accountType,
     preferredLocale: response.user.preferredLocale,
     hasCandidateAccount: response.candidateAccount.exists,
     activeOrganization: response.activeOrganization,

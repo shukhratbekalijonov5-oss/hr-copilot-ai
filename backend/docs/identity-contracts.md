@@ -47,30 +47,54 @@ Rules the client MUST follow:
   `AUTH_REFRESH_TOKEN_REUSED`, `AUTH_SESSION_REVOKED`,
   `AUTH_SESSION_NOT_FOUND`. Localize on `code`, never on `message`.
 
-## 1. The identity model
+## 1. The identity model — two EXCLUSIVE account types
 
 ```
-User (account identity: email, fullName, preferredLocale)
-├── CandidateAccount (0..1) — personal job-seeker profile, owned by the user
-└── OrganizationMember (0..n) — one row per organization, each with its own role
+User (email, fullName, preferredLocale, accountType: CANDIDATE | ORGANIZATION)
+├── if CANDIDATE:    CandidateAccount (exactly 1, created at signup)
+└── if ORGANIZATION: OrganizationMember (1..n) — one row per organization,
+                     each with its own role
 ```
 
+- **One email is exactly one account type, forever.** A CANDIDATE can never
+  hold an organization membership; an ORGANIZATION account can never own a
+  candidate profile. There is no workspace switching between the two sides —
+  the old dual-identity model (one user as both) is gone. Multi-organization
+  membership REMAINS fully supported within the ORGANIZATION type.
+- The invariant is enforced centrally in the backend (registration, candidate
+  account creation, invitations, and both scoped guards re-check the live
+  `accountType` row), not by frontend routing.
 - Roles (`OWNER | HR_ADMIN | RECRUITER | INTERVIEWER`) exist ONLY on
   memberships. There is no global role, no CANDIDATE role, no EMPLOYEE role.
-- The JWT identifies the user and carries an `org` claim naming the ACTIVE
-  organization. It never carries a role. Every org-scoped request re-validates
-  the membership row in the database, so a removed/demoted member changes
-  behaviour on their next request even with an old token.
+- The JWT is unchanged: it identifies the user and carries an `org` claim
+  naming the ACTIVE organization. It never carries a role **or the account
+  type** — both are re-derived from the database on every scoped request, so a
+  removed/demoted member (or an invariant breach) changes behaviour on the
+  next request even with an old token. Response BODIES carry `accountType`
+  for client-side routing.
 - `preferredLocale` is one of `en | ko | ru | uz` (default `en`).
 
-## 2. Breaking / changed contracts (delta from the single-org backend)
+### Account-type error codes
+
+| Code | Status | When |
+|---|---|---|
+| `AUTH_EMAIL_ALREADY_REGISTERED` | 409 | Registration with an email that already has an account of the SAME type. |
+| `AUTH_ACCOUNT_TYPE_CONFLICT` | 409 | Registration or invitation touching an email that belongs to the OTHER type. |
+| `AUTH_ACCOUNT_TYPE_MISMATCH` | 403 | Correct credentials through the wrong sign-in door, or an authenticated request hitting the other side's endpoints. Never returned before password verification — login with bad credentials stays a flat 401. |
+
+## 2. Breaking / changed contracts (delta from the dual-identity backend)
 
 | Endpoint | What changed |
 |---|---|
-| `POST /auth/register` | `organizationName`/`organizationSlug` now OPTIONAL — omit both to register a job seeker. Optional `preferredLocale`. Response `user.role` / `user.organizationId` are now `null` for users without an active organization. |
-| `POST /auth/login` | Same response shape; `role`/`organizationId` describe the DEFAULT active org (oldest membership) or are `null`. Token must be replaced when switching organization. |
-| `GET /auth/me` | Superset shape (see §3). Legacy flat fields kept: `id,email,fullName,role,organizationId,organization` (now nullable). |
-| `POST /auth/users` (invite) | Inviting an EXISTING email now adds a membership instead of erroring; response adds `membershipId`; existing accounts keep their password/name (submitted ones are ignored). |
+| `POST /auth/register` | **REMOVED.** Replaced by the two type-explicit endpoints below (§5). |
+| `POST /auth/register/candidate` | NEW. `{fullName, email, password, preferredLocale?, deviceName?}` → User (CANDIDATE) **+ CandidateAccount**, in one transaction. Never creates an organization or membership. |
+| `POST /auth/register/organization` | NEW. `{organizationName, organizationSlug, fullName, email, password, preferredLocale?, deviceName?}` (org fields REQUIRED) → User (ORGANIZATION) + Organization + OWNER membership. Never creates a CandidateAccount. |
+| `POST /auth/login` | Optional `accountType: "CANDIDATE" \| "ORGANIZATION"` — the sign-in door. Mismatch (after password verification) is `403 AUTH_ACCOUNT_TYPE_MISMATCH`. Omitted → signs in as whatever the account is. Response `user` now includes `accountType`. |
+| `GET /auth/me` | Adds `accountType` (top level and inside `user`). Legacy flat fields kept: `id,email,fullName,role,organizationId,organization` (nullable). |
+| `POST /auth/users` (invite) | An existing ORGANIZATION email is added as a membership (multi-org, unchanged); an existing **CANDIDATE email is refused with 409 `AUTH_ACCOUNT_TYPE_CONFLICT`** — no conversion, no dual identity. A NEW email creates an ORGANIZATION account + membership. |
+| `POST /candidate-account` | Now `@CandidateScoped`: 403 for ORGANIZATION accounts. Mostly vestigial — candidate registration already creates the profile (`409` if it exists). |
+| Candidate routes (`/candidate-account/**`, `POST /public/jobs/:slug/apply`) | Require `accountType == CANDIDATE` (live DB check): ORGANIZATION accounts get `403 AUTH_ACCOUNT_TYPE_MISMATCH`. |
+| Org-scoped routes | Additionally verify the membership belongs to an ORGANIZATION account (defence in depth on top of the live membership check). |
 | `GET /users`, `GET /users/:id` | Team rows are memberships flattened to the old user shape, plus `membershipId` and `joinedAt`. `:id` is still the user id. |
 | `DELETE /users/:id` | Removes the MEMBERSHIP (account survives). Response unchanged `{id, deleted:true}`. |
 | `PATCH /users/:id` | `role` updates the membership role; `fullName` still edits the account name. Same invariants (no self-role-change, last-OWNER protected). |
@@ -86,11 +110,12 @@ the newest `accessToken` (login already returns an org-activated token).
 ```json
 {
   "id": "…", "email": "…", "fullName": "…", "preferredLocale": "ko",
+  "accountType": "CANDIDATE" | "ORGANIZATION",
   "role": "RECRUITER" | null,            // legacy-flat (active org)
   "organizationId": "…" | null,          // legacy-flat (active org)
   "organization": {"id","name","slug"} | null,
 
-  "user": { "id", "email", "fullName", "preferredLocale" },
+  "user": { "id", "email", "fullName", "accountType", "preferredLocale" },
   "candidateAccount": { "exists": true },
   "activeOrganization": { "id", "name", "slug", "role" } | null,
   "memberships": [
@@ -99,7 +124,10 @@ the newest `accessToken` (login already returns an org-activated token).
 }
 ```
 
-`activeOrganization` is `null` when the token has no/stale org claim — show the
+Route on `accountType`. For CANDIDATE accounts `memberships` is always `[]`
+and `activeOrganization` always `null`; `candidateAccount.exists` is kept for
+compatibility (true from signup). For ORGANIZATION accounts
+`activeOrganization: null` means a missing/stale org claim — show the
 workspace picker and call switch-organization.
 
 ## 4. Organization switching — `POST /auth/switch-organization`
@@ -113,22 +141,46 @@ Body `{ "organizationId": "<uuid>" }` → `200`:
 
 - REPLACE the stored token with `accessToken` (re-set the cookie).
 - `404` when the caller has no membership there (also for forged ids — no
-  information leak).
+  information leak). CANDIDATE accounts have no memberships by invariant, so
+  they always get `404` here — there is no candidate ↔ organization
+  switching, only organization ↔ organization for ORGANIZATION accounts.
 - Works with tokens that have no or a stale org claim.
 
-## 5. Registration — `POST /auth/register` (public, 5/min)
+## 5. Registration — two type-explicit endpoints (public, 5/min each)
 
-- Hiring: `{ organizationName, organizationSlug, fullName, email, password,
-  preferredLocale? }` → creates org + OWNER membership.
-- Job seeker: `{ fullName, email, password, preferredLocale? }` → bare user;
-  create the candidate profile afterwards (§6). Providing only one org field is
-  a `400`.
+- `POST /auth/register/candidate` — `{ fullName, email, password,
+  preferredLocale?, deviceName? }` → User (CANDIDATE) **plus their
+  CandidateAccount**, one transaction, then a normal login session. Never an
+  organization, never a membership.
+- `POST /auth/register/organization` — `{ organizationName, organizationSlug,
+  fullName, email, password, preferredLocale?, deviceName? }` (org fields
+  REQUIRED by the DTO) → User (ORGANIZATION) + Organization + OWNER
+  membership, one transaction, then a normal login session. Never a
+  CandidateAccount.
+- Email exclusivity is global and cross-type: same-type duplicate → 409
+  `AUTH_EMAIL_ALREADY_REGISTERED`; other-type email → 409
+  `AUTH_ACCOUNT_TYPE_CONFLICT` (registration has always disclosed address
+  existence; the distinct code lets the UI point at the right sign-in).
 
-## 6. Candidate account (authenticated; no org context needed)
+## 5b. Login isolation
+
+`POST /auth/login` accepts optional `accountType`. The candidate sign-in page
+sends `"CANDIDATE"`, the organization sign-in sends `"ORGANIZATION"`; a
+credential set of the other type is refused with `403
+AUTH_ACCOUNT_TYPE_MISMATCH` — only AFTER the password verified, so
+unauthenticated probes still get the flat 401. Regardless of the flag, a
+CANDIDATE session never carries organization context and an ORGANIZATION
+session never reaches candidate endpoints — the flag improves UX, the guards
+enforce the boundary.
+
+## 6. Candidate account (authenticated, CANDIDATE accounts only)
+
+Every route below requires `accountType == CANDIDATE` (checked live per
+request) — an ORGANIZATION account gets `403 AUTH_ACCOUNT_TYPE_MISMATCH`.
 
 | Route | Notes |
 |---|---|
-| `POST /candidate-account` | Create own profile; all fields optional. `409` if it exists. |
+| `POST /candidate-account` | Mostly vestigial: registration already creates the profile. `409` if it exists, `403` for ORGANIZATION accounts. |
 | `GET /candidate-account/me` | `404` until created. Includes `resumeDocument` (id, originalFileName, mimeType, fileSize, createdAt) or `null`. |
 | `PATCH /candidate-account/me` | Partial update, same fields as create. |
 | `POST /candidate-account/me/resume` | multipart `file` (PDF/DOCX ≤10MB). Replaces the profile resume; old applications keep their submitted snapshot. |
@@ -153,7 +205,7 @@ publicly exposed yet). All text is UTF-8 safe (ko/ru/uz tested).
 
 | Route | Notes |
 |---|---|
-| `POST /public/jobs/:slug/apply` | Needs a candidate account (`400`) and an uploaded resume (`422`). `201` → `{id, status:"NEW", source:"DIRECT", createdAt, vacancy:{publicSlug,title,organization:{name}}}`. Duplicate apply to the same job: `409` (one application per job per account, ever — including after withdrawing). |
+| `POST /public/jobs/:slug/apply` | CANDIDATE accounts only (`403` otherwise) and needs an uploaded resume (`422`). `201` → `{id, status:"NEW", source:"DIRECT", createdAt, vacancy:{publicSlug,title,organization:{name}}}`. Duplicate apply to the same job: `409` (one application per job per account, ever — including after withdrawing). |
 | `GET /candidate-account/me/applications?page&limit` | Own DIRECT applications only. Row: `{id, status, source, createdAt, updatedAt, vacancy:{publicSlug,title,location,employmentType,organization:{name}}, submittedDocument:{originalFileName}}`. No recruiter data, ever. |
 | `GET /candidate-account/me/applications/:id` | Same shape; foreign/guessed ids are `404`. |
 | `POST /candidate-account/me/applications/:id/withdraw` | The ONLY candidate status mutation. Allowed from NEW/REVIEWING/INTERVIEW/OFFER → `WITHDRAWN`; `409` from HIRED/REJECTED/WITHDRAWN. |
@@ -178,6 +230,22 @@ the frontend.
   from non-existent, by design) · `409` duplicates/invalid transitions ·
   `422` apply without resume · `429` throttled · `503` AI service unreachable
   (mapped; no longer a generic 500).
+
+## 10b. Migration rule (dual identities)
+
+`users.accountType` was introduced by migration
+`20260821000000_account_type_exclusivity`, which backfills membership-holders
+as ORGANIZATION and everyone else as CANDIDATE — and **refuses to run** (with
+the offending emails in the error) while any user still holds both a
+CandidateAccount and memberships. Deciding which side of a person's data
+survives is never guessed: resolve each dual user explicitly with
+`scripts/resolve-dual-identity.ts` (`--email … --keep CANDIDATE|ORGANIZATION
+--apply`; keeping CANDIDATE deletes only the membership rows, keeping
+ORGANIZATION deletes the candidate profile with its saved jobs and personal
+documents), then re-run the migration. The dev database's two historical dual
+users were both resolved to CANDIDATE on 2026-08-21 (the `mit` demo
+organization is intentionally member-less as a result; its tenant data was
+preserved).
 
 ## 11. Mobile note (future)
 

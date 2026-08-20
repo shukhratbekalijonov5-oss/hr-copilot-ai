@@ -1,4 +1,4 @@
-import type { Role } from '../../generated/prisma/enums';
+import type { AccountType, Role } from '../../generated/prisma/enums';
 
 /**
  * The request identity attached by the guard chain.
@@ -16,6 +16,12 @@ import type { Role } from '../../generated/prisma/enums';
 export interface AuthenticatedUser {
   id: string;
   email: string;
+  /**
+   * CANDIDATE or ORGANIZATION, read LIVE from users.accountType by
+   * CandidateContextGuard / OrgContextGuard on scoped routes. Deliberately
+   * not a token claim; null on routes where neither guard ran.
+   */
+  accountType: AccountType | null;
   /** Active organization — set only after membership validation. */
   organizationId: string | null;
   /** Role in the active organization, read live from OrganizationMember. */

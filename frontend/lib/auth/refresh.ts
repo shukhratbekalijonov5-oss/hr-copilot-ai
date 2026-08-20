@@ -28,6 +28,7 @@ export interface AuthUser {
   id: string;
   email: string;
   fullName: string;
+  accountType?: "CANDIDATE" | "ORGANIZATION";
   preferredLocale: string;
   role: string | null;
   organizationId: string | null;

@@ -104,10 +104,30 @@ const ko: Dictionary = {
   },
 
   auth: {
+    candidate: "지원자",
+    organization: "조직",
+    chooseSignIn: "로그인 유형 선택",
+    chooseRegistration: "계정 유형 선택",
+    chooseAccountTypeHint:
+      "지원자 계정과 조직 계정은 분리되어 있습니다. 내 계정에 맞는 입구를 선택하세요.",
+    candidateAuthHint:
+      "채용 공고를 찾고, 지원 현황을 관리하고, AI 잡 매칭을 사용합니다.",
+    organizationAuthHint:
+      "채용 공고, 지원자, 근거 검색과 채용 워크플로를 관리합니다.",
+    accountTypeExclusive:
+      "하나의 이메일은 지원자 또는 조직 계정 중 하나만 사용할 수 있습니다.",
     signIn: "로그인",
+    candidateSignIn: "지원자 로그인",
+    organizationSignIn: "조직 로그인",
     signingIn: "로그인 중",
     signInSubtitle: "회사 계정으로 조직의 채용 파이프라인에 접속합니다.",
+    candidateSignInSubtitle:
+      "지원자 계정으로 채용 공고를 찾고 지원 현황을 관리합니다.",
+    organizationSignInSubtitle:
+      "조직 계정으로 채용 워크스페이스를 관리합니다.",
     createAccount: "워크스페이스 만들기",
+    createCandidateAccount: "지원자 계정 만들기",
+    createOrganizationAccount: "조직 계정 만들기",
     createAccountSubtitle: "조직을 개설하고 첫 관리자가 됩니다.",
     email: "이메일",
     emailPlaceholder: "you@company.com",
@@ -123,6 +143,13 @@ const ko: Dictionary = {
     signInInstead: "로그인",
     couldNotSignIn: "로그인하지 못했습니다.",
     couldNotRegister: "워크스페이스를 만들지 못했습니다.",
+    candidateAccountUseCandidateSignIn:
+      "지원자 계정입니다. 지원자 로그인으로 들어가세요.",
+    organizationAccountUseOrganizationSignIn:
+      "이 계정은 조직 계정입니다. 조직 로그인으로 들어가세요.",
+    emailAlreadyRegistered: "이미 등록된 이메일입니다. 로그인하세요.",
+    emailBelongsToCandidate: "이 이메일은 이미 지원자 계정으로 등록되어 있습니다.",
+    emailBelongsToOrganization: "이 이메일은 이미 조직 계정으로 등록되어 있습니다.",
     creating: "생성 중",
     heroTitle: "모든 이력서를 다 읽지 않고도, 제대로 읽습니다.",
     heroPoints: [
@@ -147,6 +174,9 @@ const ko: Dictionary = {
 
   register: {
     subtitle: "조직을 개설하고 소유자 권한을 받습니다.",
+    candidateSubtitle:
+      "구직자 계정을 만듭니다. 회사나 워크스페이스 정보는 필요하지 않습니다.",
+    organizationSubtitle: "조직을 개설하고 소유자 권한을 받습니다.",
     fullNamePlaceholder: "홍길동",
     workEmail: "회사 이메일",
     workEmailPlaceholder: "hong@company.com",
@@ -155,10 +185,15 @@ const ko: Dictionary = {
     slugLabel: "워크스페이스 주소",
     slugPlaceholder: "northwind-talent",
     slugHint: "영문 소문자, 숫자, 하이픈만 사용하며 중복될 수 없습니다.",
+    preferredLanguage: "선호 언어",
     passwordPlaceholder: "{min}자 이상",
     passwordHint: "{min}자 이상이어야 합니다.",
     submit: "워크스페이스 만들기",
+    submitCandidate: "지원자 계정 만들기",
+    submitOrganization: "조직 계정 만들기",
     submitting: "워크스페이스 생성 중",
+    submittingCandidate: "지원자 계정 생성 중",
+    submittingOrganization: "조직 계정 생성 중",
   },
 
   dashboard: {
@@ -855,13 +890,10 @@ const ko: Dictionary = {
     title: "워크스페이스 선택",
     description:
       "로그인은 한 번이면 됩니다. 워크스페이스마다 데이터와 권한이 따로 있습니다.",
-    candidate: "지원자",
-    candidateHint: "내 프로필, 지원 현황, 저장한 공고.",
-    candidateNotSetUp: "프로필 미생성",
     organizations: "조직",
     noOrganizations: "아직 소속된 조직이 없습니다.",
     noOrganizationsHint:
-      "조직 소유자나 인사 관리자가 초대하면 참여할 수 있습니다. 그전까지는 지원자 워크스페이스를 이용하세요.",
+      "조직 소유자나 인사 관리자가 초대하면 참여할 수 있습니다. 그전까지는 열 수 있는 조직 워크스페이스가 없습니다.",
     current: "현재",
     open: "열기",
     switching: "워크스페이스 전환 중…",
@@ -1048,6 +1080,7 @@ const ko: Dictionary = {
       "매칭은 내 프로필과 이력서를 공개 채용 공고와 비교해 각 요건의 근거를 보여줍니다. 약 20초가 걸립니다.",
     run: "매칭 실행",
     refresh: "매칭 새로고침",
+    clearResults: "결과 지우기",
     matchCount: {
       other: "매칭된 공고 {count}건",
     } as Plural,
@@ -1057,6 +1090,11 @@ const ko: Dictionary = {
       "채용 요건을 비교하는 중…",
       "근거 기반 설명을 준비하는 중…",
     ],
+    refreshing: "새로고침 중…",
+    refreshingHint:
+      "백그라운드에서 매칭을 새로고침하고 있습니다. 현재 결과는 계속 표시됩니다.",
+    refreshFailed:
+      "매칭을 새로고침하지 못했습니다. 이전 결과를 계속 표시합니다.",
     strength: {
       STRONG: "높은 일치",
       PARTIAL: "부분 일치",

@@ -146,10 +146,30 @@ const ru: Dictionary = {
   },
 
   auth: {
+    candidate: "Кандидат",
+    organization: "Организация",
+    chooseSignIn: "Выберите способ входа",
+    chooseRegistration: "Выберите тип аккаунта",
+    chooseAccountTypeHint:
+      "Аккаунты кандидатов и организаций разделены. Выберите вход для своего типа аккаунта.",
+    candidateAuthHint:
+      "Ищите вакансии, управляйте откликами, сохраняйте вакансии и используйте AI-подбор.",
+    organizationAuthHint:
+      "Управляйте вакансиями, кандидатами, поиском по подтверждениям и процессом найма.",
+    accountTypeExclusive:
+      "Один email может быть либо аккаунтом кандидата, либо организации — не обоими.",
     signIn: "Вход",
+    candidateSignIn: "Вход для кандидата",
+    organizationSignIn: "Вход для организации",
     signingIn: "Выполняется вход",
     signInSubtitle: "Войдите рабочей учётной записью, чтобы открыть воронку найма.",
+    candidateSignInSubtitle:
+      "Войдите как кандидат, чтобы искать работу и управлять откликами.",
+    organizationSignInSubtitle:
+      "Войдите как организация, чтобы управлять рабочими пространствами найма.",
     createAccount: "Создать пространство",
+    createCandidateAccount: "Создать аккаунт кандидата",
+    createOrganizationAccount: "Создать аккаунт организации",
     createAccountSubtitle: "Создайте организацию и станьте её первым администратором.",
     email: "Эл. почта",
     emailPlaceholder: "you@company.com",
@@ -165,6 +185,14 @@ const ru: Dictionary = {
     signInInstead: "Войти",
     couldNotSignIn: "Не удалось войти.",
     couldNotRegister: "Не удалось создать пространство.",
+    candidateAccountUseCandidateSignIn:
+      "Это аккаунт кандидата. Войдите через вход для кандидата.",
+    organizationAccountUseOrganizationSignIn:
+      "Этот аккаунт принадлежит организации. Войдите через вход для организации.",
+    emailAlreadyRegistered: "Этот email уже зарегистрирован. Войдите вместо регистрации.",
+    emailBelongsToCandidate: "Этот email уже зарегистрирован как аккаунт кандидата.",
+    emailBelongsToOrganization:
+      "Этот email уже зарегистрирован как аккаунт организации.",
     creating: "Создание",
     heroTitle: "Прочитайте каждое резюме как следует — не читая каждое резюме.",
     heroPoints: [
@@ -189,6 +217,9 @@ const ru: Dictionary = {
 
   register: {
     subtitle: "Создаёт вашу организацию и делает вас её владельцем.",
+    candidateSubtitle:
+      "Создайте аккаунт соискателя. Компания и пространство не нужны.",
+    organizationSubtitle: "Создаёт вашу организацию и делает вас её владельцем.",
     fullNamePlaceholder: "Иван Петров",
     workEmail: "Рабочая почта",
     workEmailPlaceholder: "ivan@company.com",
@@ -197,10 +228,15 @@ const ru: Dictionary = {
     slugLabel: "Адрес пространства",
     slugPlaceholder: "northwind-talent",
     slugHint: "Строчные буквы, цифры и дефисы. Должен быть уникальным.",
+    preferredLanguage: "Предпочитаемый язык",
     passwordPlaceholder: "Не менее {min} символов",
     passwordHint: "Не менее {min} символов.",
     submit: "Создать пространство",
+    submitCandidate: "Создать аккаунт кандидата",
+    submitOrganization: "Создать аккаунт организации",
     submitting: "Создаём пространство",
+    submittingCandidate: "Создаём аккаунт кандидата",
+    submittingOrganization: "Создаём аккаунт организации",
   },
 
   dashboard: {
@@ -957,13 +993,10 @@ const ru: Dictionary = {
     title: "Выберите пространство",
     description:
       "Вход один. У каждого пространства свои данные и своя роль.",
-    candidate: "Соискатель",
-    candidateHint: "Ваш профиль, отклики и сохранённые вакансии.",
-    candidateNotSetUp: "Профиль ещё не создан",
     organizations: "Организации",
     noOrganizations: "Вы пока не состоите ни в одной организации.",
     noOrganizationsHint:
-      "Владелец или HR-администратор может добавить вас в свою. А пока пользуйтесь пространством соискателя.",
+      "Владелец или HR-администратор может добавить вас в свою. До этого нет пространства организации, которое можно открыть.",
     current: "Текущее",
     open: "Открыть",
     switching: "Переключаем пространство…",
@@ -1155,6 +1188,7 @@ const ru: Dictionary = {
       "Подбор сравнивает ваш профиль и резюме с открытыми вакансиями и показывает, чем подтверждено каждое требование. Занимает около двадцати секунд.",
     run: "Подобрать вакансии",
     refresh: "Обновить подбор",
+    clearResults: "Очистить результаты",
     matchCount: {
       one: "{count} подходящая вакансия",
       few: "{count} подходящие вакансии",
@@ -1167,6 +1201,11 @@ const ru: Dictionary = {
       "Сравниваем требования вакансий…",
       "Готовим обоснованные пояснения…",
     ],
+    refreshing: "Обновляем…",
+    refreshingHint:
+      "Обновляем подбор в фоне. Текущие результаты остаются на экране.",
+    refreshFailed:
+      "Не удалось обновить подбор. Предыдущие результаты остаются на экране.",
     strength: {
       STRONG: "Сильное совпадение",
       PARTIAL: "Частичное совпадение",

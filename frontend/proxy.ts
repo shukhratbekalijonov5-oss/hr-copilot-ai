@@ -31,6 +31,23 @@ import {
  */
 
 const AUTH_ROUTES = ["/login", "/register"];
+const CANDIDATE_ROUTE_PREFIXES = [
+  "/jobs",
+  "/job-matches",
+  "/my-applications",
+  "/my-profile",
+  "/saved-jobs",
+];
+const ORGANIZATION_ROUTE_PREFIXES = [
+  "/dashboard",
+  "/search",
+  "/vacancies",
+  "/candidates",
+  "/compare",
+  "/processing",
+  "/settings",
+  "/workspaces",
+];
 
 /** Reasons to give up on the session rather than retry it. */
 const FATAL_REFRESH_CODES = new Set([
@@ -60,7 +77,7 @@ const COOKIE_OPTIONS = {
  */
 function signedOut(request: NextRequest, reason?: string | null): NextResponse {
   const { pathname, search } = request.nextUrl;
-  const loginUrl = new URL("/login", request.url);
+  const loginUrl = new URL(loginRouteForPath(pathname), request.url);
   // Preserve where they were headed so login can send them back.
   if (pathname !== "/") loginUrl.searchParams.set("next", `${pathname}${search}`);
   if (reason) loginUrl.searchParams.set("reason", reason);
@@ -69,6 +86,22 @@ function signedOut(request: NextRequest, reason?: string | null): NextResponse {
   response.cookies.delete(SESSION_COOKIE);
   response.cookies.delete(REFRESH_COOKIE);
   return response;
+}
+
+function matchesAnyPrefix(pathname: string, prefixes: string[]): boolean {
+  return prefixes.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+function loginRouteForPath(pathname: string): string {
+  if (matchesAnyPrefix(pathname, CANDIDATE_ROUTE_PREFIXES)) {
+    return "/login/candidate";
+  }
+  if (matchesAnyPrefix(pathname, ORGANIZATION_ROUTE_PREFIXES)) {
+    return "/login/organization";
+  }
+  return "/login";
 }
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {

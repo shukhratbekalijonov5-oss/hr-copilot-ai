@@ -25,18 +25,21 @@ export class ApiError extends Error {
   readonly status: number;
   readonly kind: ApiErrorKind;
   readonly fieldErrors: FieldErrors;
+  readonly code: string | null;
 
   constructor(
     message: string,
     status = 500,
     kind: ApiErrorKind = "server",
     fieldErrors: FieldErrors = {},
+    code: string | null = null,
   ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.kind = kind;
     this.fieldErrors = fieldErrors;
+    this.code = code;
   }
 
   get isAuthFailure(): boolean {
@@ -95,6 +98,7 @@ interface NestErrorBody {
   message?: string | string[];
   error?: string;
   statusCode?: number;
+  code?: string;
 }
 
 /** Builds an ApiError from a non-OK backend response. */
@@ -117,6 +121,7 @@ export async function apiErrorFromResponse(
       response.status,
       kind,
       fieldErrors,
+      typeof body.code === "string" ? body.code : null,
     );
   }
 
@@ -126,7 +131,13 @@ export async function apiErrorFromResponse(
       ? FALLBACK_MESSAGES[kind]
       : body.message;
 
-  return new ApiError(message, response.status, kind);
+  return new ApiError(
+    message,
+    response.status,
+    kind,
+    {},
+    typeof body?.code === "string" ? body.code : null,
+  );
 }
 
 export function networkError(): ApiError {

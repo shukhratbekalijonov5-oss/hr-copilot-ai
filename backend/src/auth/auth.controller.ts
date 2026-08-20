@@ -12,7 +12,8 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
-import { RegisterDto } from './dto/register.dto';
+import { RegisterCandidateDto } from './dto/register-candidate.dto';
+import { RegisterOrganizationDto } from './dto/register-organization.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { InviteUserDto } from './dto/invite-user.dto';
@@ -28,17 +29,38 @@ import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  /** Public. Rate limited harder than the default to blunt credential stuffing. */
+  /**
+   * Creates a CANDIDATE account (User + CandidateAccount). Public. Rate
+   * limited harder than the default to blunt credential stuffing. The old
+   * combined POST /auth/register is gone: one email is exactly one account
+   * type, so each type has its own explicit registration.
+   */
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @Post('register')
-  register(
-    @Body() dto: RegisterDto,
+  @Post('register/candidate')
+  registerCandidate(
+    @Body() dto: RegisterCandidateDto,
     @Headers('user-agent') userAgent?: string,
   ) {
-    return this.authService.register(dto, { userAgent });
+    return this.authService.registerCandidate(dto, { userAgent });
   }
 
+  /** Creates an ORGANIZATION account (User + Organization + OWNER membership). */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('register/organization')
+  registerOrganization(
+    @Body() dto: RegisterOrganizationDto,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    return this.authService.registerOrganization(dto, { userAgent });
+  }
+
+  /**
+   * One endpoint serves both sign-in doors: the optional `accountType`
+   * declares which door the client rendered, and mismatching credentials are
+   * refused after password verification (see LoginDto).
+   */
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)

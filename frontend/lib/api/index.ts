@@ -24,6 +24,8 @@ export const api = {
   // auth & sessions
   login: auth.login,
   register: auth.register,
+  registerCandidate: auth.registerCandidate,
+  registerOrganization: auth.registerOrganization,
   getSession: auth.getSession,
   switchOrganization: auth.switchOrganization,
   logout: auth.logout,

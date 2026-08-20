@@ -44,8 +44,9 @@ describe('JwtAuthGuard', () => {
     expect(request.user).toEqual({
       id: 'user-1',
       email: 'a@b.test',
-      // Not yet trusted: OrgContextGuard fills these after a live membership
-      // check. The claim is carried along as a pointer only.
+      // Not yet trusted: the scoped guards fill these after live database
+      // checks. The claim is carried along as a pointer only.
+      accountType: null,
       organizationId: null,
       role: null,
       activeOrganizationClaim: 'org-1',
@@ -91,7 +92,7 @@ describe('JwtAuthGuard', () => {
     ).rejects.toThrow('Invalid or expired token');
   });
 
-  it('accepts a token with no organization claim (candidate-only session)', async () => {
+  it('accepts a token with no organization claim (candidate session)', async () => {
     const noOrg = jwtService.sign(
       { sub: 'user-1', email: 'a@b.test' },
       { secret: SECRET },
@@ -102,6 +103,7 @@ describe('JwtAuthGuard', () => {
     expect(context.switchToHttp().getRequest().user).toEqual({
       id: 'user-1',
       email: 'a@b.test',
+      accountType: null,
       organizationId: null,
       role: null,
       activeOrganizationClaim: null,

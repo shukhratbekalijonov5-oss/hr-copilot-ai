@@ -3,16 +3,15 @@ import type { Role, SessionUser } from "@/lib/types";
 /**
  * Workspaces.
  *
- * A person is one `User`. What they can do depends on which workspace they are
- * currently in — their own job-seeker space, or one of the organizations they
- * belong to. Roles belong to the membership, never to the user, so nothing here
- * reads a "user role" as if it were global.
+ * A person is one `User`, now fixed as either CANDIDATE or ORGANIZATION.
+ * Candidate accounts use their job-seeker workspace; organization accounts use
+ * one of the organizations they belong to. Roles belong to memberships, never
+ * to the user, so nothing here reads a "user role" as if it were global.
  *
  * The identity migration made this literal: `GET /auth/me` returns a
- * `memberships[]` array and an `activeOrganization`, and one user can hold
- * several memberships with a different role in each. The personal workspace is
- * independent of all of them — a recruiter at two organizations may also be a
- * job seeker, and the two sides must not borrow each other's assumptions.
+ * `memberships[]` array and an `activeOrganization`, and one ORGANIZATION user
+ * can hold several memberships with a different role in each. Candidate and
+ * organization sides no longer switch into each other.
  */
 
 export type WorkspaceKind = "personal" | "organization";
@@ -44,17 +43,15 @@ export interface WorkspaceContext {
   /**
    * The organization the current access token points at, if any.
    *
-   * Null for a job seeker, and also when the token's claim is stale because
-   * the membership was revoked. Both mean the same thing to the UI: do not
-   * render organization data, offer the picker.
+   * Null for a candidate account, and also for an organization account when
+   * the token's claim is stale because the membership was revoked.
    */
   activeOrganizationId: string | null;
   /**
    * Whether the user has created their job-seeker profile yet.
    *
-   * The workspace is reachable either way — the profile page creates the
-   * account — but the switcher says which state it is in rather than implying
-   * a profile exists.
+   * Candidate signup creates this profile. Organization accounts should report
+   * false by backend invariant.
    */
   hasCandidateAccount: boolean;
 }

@@ -110,7 +110,9 @@ export function Header({ user, workspace, onOpenSidebar }: HeaderProps) {
               </div>
               <div className="p-1">
                 <Link
-                  href="/settings"
+                  href={
+                    user.accountType === "CANDIDATE" ? "/my-profile" : "/settings"
+                  }
                   role="menuitem"
                   onClick={() => setMenuOpen(false)}
                   className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-ink-muted hover:bg-surface-muted hover:text-ink"
@@ -118,15 +120,17 @@ export function Header({ user, workspace, onOpenSidebar }: HeaderProps) {
                   <UserIcon className="size-4" />
                   {d.nav.profile}
                 </Link>
-                <Link
-                  href="/settings"
-                  role="menuitem"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-ink-muted hover:bg-surface-muted hover:text-ink"
-                >
-                  <SettingsIcon className="size-4" />
-                  {d.nav.workspaceSettings}
-                </Link>
+                {user.accountType === "ORGANIZATION" ? (
+                  <Link
+                    href="/settings"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-ink-muted hover:bg-surface-muted hover:text-ink"
+                  >
+                    <SettingsIcon className="size-4" />
+                    {d.nav.workspaceSettings}
+                  </Link>
+                ) : null}
                 <form action={logoutAction}>
                   <button
                     type="submit"

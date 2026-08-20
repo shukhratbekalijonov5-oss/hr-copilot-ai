@@ -1,4 +1,7 @@
 import { AppShell } from "@/components/layout/AppShell";
+import { JobMatchStateProvider } from "@/components/candidate/JobMatchStateProvider";
+import { jobMatchCacheKey } from "@/lib/candidate/job-match-cache-key";
+import { getLocale } from "@/lib/i18n/server";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
 
 /**
@@ -9,11 +12,17 @@ import { requirePersonalWorkspace } from "@/lib/workspace/server";
  * here. Tenant isolation itself is enforced by the backend, not by this layout.
  */
 export default async function CandidateLayout({ children }: LayoutProps<"/">) {
-  const { session, workspace } = await requirePersonalWorkspace();
+  const [{ session, workspace }, locale] = await Promise.all([
+    requirePersonalWorkspace(),
+    getLocale(),
+  ]);
+  const matchCacheKey = jobMatchCacheKey(session.id, locale);
 
   return (
-    <AppShell user={session} workspace={workspace}>
-      {children}
-    </AppShell>
+    <JobMatchStateProvider key={matchCacheKey} cacheKey={matchCacheKey}>
+      <AppShell user={session} workspace={workspace}>
+        {children}
+      </AppShell>
+    </JobMatchStateProvider>
   );
 }

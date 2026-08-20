@@ -14,10 +14,15 @@ import { Role } from '../../generated/prisma/enums';
 export class MembershipService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** The caller's membership in one organization, or null. */
+  /**
+   * The caller's membership in one organization, or null. Carries the owning
+   * user's accountType so OrgContextGuard can enforce the ORGANIZATION
+   * account-type boundary in the same single query.
+   */
   findMembership(userId: string, organizationId: string) {
     return this.prisma.organizationMember.findUnique({
       where: { userId_organizationId: { userId, organizationId } },
+      include: { user: { select: { accountType: true } } },
     });
   }
 

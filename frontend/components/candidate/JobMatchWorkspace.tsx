@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
-import {
-  runJobMatchesAction,
-  type JobMatchFailure,
-} from "@/app/(candidate)/actions";
+import { useEffect, useState } from "react";
+import type { JobMatchFailure } from "@/app/(candidate)/actions";
+import { useJobMatchState } from "@/components/candidate/JobMatchStateProvider";
 import { MatchCard } from "@/components/candidate/MatchCard";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
@@ -14,16 +12,6 @@ import { SkeletonCard } from "@/components/ui/LoadingSkeleton";
 import { UnavailableState } from "@/components/ui/UnavailableState";
 import { AlertIcon, CheckIcon, SparkIcon, UserIcon } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
-import type { JobMatchResult } from "@/lib/types";
-
-interface JobMatchWorkspaceProps {
-  /** Whether the caller has created a candidate profile at all. */
-  hasAccount: boolean;
-  /** Whether a personal resume is uploaded. */
-  hasResume: boolean;
-  /** Headline/summary/skills/experience present — enough to match on. */
-  hasProfileSignal: boolean;
-}
 
 /**
  * The candidate's AI job match surface.
@@ -34,30 +22,22 @@ interface JobMatchWorkspaceProps {
  * or navigation, and nothing is computed client-side — the page renders
  * exactly what the backend classified.
  */
-export function JobMatchWorkspace({
-  hasAccount,
-  hasResume,
-  hasProfileSignal,
-}: JobMatchWorkspaceProps) {
+export function JobMatchWorkspace() {
   const { d, p } = useI18n();
-  const [result, setResult] = useState<JobMatchResult | null>(null);
-  const [failure, setFailure] = useState<JobMatchFailure | null>(null);
-  const [pending, startTransition] = useTransition();
+  const {
+    result,
+    failure,
+    pending,
+    readiness,
+    readinessPending,
+    readinessFailure,
+    run,
+    clear,
+  } = useJobMatchState();
 
-  function run() {
-    if (pending) return;
-    setFailure(null);
-
-    startTransition(async () => {
-      const response = await runJobMatchesAction();
-      if (response.ok) {
-        setResult(response.data);
-      } else {
-        setResult(null);
-        setFailure(response.reason);
-      }
-    });
-  }
+  const hasAccount = readiness?.hasAccount ?? Boolean(result);
+  const hasResume = readiness?.hasResume ?? Boolean(result);
+  const hasProfileSignal = readiness?.hasProfileSignal ?? Boolean(result);
 
   /* Readiness gates — matching needs something to match on. */
 
@@ -70,7 +50,15 @@ export function JobMatchWorkspace({
     </Link>
   );
 
-  if (!hasAccount) {
+  if (!result && readinessPending) {
+    return <ReadinessLoading />;
+  }
+
+  if (!result && readinessFailure) {
+    return <FailureNotice reason="network" onRetry={run} />;
+  }
+
+  if (!result && !hasAccount) {
     return (
       <Card>
         <EmptyState
@@ -83,7 +71,7 @@ export function JobMatchWorkspace({
     );
   }
 
-  if (!hasResume && !hasProfileSignal) {
+  if (!result && !hasResume && !hasProfileSignal) {
     return (
       <Card>
         <EmptyState
@@ -134,26 +122,40 @@ export function JobMatchWorkspace({
         </Card>
       ) : null}
 
-      {pending ? <MatchLoading /> : null}
+      {pending && !result ? <MatchLoading /> : null}
 
-      {!pending && failure ? (
+      {!result && !pending && failure ? (
         <FailureNotice reason={failure} onRetry={run} />
       ) : null}
 
-      {!pending && result ? (
+      {result ? (
         <>
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] text-ink-muted">
             <span>{p(d.jobMatch.matchCount, result.matches.length)}</span>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={run}
-              className="ml-auto"
-            >
-              {d.jobMatch.refresh}
-            </Button>
+            <div className="ml-auto flex flex-col items-stretch gap-1 sm:items-end">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={clear}
+              >
+                {d.jobMatch.clearResults}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={run}
+                loading={pending}
+                disabled={pending}
+              >
+                {pending ? d.jobMatch.refreshing : d.jobMatch.refresh}
+              </Button>
+            </div>
           </div>
+
+          {pending ? <BackgroundRefreshNotice /> : null}
+          {!pending && failure ? <BackgroundRefreshError /> : null}
 
           {result.matches.length === 0 ? (
             <Card>
@@ -179,6 +181,48 @@ export function JobMatchWorkspace({
         </>
       ) : null}
     </div>
+  );
+}
+
+function ReadinessLoading() {
+  const { d } = useI18n();
+
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <p className="text-[13px] font-medium text-ink">{d.common.loading}</p>
+        <SkeletonCard />
+      </CardBody>
+    </Card>
+  );
+}
+
+function BackgroundRefreshNotice() {
+  const { d } = useI18n();
+
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-[12.5px] text-ink-muted"
+    >
+      <SparkIcon className="size-4 animate-pulse text-brand" />
+      {d.jobMatch.refreshingHint}
+    </p>
+  );
+}
+
+function BackgroundRefreshError() {
+  const { d } = useI18n();
+
+  return (
+    <p
+      role="alert"
+      className="flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-[12.5px] leading-relaxed text-warning"
+    >
+      <AlertIcon className="mt-px size-4 shrink-0" />
+      {d.jobMatch.refreshFailed}
+    </p>
   );
 }
 

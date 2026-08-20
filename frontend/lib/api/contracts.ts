@@ -32,11 +32,18 @@ import type { Locale } from "@/lib/i18n/locales";
 export type SupportedLocale = Locale;
 
 /**
- * POST /auth/login | /auth/register | /auth/refresh
+ * An account is exactly ONE of these, fixed at registration. A CANDIDATE owns
+ * a candidate profile and can never hold organization memberships; an
+ * ORGANIZATION account is the reverse.
+ */
+export type AccountType = "CANDIDATE" | "ORGANIZATION";
+
+/**
+ * POST /auth/login | /auth/register/candidate | /auth/register/organization |
+ * /auth/refresh
  *
- * `role` and `organizationId` describe the ACTIVE organization and are null for
- * a user with no membership — a job seeker is a first-class account, not a
- * degraded recruiter.
+ * `role` and `organizationId` describe the ACTIVE organization and are always
+ * null for CANDIDATE accounts, which cannot hold memberships.
  */
 export interface AuthSessionResponse {
   accessToken: string;
@@ -45,6 +52,7 @@ export interface AuthSessionResponse {
     id: string;
     email: string;
     fullName: string;
+    accountType: AccountType;
     preferredLocale: SupportedLocale;
     role: Role | null;
     organizationId: string | null;
@@ -82,6 +90,7 @@ export interface MeResponse {
   id: string;
   email: string;
   fullName: string;
+  accountType: AccountType;
   preferredLocale: SupportedLocale;
   role: Role | null;
   organizationId: string | null;
@@ -91,6 +100,7 @@ export interface MeResponse {
     id: string;
     email: string;
     fullName: string;
+    accountType: AccountType;
     preferredLocale: SupportedLocale;
   };
   candidateAccount: { exists: boolean };

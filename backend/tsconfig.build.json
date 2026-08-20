@@ -5,10 +5,11 @@
     "test",
     "dist",
     "**/*spec.ts",
-    // Tooling-only config, executed by the Prisma CLI via ts-node. Compiling it
-    // would pull the project root into rootDir and emit dist/src/main.js,
-    // breaking `node dist/main`.
+    // Tooling-only files, executed via ts-node (Prisma CLI / one-off scripts).
+    // Compiling them would pull the project root into rootDir and emit
+    // dist/src/main.js, breaking `node dist/main`.
     "prisma.config.ts",
-    "prisma/seed.ts"
+    "prisma/seed.ts",
+    "scripts"
   ]
 }

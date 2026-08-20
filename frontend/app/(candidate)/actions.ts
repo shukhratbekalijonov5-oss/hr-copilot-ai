@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { candidateFailureReason } from "@/lib/api/candidate-errors";
 import { getLocale } from "@/lib/i18n/server";
 import type {
+  ApplicationStatus,
   CandidateAccount,
   CandidateAccountInput,
   CandidateActionReason,
@@ -89,6 +90,35 @@ export async function getPersonalResumeUrlAction(): Promise<
 /* Jobs, applications and bookmarks                                            */
 /* -------------------------------------------------------------------------- */
 
+export interface JobMatchReadiness {
+  hasAccount: boolean;
+  hasResume: boolean;
+  hasProfileSignal: boolean;
+}
+
+export async function getJobMatchReadinessAction(): Promise<
+  CandidateResult<JobMatchReadiness>
+> {
+  const result = await run(() => api.getCandidateAccount());
+  if (!result.ok) return result;
+
+  const account = result.data;
+  return {
+    ok: true,
+    data: {
+      hasAccount: account !== null,
+      hasResume: Boolean(account?.resume),
+      hasProfileSignal: Boolean(
+        account &&
+          (account.skills.length > 0 ||
+            account.experience.length > 0 ||
+            account.headline ||
+            account.summary),
+      ),
+    },
+  };
+}
+
 /**
  * Applies to a public job.
  *
@@ -99,15 +129,21 @@ export async function getPersonalResumeUrlAction(): Promise<
  */
 export async function applyToJobAction(
   slug: string,
-): Promise<CandidateResult<{ organizationName: string }>> {
+): Promise<
+  CandidateResult<{
+    organizationName: string;
+    applicationState: ApplicationStatus;
+  }>
+> {
   const result = await run(() => api.applyToJob(slug));
   if (!result.ok) return result;
 
-  revalidatePath("/my-applications");
-  revalidatePath(`/jobs/${slug}`);
   return {
     ok: true,
-    data: { organizationName: result.data.vacancy.organization.name },
+    data: {
+      organizationName: result.data.vacancy.organization.name,
+      applicationState: result.data.status,
+    },
   };
 }
 
@@ -127,23 +163,13 @@ export async function withdrawApplicationAction(
 export async function saveJobAction(
   slug: string,
 ): Promise<CandidateResult<{ saved: boolean }>> {
-  const result = await run(() => api.saveJob(slug));
-  if (result.ok) {
-    revalidatePath("/saved-jobs");
-    revalidatePath("/jobs");
-  }
-  return result;
+  return run(() => api.saveJob(slug));
 }
 
 export async function unsaveJobAction(
   slug: string,
 ): Promise<CandidateResult<{ saved: boolean }>> {
-  const result = await run(() => api.unsaveJob(slug));
-  if (result.ok) {
-    revalidatePath("/saved-jobs");
-    revalidatePath("/jobs");
-  }
-  return result;
+  return run(() => api.unsaveJob(slug));
 }
 
 /* -------------------------------------------------------------------------- */

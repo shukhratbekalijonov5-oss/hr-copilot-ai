@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { loginAction } from "@/lib/auth/actions";
+import { loginRouteForAccountType } from "@/lib/auth/routing";
 import { hasErrors, validateLogin } from "@/lib/validation";
 import { useI18n } from "@/lib/i18n/context";
 import type { FieldErrors } from "@/lib/api/errors";
+import type { AccountType } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 import {
@@ -29,7 +31,7 @@ type AuthErrorCode = Exclude<
   "generic"
 >;
 
-export function LoginForm() {
+export function LoginForm({ accountType }: { accountType: AccountType }) {
   const { d } = useI18n();
   const params = useSearchParams();
   const next = params.get("next") ?? undefined;
@@ -48,7 +50,14 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [formCode, setFormCode] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const otherAccountType =
+    accountType === "CANDIDATE" ? "ORGANIZATION" : "CANDIDATE";
+  const mismatchMessage =
+    accountType === "CANDIDATE"
+      ? d.auth.organizationAccountUseOrganizationSignIn
+      : d.auth.candidateAccountUseCandidateSignIn;
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,6 +65,7 @@ export function LoginForm() {
     if (pending) return;
 
     setFormError(null);
+    setFormCode(null);
     const validationErrors = validateLogin({ email, password }, d);
     setErrors(validationErrors);
     if (hasErrors(validationErrors)) return;
@@ -63,8 +73,13 @@ export function LoginForm() {
     startTransition(async () => {
       // On success the action sets the session cookie and redirects, so
       // control never returns here.
-      const result = await loginAction({ email, password }, next);
-      setFormError(result.message ?? d.auth.couldNotSignIn);
+      const result = await loginAction({ email, password, accountType }, next);
+      setFormCode(result.code ?? null);
+      setFormError(
+        result.code === "AUTH_ACCOUNT_TYPE_MISMATCH"
+          ? mismatchMessage
+          : (result.message ?? d.auth.couldNotSignIn),
+      );
       setErrors(result.fieldErrors ?? {});
     });
   }
@@ -73,10 +88,14 @@ export function LoginForm() {
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">
-          {d.auth.signIn}
+          {accountType === "CANDIDATE"
+            ? d.auth.candidateSignIn
+            : d.auth.organizationSignIn}
         </h1>
         <p className="mt-1 text-[13.5px] text-ink-muted">
-          {d.auth.signInSubtitle}
+          {accountType === "CANDIDATE"
+            ? d.auth.candidateSignInSubtitle
+            : d.auth.organizationSignInSubtitle}
         </p>
       </div>
 
@@ -96,7 +115,19 @@ export function LoginForm() {
           className="flex items-start gap-2 rounded-lg bg-critical-soft px-3 py-2 text-[13px] text-critical"
         >
           <AlertIcon className="mt-px size-4 shrink-0" />
-          {formError}
+          <span className="min-w-0 flex-1">
+            {formError}
+            {formCode === "AUTH_ACCOUNT_TYPE_MISMATCH" ? (
+              <Link
+                href={loginRouteForAccountType(otherAccountType)}
+                className="ml-1 font-medium underline underline-offset-2"
+              >
+                {accountType === "CANDIDATE"
+                  ? d.auth.organizationSignIn
+                  : d.auth.candidateSignIn}
+              </Link>
+            ) : null}
+          </span>
         </p>
       ) : null}
 
@@ -143,13 +174,26 @@ export function LoginForm() {
       />
 
       <Button type="submit" size="lg" loading={pending}>
-        {pending ? d.auth.signingIn : d.auth.signIn}
+        {pending
+          ? d.auth.signingIn
+          : accountType === "CANDIDATE"
+            ? d.auth.candidateSignIn
+            : d.auth.organizationSignIn}
       </Button>
 
       <p className="text-center text-[13px] text-ink-muted">
         {d.auth.noAccount}{" "}
-        <Link href="/register" className="font-medium text-brand hover:underline">
-          {d.auth.createOne}
+        <Link
+          href={
+            accountType === "CANDIDATE"
+              ? "/register/candidate"
+              : "/register/organization"
+          }
+          className="font-medium text-brand hover:underline"
+        >
+          {accountType === "CANDIDATE"
+            ? d.auth.createCandidateAccount
+            : d.auth.createOrganizationAccount}
         </Link>
       </p>
     </form>

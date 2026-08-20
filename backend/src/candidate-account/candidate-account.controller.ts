@@ -17,17 +17,20 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { CandidateAccountService } from './candidate-account.service';
 import { UpsertCandidateAccountDto } from './dto/upsert-candidate-account.dto';
 import { JobMatchesDto } from './dto/job-matches.dto';
+import { CandidateScoped } from '../common/decorators/candidate-scoped.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination.dto';
 import type { ValidatableFile } from '../documents/file-validation';
 
 /**
- * Self-service job-seeker endpoints. Authenticated, deliberately NOT
- * @OrgScoped: a candidate account belongs to the user, not to any tenant, and
- * these routes must work for users with zero organization memberships.
+ * Self-service job-seeker endpoints. @CandidateScoped: every route requires a
+ * live CANDIDATE account — an ORGANIZATION account gets 403 whatever its
+ * token says. Never @OrgScoped: a candidate account belongs to the user, not
+ * to any tenant.
  *
  * There is no :userId anywhere — the subject is always the caller.
  */
+@CandidateScoped()
 @Controller('candidate-account')
 export class CandidateAccountController {
   constructor(private readonly service: CandidateAccountService) {}

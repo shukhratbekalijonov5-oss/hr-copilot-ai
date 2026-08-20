@@ -10,24 +10,19 @@ import {
 import { Locale } from '../../generated/prisma/enums';
 
 /**
- * Registers a User. Two intents, one endpoint:
- *
- *  - Hiring: provide organizationName + organizationSlug (together) — the
- *    organization is created with the caller as its OWNER member.
- *  - Job seeking: omit both — a bare account is created; a CandidateAccount
- *    is added afterwards via POST /candidate-account.
+ * Creates an ORGANIZATION account: a User, their Organization and its OWNER
+ * membership, in one transaction. Never a CandidateAccount — job seeking is
+ * POST /auth/register/candidate, and one email is exactly one of the two.
  *
  * There is deliberately no `organizationId` field: joining an EXISTING
  * organization only happens through that organization's own invite flow.
  */
-export class RegisterDto {
-  @IsOptional()
+export class RegisterOrganizationDto {
   @IsString()
   @MinLength(2)
   @MaxLength(120)
-  organizationName?: string;
+  organizationName!: string;
 
-  @IsOptional()
   @IsString()
   @MinLength(2)
   @MaxLength(60)
@@ -35,7 +30,7 @@ export class RegisterDto {
     message:
       'organizationSlug must be lowercase alphanumeric words joined by hyphens',
   })
-  organizationSlug?: string;
+  organizationSlug!: string;
 
   @IsString()
   @MinLength(2)

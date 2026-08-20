@@ -5,20 +5,24 @@
  * employee or applicant data may ever be placed in this file — it is committed
  * to the repository and shared with every contributor.
  *
- * The cast deliberately exercises every identity shape the product supports:
- *   - owner / recruiter / interviewer memberships
- *   - one user with memberships in TWO organizations under different roles
- *   - one user who is a job seeker only (CandidateAccount, no memberships)
- *   - one user who is BOTH a job seeker and a recruiter
+ * The cast deliberately exercises every identity shape the product supports.
+ * Account types are EXCLUSIVE — a user is either a CANDIDATE or an
+ * ORGANIZATION account, never both (see AccountTypeService):
+ *   - ORGANIZATION accounts: owner / recruiter / interviewer memberships,
+ *     including one user with memberships in TWO organizations under
+ *     different roles (multi-org stays supported within the type)
+ *   - CANDIDATE accounts: job seekers with a CandidateAccount and, by
+ *     invariant, zero memberships
  *   - a rival organization so tenant isolation stays testable by hand
  *
- * Run with: yarn db:seed
+ * Run with: npm run db:seed
  */
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcryptjs';
 import { PrismaClient } from '../src/generated/prisma/client';
 import {
+  AccountType,
   ApplicationSource,
   ApplicationStatus,
   Locale,
@@ -48,12 +52,15 @@ async function main(): Promise<void> {
   const upsertUser = (
     email: string,
     fullName: string,
+    accountType: AccountType,
     preferredLocale: Locale = Locale.en,
   ) =>
     prisma.user.upsert({
       where: { email },
-      update: {},
-      create: { email, passwordHash, fullName, preferredLocale },
+      // accountType is part of `update` too: pre-exclusivity rows must land
+      // on the type this cast now assigns them.
+      update: { accountType },
+      create: { email, passwordHash, fullName, accountType, preferredLocale },
     });
 
   const upsertMembership = (userId: string, organizationId: string, role: Role) =>
@@ -81,14 +88,20 @@ async function main(): Promise<void> {
 
   // --- People ---------------------------------------------------------------
 
-  const owner = await upsertUser('owner@northwind-labs.test', 'Dana Whitfield');
+  const owner = await upsertUser(
+    'owner@northwind-labs.test',
+    'Dana Whitfield',
+    AccountType.ORGANIZATION,
+  );
   await upsertMembership(owner.id, northwind.id, Role.OWNER);
 
   // Multi-org: recruiter at Northwind, interviewer at the rival — the SAME
-  // account with different roles per organization.
+  // account with different roles per organization. Multi-org membership
+  // remains fully supported for ORGANIZATION accounts.
   const recruiter = await upsertUser(
     'recruiter@northwind-labs.test',
     'Marcus Adeyemi',
+    AccountType.ORGANIZATION,
   );
   await upsertMembership(recruiter.id, northwind.id, Role.RECRUITER);
   await upsertMembership(recruiter.id, rival.id, Role.INTERVIEWER);
@@ -96,19 +109,22 @@ async function main(): Promise<void> {
   const rivalOwner = await upsertUser(
     'owner@acme-rival.test',
     'Priya Raghunathan',
+    AccountType.ORGANIZATION,
   );
   await upsertMembership(rivalOwner.id, rival.id, Role.OWNER);
 
   const interviewer = await upsertUser(
     'interviewer@northwind-labs.test',
     'Elif Demir',
+    AccountType.ORGANIZATION,
   );
   await upsertMembership(interviewer.id, northwind.id, Role.INTERVIEWER);
 
-  // Job seeker ONLY: a CandidateAccount, zero memberships. Uzbek locale.
+  // CANDIDATE: a CandidateAccount, zero memberships (by invariant). Uzbek locale.
   const seeker = await upsertUser(
     'jasur.toshmatov@example.test',
     'Jasur Toshmatov',
+    AccountType.CANDIDATE,
     Locale.uz,
   );
   await prisma.candidateAccount.upsert({
@@ -126,15 +142,21 @@ async function main(): Promise<void> {
     },
   });
 
-  // Both sides at once: job seeker AND recruiter at the rival org. Korean
-  // locale and Korean profile text (also exercises UTF-8 end to end).
-  const dual = await upsertUser('yuna.seo@example.test', '서유나', Locale.ko);
-  await upsertMembership(dual.id, rival.id, Role.RECRUITER);
+  // Second CANDIDATE, Korean locale and Korean profile text (exercises UTF-8
+  // end to end). Historically this persona was ALSO a recruiter at the rival
+  // org — dual identity is no longer a legal shape, so she is a candidate
+  // only now (converted in the dev DB by scripts/resolve-dual-identity.ts).
+  const seekerKo = await upsertUser(
+    'yuna.seo@example.test',
+    '서유나',
+    AccountType.CANDIDATE,
+    Locale.ko,
+  );
   await prisma.candidateAccount.upsert({
-    where: { userId: dual.id },
+    where: { userId: seekerKo.id },
     update: {},
     create: {
-      userId: dual.id,
+      userId: seekerKo.id,
       headline: '백엔드 엔지니어',
       location: 'Seoul, KR',
       summary: '분산 시스템과 데이터 파이프라인을 다루는 백엔드 엔지니어입니다.',
@@ -277,11 +299,11 @@ async function main(): Promise<void> {
   console.log('Seed complete');
   console.log(`  organization : ${northwind.slug} (${northwind.name})`);
   console.log(`  second org   : ${rival.slug} (for tenant-isolation checks)`);
-  console.log(`  owner        : ${owner.email} (OWNER @ northwind)`);
-  console.log(`  recruiter    : ${recruiter.email} (RECRUITER @ northwind, INTERVIEWER @ rival)`);
-  console.log(`  interviewer  : ${interviewer.email} (INTERVIEWER @ northwind)`);
-  console.log(`  job seeker   : ${seeker.email} (CandidateAccount only, uz)`);
-  console.log(`  dual persona : ${dual.email} (CandidateAccount + RECRUITER @ rival, ko)`);
+  console.log(`  owner        : ${owner.email} (ORGANIZATION, OWNER @ northwind)`);
+  console.log(`  recruiter    : ${recruiter.email} (ORGANIZATION, RECRUITER @ northwind, INTERVIEWER @ rival)`);
+  console.log(`  interviewer  : ${interviewer.email} (ORGANIZATION, INTERVIEWER @ northwind)`);
+  console.log(`  job seeker   : ${seeker.email} (CANDIDATE, uz)`);
+  console.log(`  job seeker 2 : ${seekerKo.email} (CANDIDATE, ko)`);
   console.log(`  vacancy      : ${vacancy.title} (public slug: ${vacancy.publicSlug})`);
   console.log(`  candidates   : ${candidates.length} (manual, no CandidateAccount)`);
   console.log(`  password     : ${DEV_PASSWORD}  (development only)`);

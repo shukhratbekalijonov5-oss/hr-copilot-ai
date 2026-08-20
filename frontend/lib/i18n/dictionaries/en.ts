@@ -157,10 +157,30 @@ const en = {
   },
 
   auth: {
+    candidate: "Candidate",
+    organization: "Organization",
+    chooseSignIn: "Choose how to sign in",
+    chooseRegistration: "Choose account type",
+    chooseAccountTypeHint:
+      "Candidate and organization accounts are separate. Pick the door that matches your account.",
+    candidateAuthHint:
+      "Find jobs, manage applications, save roles and use AI Job Match.",
+    organizationAuthHint:
+      "Manage vacancies, candidates, evidence search and recruiting workflows.",
+    accountTypeExclusive:
+      "One email can be either Candidate or Organization, never both.",
     signIn: "Sign in",
+    candidateSignIn: "Candidate sign in",
+    organizationSignIn: "Organization sign in",
     signingIn: "Signing in",
     signInSubtitle: "Use your work account to reach your organization’s pipeline.",
+    candidateSignInSubtitle:
+      "Use your candidate account to find jobs and manage applications.",
+    organizationSignInSubtitle:
+      "Use your organization account to manage hiring workspaces.",
     createAccount: "Create your workspace",
+    createCandidateAccount: "Create candidate account",
+    createOrganizationAccount: "Create organization account",
     createAccountSubtitle:
       "Set up an organization and become its first administrator.",
     email: "Email",
@@ -177,6 +197,16 @@ const en = {
     signInInstead: "Sign in",
     couldNotSignIn: "Could not sign in.",
     couldNotRegister: "Could not create the workspace.",
+    candidateAccountUseCandidateSignIn:
+      "This is a candidate account. Sign in through Candidate.",
+    organizationAccountUseOrganizationSignIn:
+      "This account belongs to an organization. Sign in through Organization.",
+    emailAlreadyRegistered:
+      "This email is already registered. Sign in instead.",
+    emailBelongsToCandidate:
+      "This email is already registered as a candidate account.",
+    emailBelongsToOrganization:
+      "This email is already registered as an organization account.",
     creating: "Creating",
     heroTitle: "Read every resume properly, without reading every resume.",
     heroPoints: [
@@ -201,6 +231,9 @@ const en = {
 
   register: {
     subtitle: "Sets up your organization and makes you its owner.",
+    candidateSubtitle:
+      "Create your job-seeker account. No company or workspace is needed.",
+    organizationSubtitle: "Set up your organization and become its owner.",
     fullNamePlaceholder: "Jane Doe",
     workEmail: "Work email",
     workEmailPlaceholder: "jane@company.com",
@@ -209,10 +242,15 @@ const en = {
     slugLabel: "Workspace URL",
     slugPlaceholder: "northwind-talent",
     slugHint: "Lowercase letters, numbers and hyphens. Must be unique.",
+    preferredLanguage: "Preferred language",
     passwordPlaceholder: "At least {min} characters",
     passwordHint: "At least {min} characters.",
     submit: "Create workspace",
+    submitCandidate: "Create candidate account",
+    submitOrganization: "Create organization account",
     submitting: "Creating workspace",
+    submittingCandidate: "Creating candidate account",
+    submittingOrganization: "Creating organization account",
   },
 
   dashboard: {
@@ -968,13 +1006,10 @@ const en = {
     title: "Choose a workspace",
     description:
       "You are signed in once. Each workspace has its own data and its own role.",
-    candidate: "Candidate",
-    candidateHint: "Your own profile, applications and saved jobs.",
-    candidateNotSetUp: "Profile not created yet",
     organizations: "Organizations",
     noOrganizations: "You do not belong to any organization yet.",
     noOrganizationsHint:
-      "An organization owner or HR admin can add you to theirs. Until then, the candidate workspace is yours to use.",
+      "An organization owner or HR admin can add you to theirs. Until then, there is no organization workspace to open.",
     current: "Current",
     open: "Open",
     switching: "Switching workspace…",
@@ -1170,6 +1205,7 @@ const en = {
       "Matching compares your own profile and resume against open roles and shows what each requirement is backed by. It takes around twenty seconds.",
     run: "Find my matches",
     refresh: "Refresh matches",
+    clearResults: "Clear results",
     matchCount: {
       one: "{count} matched role",
       other: "{count} matched roles",
@@ -1180,6 +1216,11 @@ const en = {
       "Comparing job requirements…",
       "Preparing grounded explanations…",
     ],
+    refreshing: "Refreshing…",
+    refreshingHint:
+      "Refreshing matches in the background. Your current results stay visible.",
+    refreshFailed:
+      "Could not refresh matches. Your previous results are still shown.",
     strength: {
       STRONG: "Strong match",
       PARTIAL: "Partial match",

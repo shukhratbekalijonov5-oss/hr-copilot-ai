@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { saveJobAction, unsaveJobAction } from "@/app/(candidate)/actions";
+import { useOptionalJobMatchState } from "@/components/candidate/JobMatchStateProvider";
 import { CheckIcon, FileIcon, SpinnerIcon } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
@@ -18,21 +19,35 @@ interface SaveJobButtonProps {
  * Both backend routes are idempotent, so a double click cannot desynchronise
  * the state; the optimistic flip is reverted only if the call actually fails.
  */
-export function SaveJobButton({ slug, saved, className }: SaveJobButtonProps) {
+export function SaveJobButton({
+  slug,
+  saved,
+  className,
+}: SaveJobButtonProps) {
   const { d } = useI18n();
+  const jobMatch = useOptionalJobMatchState();
   const [isSaved, setIsSaved] = useState(saved);
   const [pending, startTransition] = useTransition();
+
+  function publish(next: boolean) {
+    setIsSaved(next);
+    jobMatch?.patchSaved(slug, next);
+  }
 
   function toggle() {
     if (pending) return;
     const next = !isSaved;
-    setIsSaved(next);
+    publish(next);
 
     startTransition(async () => {
       const result = next
         ? await saveJobAction(slug)
         : await unsaveJobAction(slug);
-      if (!result.ok) setIsSaved(!next);
+      if (!result.ok) {
+        publish(!next);
+        return;
+      }
+      publish(result.data.saved);
     });
   }
 

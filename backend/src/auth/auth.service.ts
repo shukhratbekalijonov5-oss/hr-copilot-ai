@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -10,21 +9,28 @@ import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembershipService } from '../common/membership/membership.service';
+import { AccountTypeService } from '../common/identity/account-type.service';
 import { AuthSessionService } from './auth-session.service';
-import { AUTH_ERROR_CODES, authUnauthorized } from './auth-errors';
-import { Locale, Role } from '../generated/prisma/enums';
+import {
+  AUTH_ERROR_CODES,
+  authConflict,
+  authForbidden,
+  authUnauthorized,
+} from './auth-errors';
+import { AccountType, Locale, Role } from '../generated/prisma/enums';
 import type {
   AuthenticatedUser,
   JwtPayload,
 } from '../common/interfaces/authenticated-user.interface';
-import type { RegisterDto } from './dto/register.dto';
+import type { RegisterCandidateDto } from './dto/register-candidate.dto';
+import type { RegisterOrganizationDto } from './dto/register-organization.dto';
 import type { LoginDto } from './dto/login.dto';
 import type { InviteUserDto } from './dto/invite-user.dto';
 
 /**
- * `role`/`organizationId` describe the ACTIVE organization membership (null
- * for a user with none, e.g. a job seeker). They are kept at this level for
- * frontend compatibility with the pre-migration single-org shape.
+ * `role`/`organizationId` describe the ACTIVE organization membership — always
+ * null for CANDIDATE accounts, which can never hold one. They are kept at this
+ * level for frontend compatibility with the pre-migration single-org shape.
  */
 export interface AuthTokenResponse {
   accessToken: string;
@@ -32,6 +38,7 @@ export interface AuthTokenResponse {
     id: string;
     email: string;
     fullName: string;
+    accountType: AccountType;
     preferredLocale: Locale;
     role: Role | null;
     organizationId: string | null;
@@ -59,66 +66,75 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly memberships: MembershipService,
+    private readonly accountTypes: AccountTypeService,
     private readonly sessions: AuthSessionService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
 
   /**
-   * Two onboarding intents share this endpoint, both producing a normal User:
-   *
-   *  - Hiring: organizationName+organizationSlug present. Creates the user,
-   *    the organization and its OWNER membership in one transaction.
-   *  - Job seeking: no organization fields. Creates a bare user; a
-   *    CandidateAccount is created separately via /candidate-account.
+   * Creates a CANDIDATE account: the User and their CandidateAccount are one
+   * identity, created in one transaction. Never an organization, never a
+   * membership — that is the other account type.
    */
-  async register(
-    dto: RegisterDto,
+  async registerCandidate(
+    dto: RegisterCandidateDto,
     context: SessionContext = {},
   ): Promise<AuthSessionResponse> {
     const email = normaliseEmail(dto.email);
-    const wantsOrganization =
-      dto.organizationName !== undefined || dto.organizationSlug !== undefined;
-    if (
-      wantsOrganization &&
-      (!dto.organizationName?.trim() || !dto.organizationSlug?.trim())
-    ) {
-      throw new BadRequestException(
-        'organizationName and organizationSlug must be provided together',
-      );
-    }
+    await this.assertEmailAvailable(email, AccountType.CANDIDATE);
 
-    const [existingUser, existingOrg] = await Promise.all([
-      this.prisma.user.findUnique({ where: { email } }),
-      wantsOrganization
-        ? this.prisma.organization.findUnique({
-            where: { slug: dto.organizationSlug! },
-          })
-        : Promise.resolve(null),
+    const passwordHash = await this.hashPassword(dto.password);
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          fullName: dto.fullName,
+          accountType: AccountType.CANDIDATE,
+          preferredLocale: dto.preferredLocale ?? Locale.en,
+        },
+      });
+      await tx.candidateAccount.create({ data: { userId: created.id } });
+      return created;
+    });
+
+    return this.openSession(user, null, dto.deviceName, context);
+  }
+
+  /**
+   * Creates an ORGANIZATION account: the User, their Organization and its
+   * OWNER membership in one transaction. Never a CandidateAccount — that is
+   * the other account type.
+   */
+  async registerOrganization(
+    dto: RegisterOrganizationDto,
+    context: SessionContext = {},
+  ): Promise<AuthSessionResponse> {
+    const email = normaliseEmail(dto.email);
+    const [, existingOrg] = await Promise.all([
+      this.assertEmailAvailable(email, AccountType.ORGANIZATION),
+      this.prisma.organization.findUnique({
+        where: { slug: dto.organizationSlug },
+      }),
     ]);
-    if (existingUser)
-      throw new ConflictException('Email is already registered');
     if (existingOrg)
       throw new ConflictException('Organization slug is already taken');
 
     const passwordHash = await this.hashPassword(dto.password);
-    const userData = {
-      email,
-      passwordHash,
-      fullName: dto.fullName,
-      preferredLocale: dto.preferredLocale ?? Locale.en,
-    };
-
-    if (!wantsOrganization) {
-      const user = await this.prisma.user.create({ data: userData });
-      return this.openSession(user, null, dto.deviceName, context);
-    }
-
     // No orphaned users or organizations on failure: one transaction.
     const { user, membership } = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({ data: userData });
+      const created = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          fullName: dto.fullName,
+          accountType: AccountType.ORGANIZATION,
+          preferredLocale: dto.preferredLocale ?? Locale.en,
+        },
+      });
       const organization = await tx.organization.create({
-        data: { name: dto.organizationName!, slug: dto.organizationSlug! },
+        data: { name: dto.organizationName, slug: dto.organizationSlug },
       });
       const member = await tx.organizationMember.create({
         data: {
@@ -131,6 +147,36 @@ export class AuthService {
     });
 
     return this.openSession(user, membership, dto.deviceName, context);
+  }
+
+  /**
+   * Email exclusivity is global and cross-type: one address is at most ONE
+   * account, of exactly one type. The distinct codes let the UI route the
+   * person to the right sign-in; registration has always disclosed address
+   * existence, so the type adds no meaningful new disclosure (see
+   * AUTH_ERROR_CODES).
+   */
+  private async assertEmailAvailable(
+    email: string,
+    intent: AccountType,
+  ): Promise<void> {
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
+      select: { accountType: true },
+    });
+    if (!existing) return;
+    if (existing.accountType === intent) {
+      throw authConflict(
+        AUTH_ERROR_CODES.EMAIL_ALREADY_REGISTERED,
+        'Email is already registered',
+      );
+    }
+    throw authConflict(
+      AUTH_ERROR_CODES.ACCOUNT_TYPE_CONFLICT,
+      intent === AccountType.CANDIDATE
+        ? 'This email already belongs to an organization account'
+        : 'This email already belongs to a candidate account',
+    );
   }
 
   async login(
@@ -154,9 +200,24 @@ export class AuthService {
     if (!user || !matches) {
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    // Wrong sign-in door (Candidate vs Organization). Checked only AFTER the
+    // password verified: holders of bad credentials keep getting the flat 401
+    // above and learn nothing about the account's existence or type.
+    if (dto.accountType && dto.accountType !== user.accountType) {
+      throw authForbidden(
+        AUTH_ERROR_CODES.ACCOUNT_TYPE_MISMATCH,
+        user.accountType === AccountType.CANDIDATE
+          ? 'This email belongs to a candidate account — use the candidate sign-in'
+          : 'This email belongs to an organization account — use the organization sign-in',
+      );
+    }
+
     return this.openSession(
       user,
-      user.memberships[0] ?? null,
+      user.accountType === AccountType.ORGANIZATION
+        ? (user.memberships[0] ?? null)
+        : null,
       dto.deviceName,
       context,
     );
@@ -167,8 +228,10 @@ export class AuthService {
    * returns a fresh short-lived access token. The new access token's `org`
    * claim comes from the SESSION's persisted context, re-checked against a
    * live membership — a revoked membership silently degrades the session to
-   * organization-less instead of failing the refresh, because the user is
-   * still a perfectly valid user (and possibly a job seeker).
+   * organization-less instead of failing the refresh: the account itself is
+   * still valid (an ORGANIZATION user removed from one org may hold other
+   * memberships, or pick one up again later). CANDIDATE sessions never carry
+   * an organization context at all.
    */
   async refresh(rawRefreshToken: string): Promise<AuthSessionResponse> {
     const { session, refreshToken } =
@@ -292,16 +355,20 @@ export class AuthService {
    * Adds a member to the *caller's* organization. organizationId comes from
    * the validated membership context, never from the request body.
    *
-   * An email that already has an account is added as a member of this
-   * organization (multi-org is the normal case); their existing password and
-   * name are left untouched — the supplied ones are ignored. A brand-new email
-   * gets an account and the membership in one transaction.
+   * An email that already has an ORGANIZATION account is added as a member of
+   * this organization (multi-org is the normal case); their existing password
+   * and name are left untouched — the supplied ones are ignored. An email that
+   * belongs to a CANDIDATE account is refused with 409
+   * AUTH_ACCOUNT_TYPE_CONFLICT: account types are exclusive, and an invitation
+   * must never convert one or create a dual identity. A brand-new email gets
+   * an ORGANIZATION account and the membership in one transaction.
    */
   async inviteUser(organizationId: string, dto: InviteUserDto) {
     const email = normaliseEmail(dto.email);
     const existing = await this.prisma.user.findUnique({ where: { email } });
 
     if (existing) {
+      this.accountTypes.assertCanHoldMembership(existing);
       const membership = await this.memberships.findMembership(
         existing.id,
         organizationId,
@@ -323,6 +390,7 @@ export class AuthService {
           email,
           passwordHash: await this.hashPassword(dto.password),
           fullName: dto.fullName,
+          accountType: AccountType.ORGANIZATION,
         },
       });
       const member = await tx.organizationMember.create({
@@ -366,15 +434,19 @@ export class AuthService {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
+      accountType: user.accountType,
       preferredLocale: user.preferredLocale,
       role: active?.role ?? null,
       organizationId: active?.organizationId ?? null,
       organization: active ? active.organization : null,
-      // Canonical multi-identity shape.
+      // Canonical shape. `accountType` decides which workspace the account
+      // lives in; `candidateAccount.exists`/`memberships` describe the one
+      // side that can apply to this account.
       user: {
         id: user.id,
         email: user.email,
         fullName: user.fullName,
+        accountType: user.accountType,
         preferredLocale: user.preferredLocale,
       },
       candidateAccount: { exists: user.candidateAccount !== null },
@@ -405,6 +477,7 @@ export class AuthService {
       id: string;
       email: string;
       fullName: string;
+      accountType: AccountType;
       preferredLocale: Locale;
     },
     active: ActiveMembership | null,
@@ -425,11 +498,20 @@ export class AuthService {
     };
   }
 
+  /**
+   * The JWT payload stays `{sub, email, org?, sid?}` — deliberately NO
+   * accountType claim. The type is immutable, so caching it would be safe,
+   * but both scoped guards already consult the database per request (the
+   * live-membership / live-account-type checks), so a claim would add an
+   * unverified copy of a fact the server re-derives anyway. The response
+   * BODY carries accountType for client-side routing only.
+   */
   private async buildTokenResponse(
     user: {
       id: string;
       email: string;
       fullName: string;
+      accountType: AccountType;
       preferredLocale: Locale;
     },
     active: ActiveMembership | null,
@@ -456,6 +538,7 @@ export class AuthService {
         id: user.id,
         email: user.email,
         fullName: user.fullName,
+        accountType: user.accountType,
         preferredLocale: user.preferredLocale,
         role: active?.role ?? null,
         organizationId: active?.organizationId ?? null,

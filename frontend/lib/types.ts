@@ -69,16 +69,25 @@ export interface ActiveOrganization {
 }
 
 /**
- * GET /auth/me — who the caller is across both sides of the product.
+ * An account is exactly ONE of these, fixed at registration — a CANDIDATE can
+ * never hold memberships, an ORGANIZATION account can never own a candidate
+ * profile.
+ */
+export type AccountType = "CANDIDATE" | "ORGANIZATION";
+
+/**
+ * GET /auth/me — who the caller is.
  *
- * `activeOrganization` is null for a job seeker, and also when the token's
- * organization claim is stale (the membership was revoked). Both cases mean the
- * same thing to the UI: show the workspace picker rather than organization data.
+ * `accountType` decides which side of the product this account lives on.
+ * `activeOrganization` is always null for CANDIDATE accounts, and null for an
+ * ORGANIZATION account when the token's organization claim is stale (the
+ * membership was revoked) — show the workspace picker in that case.
  */
 export interface SessionUser {
   id: ID;
   fullName: string;
   email: string;
+  accountType: AccountType;
   preferredLocale: Locale;
   /** True once the user has created their personal job-seeker profile. */
   hasCandidateAccount: boolean;
@@ -101,15 +110,22 @@ export interface AuthSessionRow {
 export interface LoginInput {
   email: string;
   password: string;
+  /**
+   * Which sign-in door the form represents. When set, credentials of the
+   * OTHER account type are refused by the backend (403
+   * AUTH_ACCOUNT_TYPE_MISMATCH) after password verification.
+   */
+  accountType?: AccountType;
   deviceName?: string;
 }
 
 /**
- * Registration covers two intents through one endpoint.
+ * Registration is split by account type on the backend.
  *
- * Supplying `organizationName` + `organizationSlug` creates an organization
- * with the caller as OWNER; omitting both creates a job-seeker account with no
- * membership. Supplying only one is a 400 from the backend.
+ * Supplying `organizationName` + `organizationSlug` targets
+ * POST /auth/register/organization (organization + OWNER membership);
+ * omitting both targets POST /auth/register/candidate (user + candidate
+ * profile). One email is exactly one account type — cross-type reuse is a 409.
  */
 export interface RegisterInput {
   fullName: string;

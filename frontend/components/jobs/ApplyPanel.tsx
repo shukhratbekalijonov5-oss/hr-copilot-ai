@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { applyToJobAction } from "@/app/(candidate)/actions";
+import { useOptionalJobMatchState } from "@/components/candidate/JobMatchStateProvider";
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonStyles } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
@@ -35,7 +35,7 @@ export function ApplyPanel({
   hasCandidateAccount,
 }: ApplyPanelProps) {
   const { d, f } = useI18n();
-  const router = useRouter();
+  const jobMatch = useOptionalJobMatchState();
 
   const [applied, setApplied] = useState(alreadyApplied);
   const [failure, setFailure] = useState<CandidateActionReason | null>(null);
@@ -49,7 +49,7 @@ export function ApplyPanel({
       const result = await applyToJobAction(slug);
       if (result.ok) {
         setApplied(true);
-        router.refresh();
+        jobMatch?.patchApplicationState(slug, result.data.applicationState);
         return;
       }
       setFailure(result.reason);

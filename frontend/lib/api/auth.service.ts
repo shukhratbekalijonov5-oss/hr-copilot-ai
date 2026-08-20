@@ -2,6 +2,11 @@ import "server-only";
 
 import { apiFetch } from "@/lib/api/http";
 import { toAuthSession, toSessionUser } from "@/lib/api/adapters";
+import {
+  candidateRegistrationPayload,
+  loginPayload,
+  organizationRegistrationPayload,
+} from "@/lib/api/auth-payloads";
 import type {
   AuthSessionResponse,
   AuthSessionRowResponse,
@@ -21,44 +26,39 @@ import type {
 export function login(input: LoginInput): Promise<TokenPair> {
   return apiFetch<AuthSessionResponse>("/auth/login", {
     method: "POST",
-    body: {
-      email: input.email.trim(),
-      password: input.password,
-      deviceName: input.deviceName,
-    },
+    body: loginPayload(input),
     // No cookie exists yet, so no bearer token is attached.
     token: null,
   });
 }
 
-/**
- * POST /auth/register.
- *
- * Organization fields are sent only when both are present: the backend rejects
- * a half-filled pair, and omitting both is what registers a job seeker.
- */
-export function register(input: RegisterInput): Promise<TokenPair> {
-  const wantsOrganization = Boolean(
-    input.organizationName?.trim() && input.organizationSlug?.trim(),
-  );
-
-  return apiFetch<AuthSessionResponse>("/auth/register", {
+/** POST /auth/register/candidate → User(CANDIDATE) + CandidateAccount. */
+export function registerCandidate(input: RegisterInput): Promise<TokenPair> {
+  return apiFetch<AuthSessionResponse>("/auth/register/candidate", {
     method: "POST",
-    body: {
-      fullName: input.fullName.trim(),
-      email: input.email.trim(),
-      password: input.password,
-      preferredLocale: input.preferredLocale,
-      deviceName: input.deviceName,
-      ...(wantsOrganization
-        ? {
-            organizationName: input.organizationName!.trim(),
-            organizationSlug: input.organizationSlug!.trim(),
-          }
-        : {}),
-    },
+    body: candidateRegistrationPayload(input),
     token: null,
   });
+}
+
+/** POST /auth/register/organization → User(ORGANIZATION) + OWNER membership. */
+export function registerOrganization(input: RegisterInput): Promise<TokenPair> {
+  return apiFetch<AuthSessionResponse>("/auth/register/organization", {
+    method: "POST",
+    body: organizationRegistrationPayload(input),
+    token: null,
+  });
+}
+
+/** Kept for older call sites; new UI should call the explicit functions. */
+export function register(input: RegisterInput): Promise<TokenPair> {
+  const shared = {
+    organizationName: input.organizationName?.trim(),
+    organizationSlug: input.organizationSlug?.trim(),
+  };
+  return shared.organizationName && shared.organizationSlug
+    ? registerOrganization(input)
+    : registerCandidate(input);
 }
 
 /**

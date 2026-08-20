@@ -9,7 +9,11 @@ import {
   setAccessToken,
   setSessionTokens,
 } from "@/lib/api/session";
-import type { LoginInput, RegisterInput } from "@/lib/types";
+import {
+  safeReturnToForAccountType,
+  defaultRouteForAccountType,
+} from "@/lib/auth/routing";
+import type { AccountType, LoginInput, RegisterInput } from "@/lib/types";
 
 /**
  * Auth runs as server actions, which is the only place besides Proxy where
@@ -20,34 +24,18 @@ import type { LoginInput, RegisterInput } from "@/lib/types";
 export interface AuthActionResult {
   ok: boolean;
   message?: string;
+  code?: string | null;
   fieldErrors?: FieldErrors;
-}
-
-/**
- * Where a person lands after signing in.
- *
- * A user with an active organization goes to the recruiting dashboard; a job
- * seeker goes to the job board. `/` makes that decision from the live session
- * rather than guessing here, so one rule serves login, registration and the
- * already-signed-in redirect out of `/login`.
- */
-const LANDING_ROUTE = "/";
-
-function safeReturnTo(next: string | undefined): string {
-  // Only same-origin paths: an attacker-supplied absolute URL would turn the
-  // sign-in form into an open redirect.
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return LANDING_ROUTE;
-  }
-  return next;
 }
 
 export async function loginAction(
   input: LoginInput,
   next?: string,
 ): Promise<AuthActionResult> {
+  let pair: Awaited<ReturnType<typeof api.login>>;
   try {
-    await setSessionTokens(await api.login(input));
+    pair = await api.login(input);
+    await setSessionTokens(pair);
   } catch (error) {
     if (error instanceof ApiError) {
       // Never disclose whether the address exists — the backend already
@@ -55,6 +43,7 @@ export async function loginAction(
       return {
         ok: false,
         message: error.message,
+        code: error.code,
         fieldErrors: error.fieldErrors,
       };
     }
@@ -63,26 +52,44 @@ export async function loginAction(
 
   // Outside the try: redirect() signals by throwing, and catching it here
   // would swallow the navigation.
-  redirect(safeReturnTo(next));
+  const accountType = pair.user.accountType ?? input.accountType;
+  redirect(
+    accountType
+      ? safeReturnToForAccountType(
+          next,
+          accountType,
+          Boolean(pair.user.organizationId),
+        )
+      : "/",
+  );
 }
 
 export async function registerAction(
   input: RegisterInput,
+  accountType: AccountType,
 ): Promise<AuthActionResult> {
+  let pair: Awaited<ReturnType<typeof api.registerCandidate>>;
   try {
-    await setSessionTokens(await api.register(input));
+    pair =
+      accountType === "CANDIDATE"
+        ? await api.registerCandidate(input)
+        : await api.registerOrganization(input);
+    await setSessionTokens(pair);
   } catch (error) {
     if (error instanceof ApiError) {
       return {
         ok: false,
         message: error.message,
+        code: error.code,
         fieldErrors: error.fieldErrors,
       };
     }
     return { ok: false, message: "Could not create the account. Try again." };
   }
 
-  redirect(LANDING_ROUTE);
+  redirect(
+    defaultRouteForAccountType(accountType, Boolean(pair.user.organizationId)),
+  );
 }
 
 /**
