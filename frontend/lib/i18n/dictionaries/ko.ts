@@ -214,6 +214,8 @@ const ko: Dictionary = {
     organizationNameRequired: "회사 또는 조직 이름을 입력하세요.",
     slugRequired: "워크스페이스 주소를 입력하세요.",
     slugPattern: "영문 소문자, 숫자, 하이픈만 사용할 수 있습니다.",
+    emailInUse: "이미 사용 중인 이메일 주소입니다.",
+    websiteUrlInvalid: "http:// 또는 https:// 로 시작하는 올바른 URL을 입력하세요.",
   },
 
   register: {
@@ -658,6 +660,27 @@ const ko: Dictionary = {
       "선택한 지원자 중 {count}명은 이 공고에 대한 근거 매핑 결과가 없습니다. 매핑을 실행하면 해당 열이 채워집니다.",
   },
 
+  /**
+   * The caller's own account — shared by the recruiter settings screen and
+   * the job seeker's profile, because both edit the same three fields.
+   */
+  account: {
+    title: "내 계정",
+    description: "이름, 로그인 주소, 프로필 사진입니다.",
+    fullName: "이름",
+    email: "이메일",
+    emailHint: "로그인에 사용하는 주소입니다.",
+    uploadPhoto: "사진 업로드",
+    changePhoto: "사진 변경",
+    removePhoto: "사진 삭제",
+    photoHint: "PNG, JPEG 또는 WebP, 최대 5MB. 선택 사항이며 사진이 없으면 이니셜로 표시됩니다.",
+    saveChanges: "변경 사항 저장",
+    saveFailed: "프로필을 저장하지 못했습니다.",
+    photoFailed: "사진을 변경하지 못했습니다.",
+    imageTypeError: "지원하지 않는 이미지 형식입니다. PNG, JPEG 또는 WebP를 사용하세요.",
+    imageTooLarge: "이미지가 너무 큽니다. 최대 5MB입니다.",
+  },
+
   settings: {
     title: "설정",
     description: "프로필, 조직, 접근 권한을 관리합니다.",
@@ -671,7 +694,6 @@ const ko: Dictionary = {
     yourProfileHint: "워크스페이스의 다른 구성원에게 보이는 정보입니다.",
     fullName: "이름",
     email: "이메일",
-    emailLocked: "로그인 이메일 변경은 아직 API에서 지원하지 않습니다.",
     organization: "조직",
     organizationHint: "이 워크스페이스의 모든 구성원에게 적용됩니다.",
     organizationName: "조직 이름",
@@ -707,6 +729,9 @@ const ko: Dictionary = {
       "인터페이스 언어와 AI 답변이 작성되는 언어를 설정합니다. 인용된 이력서 구절은 원문 언어 그대로 유지됩니다.",
     languageStoredLocally:
       "선택한 언어는 이 브라우저에 저장됩니다. 계정에 저장된 언어가 있어 이 설정을 처음 보는 기기에서는 그 값이 사용되지만, API에 해당 언어를 변경하는 필드가 없어 여기서 바꾼 값은 다른 기기로 이어지지 않습니다.",
+    organizationUrl: "조직 URL",
+    organizationUrlPlaceholder: "https://northwind.example",
+    organizationUrlHint: "선택 사항입니다. 워크스페이스에 표시되며, 비워 두면 삭제됩니다.",
   },
 
   personal: {

@@ -33,7 +33,8 @@ export async function getSettings(): Promise<SettingsData> {
  */
 export async function updateOrganization(input: {
   name?: string;
-  slug?: string;
+  /** The organization's public web address. "" clears it (stored as null). */
+  websiteUrl?: string | null;
 }): Promise<Organization> {
   return toOrganization(
     await apiFetch<OrganizationResponse>("/organizations/current", {

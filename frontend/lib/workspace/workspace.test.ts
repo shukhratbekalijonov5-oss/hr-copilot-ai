@@ -22,6 +22,7 @@ function session(role: Role): SessionUser {
     email: "aziza@northwind.example",
     accountType: "ORGANIZATION",
     preferredLocale: "en",
+    avatarUrl: null,
     hasCandidateAccount: false,
     activeOrganization: { ...NORTHWIND, role },
     memberships: [{ organization: NORTHWIND, role, joinedAt: "2026-01-01T00:00:00.000Z" }],

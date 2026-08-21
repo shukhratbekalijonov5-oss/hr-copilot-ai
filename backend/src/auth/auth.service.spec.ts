@@ -13,6 +13,7 @@ import { MembershipService } from '../common/membership/membership.service';
 import { AccountTypeService } from '../common/identity/account-type.service';
 import { AccountType, Locale, Role } from '../generated/prisma/enums';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { StorageService } from '../storage/storage.service';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 const CONFIG: Record<string, unknown> = {
@@ -43,6 +44,13 @@ function createPrismaMock() {
     candidateAccount: { create: jest.fn() },
     $transaction: jest.fn(),
   };
+}
+
+/** Only /auth/me touches storage, and only to sign the caller's avatar. */
+function createStorageMock() {
+  return {
+    getSignedUrl: jest.fn().mockResolvedValue('https://signed.example/avatar'),
+  } as unknown as StorageService;
 }
 
 function createSessionsMock() {
@@ -92,6 +100,7 @@ describe('AuthService', () => {
       sessions as unknown as AuthSessionService,
       jwtService,
       createConfigMock(),
+      createStorageMock(),
     );
   });
 

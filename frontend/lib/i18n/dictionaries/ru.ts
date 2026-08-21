@@ -257,6 +257,8 @@ const ru: Dictionary = {
     organizationNameRequired: "Укажите название компании или организации.",
     slugRequired: "Укажите адрес пространства.",
     slugPattern: "Используйте только строчные латинские буквы, цифры и дефисы.",
+    emailInUse: "Этот адрес электронной почты уже используется.",
+    websiteUrlInvalid: "Введите корректный URL, начинающийся с http:// или https://.",
   },
 
   register: {
@@ -741,6 +743,27 @@ const ru: Dictionary = {
       "Для {count} из выбранных кандидатов нет сохранённого сопоставления по этой вакансии. Запустите его, чтобы заполнить эти столбцы.",
   },
 
+  /**
+   * The caller's own account — shared by the recruiter settings screen and
+   * the job seeker's profile, because both edit the same three fields.
+   */
+  account: {
+    title: "Ваш аккаунт",
+    description: "Имя, адрес для входа и фотография профиля.",
+    fullName: "Полное имя",
+    email: "Эл. почта",
+    emailHint: "Этот адрес используется для входа.",
+    uploadPhoto: "Загрузить фото",
+    changePhoto: "Изменить фото",
+    removePhoto: "Удалить фото",
+    photoHint: "PNG, JPEG или WebP, до 5 МБ. Необязательно — без фото отображаются ваши инициалы.",
+    saveChanges: "Сохранить изменения",
+    saveFailed: "Не удалось сохранить профиль.",
+    photoFailed: "Не удалось изменить фотографию.",
+    imageTypeError: "Этот файл не является поддерживаемым изображением. Используйте PNG, JPEG или WebP.",
+    imageTooLarge: "Изображение слишком большое. Максимум — 5 МБ.",
+  },
+
   settings: {
     title: "Настройки",
     description: "Ваш профиль, организация и доступ участников.",
@@ -754,7 +777,6 @@ const ru: Dictionary = {
     yourProfileHint: "Каким вас видят остальные в этом пространстве.",
     fullName: "Имя и фамилия",
     email: "Эл. почта",
-    emailLocked: "Смена адреса для входа пока не поддерживается API.",
     organization: "Организация",
     organizationHint: "Применяется ко всем в этом пространстве.",
     organizationName: "Название организации",
@@ -795,6 +817,9 @@ const ru: Dictionary = {
       "Задаёт язык интерфейса и язык, на котором пишутся AI-ответы. Цитаты из резюме остаются на языке оригинала.",
     languageStoredLocally:
       "Выбор хранится в этом браузере. В аккаунте есть сохранённый язык — он подставляется на устройстве, которое ещё не видело эту настройку, — но у API нет поля для его изменения, поэтому смена языка здесь не переносится на другие устройства.",
+    organizationUrl: "URL организации",
+    organizationUrlPlaceholder: "https://northwind.example",
+    organizationUrlHint: "Необязательно. Отображается в рабочем пространстве; оставьте пустым, чтобы удалить.",
   },
 
   personal: {

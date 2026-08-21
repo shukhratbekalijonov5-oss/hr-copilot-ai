@@ -36,6 +36,7 @@ import type {
   InviteToInterviewResponse,
   JobRequirementResponse,
   MeResponse,
+  AccountProfileResponse,
   OrganizationResponse,
   ProcessingJobResponse,
   UserResponse,
@@ -43,6 +44,7 @@ import type {
 } from "@/lib/api/contracts";
 import { PIPELINE_STAGES } from "@/lib/types";
 import type {
+  AccountProfile,
   Application,
   AuthSessionRow,
   Candidate,
@@ -104,6 +106,7 @@ export function toSessionUser(response: MeResponse): SessionUser {
     email: response.user.email,
     accountType: response.user.accountType,
     preferredLocale: response.user.preferredLocale,
+    avatarUrl: response.user.avatarUrl ?? null,
     hasCandidateAccount: response.candidateAccount.exists,
     activeOrganization: response.activeOrganization,
     memberships: response.memberships.map((membership) => ({
@@ -128,11 +131,25 @@ export function toAuthSession(
   };
 }
 
+export function toAccountProfile(
+  response: AccountProfileResponse,
+): AccountProfile {
+  return {
+    id: response.id,
+    fullName: response.fullName,
+    email: response.email,
+    accountType: response.accountType,
+    // Absent and null mean the same thing — no picture, render initials.
+    avatarUrl: response.avatarUrl ?? null,
+  };
+}
+
 export function toOrganization(response: OrganizationResponse): Organization {
   return {
     id: response.id,
     name: response.name,
     slug: response.slug,
+    websiteUrl: response.websiteUrl ?? null,
     createdAt: response.createdAt,
     updatedAt: response.updatedAt,
     counts: response._count,

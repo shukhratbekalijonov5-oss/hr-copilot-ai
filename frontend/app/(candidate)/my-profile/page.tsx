@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
+import { AccountProfileCard } from "@/components/account/AccountProfileCard";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { getTranslations } from "@/lib/i18n/server";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CandidateProfileWorkspace } from "@/components/candidate/CandidateProfileWorkspace";
@@ -18,7 +20,10 @@ export async function generateMetadata(): Promise<Metadata> {
  * person. The two are separate by design and are never merged here.
  */
 export default async function MyProfilePage() {
-  await requirePersonalWorkspace();
+  // The session is the caller's ACCOUNT (name, sign-in address, picture) —
+  // separate from the CandidateAccount below, which is the job-seeker profile.
+  // Both are edited on this page; neither is the other.
+  const { session } = await requirePersonalWorkspace();
   const [d, account] = await Promise.all([
     getTranslations(),
     // Null simply means the profile has not been created yet, which is the
@@ -40,6 +45,21 @@ export default async function MyProfilePage() {
         title={d.candidateProfile.title}
         description={d.candidateProfile.description}
       />
+      {/*
+        Account identity first: it is the one part of this page that exists
+        before a job-seeker profile does, and the same component the recruiter
+        settings screen uses.
+      */}
+      <Card className="mb-4">
+        <CardHeader
+          title={d.account.title}
+          description={d.account.description}
+        />
+        <CardBody>
+          <AccountProfileCard user={session} />
+        </CardBody>
+      </Card>
+
       <CandidateProfileWorkspace
         account={account}
         documents={documents}

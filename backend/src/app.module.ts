@@ -15,6 +15,7 @@ import { AiModule } from './ai/ai.module';
 
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
+import { AccountModule } from './account/account.module';
 import { CandidateAccountModule } from './candidate-account/candidate-account.module';
 import { CandidateLinksModule } from './candidate-links/candidate-links.module';
 import { WebIngestionModule } from './web-ingestion/web-ingestion.module';
@@ -80,6 +81,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     // Feature modules
     HealthModule,
     AuthModule,
+    AccountModule,
     CandidateAccountModule,
     CandidateLinksModule,
     PublicJobsModule,

@@ -75,7 +75,7 @@ export class DocumentsController {
 
     res.setHeader(
       'content-type',
-      metadata?.mimeType ?? 'application/octet-stream',
+      metadata?.mimeType ?? contentTypeForKey(key ?? ''),
     );
     res.setHeader(
       'content-disposition',
@@ -130,6 +130,28 @@ export class DocumentsController {
  * RFC 5987 `filename*` carries the exact UTF-8 name for modern browsers —
  * uploads are routinely Korean/Russian/Uzbek.
  */
+/**
+ * Content type for a signed object that is NOT a document row.
+ *
+ * Profile pictures live in the same storage and are served through this same
+ * signed route, so they have no `documents` row to read a MIME type from. The
+ * extension is enough here precisely because it is not attacker-chosen: an
+ * avatar key is built by the backend from the type the upload validator proved
+ * by magic number. Anything unrecognised stays `application/octet-stream`,
+ * which a browser will download rather than execute.
+ */
+export function contentTypeForKey(key: string): string {
+  const extension = key.slice(key.lastIndexOf('.')).toLowerCase();
+  const byExtension: Record<string, string> = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.pdf': 'application/pdf',
+  };
+  return byExtension[extension] ?? 'application/octet-stream';
+}
+
 export function inlineDisposition(originalFileName: string): string {
   const fallback = originalFileName.replace(/[\r\n"\\]/g, '_');
   const encoded = encodeURIComponent(originalFileName).replace(

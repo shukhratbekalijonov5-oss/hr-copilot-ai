@@ -25,6 +25,7 @@ function organizationAccount(activeId: string | null = NORTHWIND.id): SessionUse
     email: "yuna@example.test",
     accountType: "ORGANIZATION",
     preferredLocale: "ko",
+    avatarUrl: null,
     hasCandidateAccount: false,
     activeOrganization: active
       ? { ...active.organization, role: active.role }
@@ -40,6 +41,7 @@ function jobSeeker(): SessionUser {
     email: "jasur@example.test",
     accountType: "CANDIDATE",
     preferredLocale: "uz",
+    avatarUrl: null,
     hasCandidateAccount: true,
     activeOrganization: null,
     memberships: [],

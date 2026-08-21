@@ -86,7 +86,7 @@ export function Header({
             aria-haspopup="menu"
             className="flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-1.5 hover:bg-surface-muted"
           >
-            <Avatar name={user.fullName} size="sm" />
+            <Avatar name={user.fullName} src={user.avatarUrl} size="sm" />
             <span className="hidden text-[13px] font-medium text-ink sm:block">
               {user.fullName.split(" ")[0]}
             </span>

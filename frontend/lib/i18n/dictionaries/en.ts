@@ -271,6 +271,8 @@ const en = {
     organizationNameRequired: "Company or organization name is required.",
     slugRequired: "Workspace URL is required.",
     slugPattern: "Use lowercase letters, numbers and hyphens only.",
+    emailInUse: "That email address is already in use.",
+    websiteUrlInvalid: "Enter a valid URL starting with http:// or https://.",
   },
 
   register: {
@@ -746,6 +748,27 @@ const en = {
       "{count} of the selected candidates have no stored evidence map for this vacancy. Run the mapping to fill those columns.",
   },
 
+  /**
+   * The caller's own account — shared by the recruiter settings screen and
+   * the job seeker's profile, because both edit the same three fields.
+   */
+  account: {
+    title: "Your account",
+    description: "Your name, sign-in address and profile picture.",
+    fullName: "Full name",
+    email: "Email",
+    emailHint: "This is the address you sign in with.",
+    uploadPhoto: "Upload photo",
+    changePhoto: "Change photo",
+    removePhoto: "Remove photo",
+    photoHint: "PNG, JPEG or WebP, up to 5 MB. Optional — without one you appear as your initials.",
+    saveChanges: "Save changes",
+    saveFailed: "Could not save your profile.",
+    photoFailed: "Could not update your photo.",
+    imageTypeError: "That file is not a supported image. Use a PNG, JPEG or WebP.",
+    imageTooLarge: "That image is too large. The limit is 5 MB.",
+  },
+
   settings: {
     title: "Settings",
     description: "Your profile, the organization, and who has access.",
@@ -759,7 +782,6 @@ const en = {
     yourProfileHint: "How you appear to the rest of the workspace.",
     fullName: "Full name",
     email: "Email",
-    emailLocked: "Changing your sign-in address is not supported by the API yet.",
     organization: "Organization",
     organizationHint: "Applies to everyone in this workspace.",
     organizationName: "Organization name",
@@ -798,6 +820,9 @@ const en = {
       "Sets the interface language and the language AI answers are written in. Quoted resume passages stay in their original language.",
     languageStoredLocally:
       "Your choice is kept in this browser. Your account carries a stored language that seeds it on a device that has not seen this setting, but the API exposes no field to update that language — so a change made here does not follow you.",
+    organizationUrl: "Organization URL",
+    organizationUrlPlaceholder: "https://northwind.example",
+    organizationUrlHint: "Optional. Shown on your workspace; leave blank to remove it.",
   },
 
   personal: {

@@ -2,10 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  updateOrganizationAction,
-  updateProfileAction,
-} from "@/app/(app)/settings/actions";
+import { updateOrganizationAction } from "@/app/(app)/settings/actions";
+import { AccountProfileCard } from "@/components/account/AccountProfileCard";
+import { validateWebsiteUrl } from "@/lib/account/validation";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -67,15 +66,10 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
   const integrationHint = (id: string) =>
     d.integrations[id as keyof Dictionary["integrations"]];
 
-  const [fullName, setFullName] = useState(settings.user.fullName);
-  const [profileState, setProfileState] = useState<{
-    saved: boolean;
-    error: string | null;
-    fieldErrors: FieldErrors;
-  }>({ saved: false, error: null, fieldErrors: {} });
-  const [profilePending, startProfile] = useTransition();
-
   const [orgName, setOrgName] = useState(settings.organization.name);
+  const [websiteUrl, setWebsiteUrl] = useState(
+    settings.organization.websiteUrl ?? "",
+  );
   const [orgState, setOrgState] = useState<{
     saved: boolean;
     error: string | null;
@@ -83,35 +77,28 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
   }>({ saved: false, error: null, fieldErrors: {} });
   const [orgPending, startOrg] = useTransition();
 
-  function saveProfile(event: React.FormEvent) {
-    event.preventDefault();
-    if (profilePending) return;
-    setProfileState({ saved: false, error: null, fieldErrors: {} });
-
-    startProfile(async () => {
-      const result = await updateProfileAction(settings.user.id, {
-        fullName: fullName.trim(),
-      });
-      if (result.ok) {
-        setProfileState({ saved: true, error: null, fieldErrors: {} });
-        router.refresh();
-      } else {
-        setProfileState({
-          saved: false,
-          error: result.message ?? d.settings.couldNotSave,
-          fieldErrors: result.fieldErrors ?? {},
-        });
-      }
-    });
-  }
-
   function saveOrganization(event: React.FormEvent) {
     event.preventDefault();
     if (orgPending) return;
     setOrgState({ saved: false, error: null, fieldErrors: {} });
 
+    // The URL is optional — blank clears it — but a value that is present
+    // must be a real http(s) address, matching the backend rule exactly.
+    const urlError = validateWebsiteUrl(websiteUrl, d);
+    if (urlError) {
+      setOrgState({
+        saved: false,
+        error: null,
+        fieldErrors: { websiteUrl: urlError },
+      });
+      return;
+    }
+
     startOrg(async () => {
-      const result = await updateOrganizationAction({ name: orgName.trim() });
+      const result = await updateOrganizationAction({
+        name: orgName.trim(),
+        websiteUrl: websiteUrl.trim(),
+      });
       if (result.ok) {
         setOrgState({ saved: true, error: null, fieldErrors: {} });
         router.refresh();
@@ -136,49 +123,18 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
             description={d.settings.yourProfileHint}
           />
           <CardBody>
-            <form onSubmit={saveProfile} className="flex flex-col gap-4">
-              <FormError message={profileState.error} />
-
-              <div className="flex items-center gap-3">
-                <Avatar name={fullName || settings.user.email} size="lg" />
-                <div>
-                  <p className="text-[13px] font-medium text-ink">
-                    {settings.user.fullName}
-                  </p>
-                  <p className="text-[12.5px] text-ink-muted">
-                    {settings.user.activeOrganization
-                      ? `${d.status.role[settings.user.activeOrganization.role]} · ${settings.user.activeOrganization.name}`
-                      : d.nav.personal}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Input
-                  label={d.settings.fullName}
-                  value={fullName}
-                  disabled={profilePending}
-                  error={profileState.fieldErrors.fullName}
-                  onChange={(event) => setFullName(event.target.value)}
-                />
-                <Input
-                  label={d.settings.email}
-                  value={settings.user.email}
-                  disabled
-                  hint={d.settings.emailLocked}
-                />
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Button type="submit" loading={profilePending}>
-                  {d.common.save}
-                </Button>
-                <SavedNote
-                  visible={profileState.saved && !profilePending}
-                  label={d.common.saved}
-                />
-              </div>
-            </form>
+            {/*
+              The same component the candidate profile uses: name, sign-in
+              address and picture are one account, edited through one endpoint.
+            */}
+            <AccountProfileCard
+              user={settings.user}
+              subtitle={
+                settings.user.activeOrganization
+                  ? `${d.status.role[settings.user.activeOrganization.role]} · ${settings.user.activeOrganization.name}`
+                  : d.nav.personal
+              }
+            />
           </CardBody>
         </Card>
       ),
@@ -209,6 +165,18 @@ export function SettingsWorkspace({ settings }: { settings: SettingsData }) {
                   value={settings.organization.slug}
                   disabled
                   hint={d.settings.slugLocked}
+                />
+                <Input
+                  label={d.settings.organizationUrl}
+                  type="url"
+                  inputMode="url"
+                  placeholder={d.settings.organizationUrlPlaceholder}
+                  value={websiteUrl}
+                  disabled={orgPending}
+                  error={orgState.fieldErrors.websiteUrl}
+                  hint={d.settings.organizationUrlHint}
+                  onChange={(event) => setWebsiteUrl(event.target.value)}
+                  wrapperClassName="sm:col-span-2"
                 />
               </div>
 

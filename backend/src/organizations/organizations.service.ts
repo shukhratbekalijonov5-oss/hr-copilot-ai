@@ -24,6 +24,7 @@ export class OrganizationsService {
         id: true,
         name: true,
         slug: true,
+        websiteUrl: true,
         createdAt: true,
         updatedAt: true,
         _count: {
@@ -51,6 +52,7 @@ export class OrganizationsService {
         id: true,
         name: true,
         slug: true,
+        websiteUrl: true,
         createdAt: true,
         updatedAt: true,
       },

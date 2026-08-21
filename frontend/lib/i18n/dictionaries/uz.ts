@@ -244,6 +244,8 @@ const uz: Dictionary = {
     organizationNameRequired: "Kompaniya yoki tashkilot nomini kiriting.",
     slugRequired: "Ish maydoni manzilini kiriting.",
     slugPattern: "Faqat kichik lotin harflari, raqamlar va defis ishlating.",
+    emailInUse: "Bu email manzili allaqachon band.",
+    websiteUrlInvalid: "http:// yoki https:// bilan boshlanadigan to‘g‘ri URL kiriting.",
   },
 
   register: {
@@ -719,6 +721,27 @@ const uz: Dictionary = {
       "Tanlangan nomzodlardan {count} tasida bu vakansiya boʻyicha saqlangan dalil xaritasi yoʻq. Ustunlarni toʻldirish uchun xaritalashni ishga tushiring.",
   },
 
+  /**
+   * The caller's own account — shared by the recruiter settings screen and
+   * the job seeker's profile, because both edit the same three fields.
+   */
+  account: {
+    title: "Hisobingiz",
+    description: "Ismingiz, kirish manzili va profil rasmi.",
+    fullName: "To‘liq ism",
+    email: "Email",
+    emailHint: "Bu manzil orqali tizimga kirasiz.",
+    uploadPhoto: "Rasm yuklash",
+    changePhoto: "Rasmni almashtirish",
+    removePhoto: "Rasmni o‘chirish",
+    photoHint: "PNG, JPEG yoki WebP, 5 MB gacha. Ixtiyoriy — rasmsiz bosh harflaringiz ko‘rinadi.",
+    saveChanges: "O‘zgarishlarni saqlash",
+    saveFailed: "Profilni saqlab bo‘lmadi.",
+    photoFailed: "Rasmni yangilab bo‘lmadi.",
+    imageTypeError: "Bu fayl qo‘llab-quvvatlanadigan rasm emas. PNG, JPEG yoki WebP ishlating.",
+    imageTooLarge: "Rasm juda katta. Chegara — 5 MB.",
+  },
+
   settings: {
     title: "Sozlamalar",
     description: "Profilingiz, tashkilot va kimda ruxsat borligi.",
@@ -732,7 +755,6 @@ const uz: Dictionary = {
     yourProfileHint: "Ish maydonidagi boshqalar sizni qanday koʻradi.",
     fullName: "Toʻliq ism",
     email: "Email",
-    emailLocked: "Kirish manzilini oʻzgartirishni API hali qoʻllab-quvvatlamaydi.",
     organization: "Tashkilot",
     organizationHint: "Ushbu ish maydonidagi hammaga taalluqli.",
     organizationName: "Tashkilot nomi",
@@ -771,6 +793,9 @@ const uz: Dictionary = {
       "Interfeys tilini va AI javoblari yoziladigan tilni belgilaydi. Iqtibos keltirilgan rezyume parchalari asl tilida qoladi.",
     languageStoredLocally:
       "Tanlovingiz shu brauzerda saqlanadi. Hisobingizda saqlangan til bor va u ushbu sozlamani koʻrmagan qurilmada ishlatiladi, ammo API’da bu tilni oʻzgartiradigan maydon yoʻq — shuning uchun bu yerdagi oʻzgarish boshqa qurilmaga oʻtmaydi.",
+    organizationUrl: "Tashkilot URL manzili",
+    organizationUrlPlaceholder: "https://northwind.example",
+    organizationUrlHint: "Ixtiyoriy. Ish maydonida ko‘rsatiladi; o‘chirish uchun bo‘sh qoldiring.",
   },
 
   personal: {

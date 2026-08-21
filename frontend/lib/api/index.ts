@@ -7,6 +7,7 @@ import "server-only";
  */
 import * as ai from "@/lib/api/ai.service";
 import * as applications from "@/lib/api/applications.service";
+import * as account from "@/lib/api/account.service";
 import * as auth from "@/lib/api/auth.service";
 import * as candidateAccount from "@/lib/api/candidate-account.service";
 import * as candidateLinks from "@/lib/api/candidate-links.service";
@@ -35,6 +36,11 @@ export const api = {
   logoutAll: auth.logoutAll,
   listSessions: auth.listSessions,
   revokeSession: auth.revokeSession,
+
+  // the caller's own account (both workspaces)
+  getAccountProfile: account.getAccountProfile,
+  updateAccountProfile: account.updateAccountProfile,
+  deleteAvatar: account.deleteAvatar,
 
   // dashboard & organization
   getDashboard: dashboard.getDashboard,

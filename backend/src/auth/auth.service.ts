@@ -11,6 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MembershipService } from '../common/membership/membership.service';
 import { AccountTypeService } from '../common/identity/account-type.service';
 import { AuthSessionService } from './auth-session.service';
+import { StorageService } from '../storage/storage.service';
+import { signAvatarUrl } from '../account/avatar-url';
 import {
   AUTH_ERROR_CODES,
   authConflict,
@@ -70,6 +72,9 @@ export class AuthService {
     private readonly sessions: AuthSessionService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    // StorageModule is @Global, so this needs no module import. Only used to
+    // mint the caller's own avatar URL for /auth/me.
+    private readonly storage: StorageService,
   ) {}
 
   /**
@@ -429,6 +434,10 @@ export class AuthService {
         (m) => m.organizationId === actor.activeOrganizationClaim,
       ) ?? null;
 
+    // Short-lived and re-minted on every read, so the header always shows the
+    // current picture and no response ever carries the storage key.
+    const avatarUrl = await signAvatarUrl(this.storage, user.avatarStorageKey);
+
     return {
       // Legacy-flat fields, kept for the pre-migration frontend contract.
       id: user.id,
@@ -436,6 +445,7 @@ export class AuthService {
       fullName: user.fullName,
       accountType: user.accountType,
       preferredLocale: user.preferredLocale,
+      avatarUrl,
       role: active?.role ?? null,
       organizationId: active?.organizationId ?? null,
       organization: active ? active.organization : null,
@@ -448,6 +458,9 @@ export class AuthService {
         fullName: user.fullName,
         accountType: user.accountType,
         preferredLocale: user.preferredLocale,
+        /// null means "no picture" — the UI renders initials, which is a
+        /// normal state and not a missing value.
+        avatarUrl,
       },
       candidateAccount: { exists: user.candidateAccount !== null },
       activeOrganization: active

@@ -17,21 +17,18 @@ function toResult(error: unknown, fallback: string): SettingsActionResult {
   return { ok: false, message: fallback };
 }
 
-export async function updateProfileAction(
-  userId: string,
-  input: { fullName: string },
-): Promise<SettingsActionResult> {
-  try {
-    await api.updateTeamMember(userId, input);
-    revalidatePath("/settings");
-    return { ok: true };
-  } catch (error) {
-    return toResult(error, "Could not save your profile.");
-  }
-}
-
+/*
+ * The caller's OWN name, email and picture are not here.
+ *
+ * They live on the account, not on a membership, so they are edited through
+ * the shared `lib/account/actions.ts` — the same actions the candidate profile
+ * uses. `api.updateTeamMember` remains for what it is actually for: changing a
+ * TEAMMATE's role inside this organization.
+ */
 export async function updateOrganizationAction(input: {
   name: string;
+  /** Empty string clears the address; the backend stores it as null. */
+  websiteUrl?: string;
 }): Promise<SettingsActionResult> {
   try {
     await api.updateOrganization(input);

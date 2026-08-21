@@ -42,6 +42,8 @@ export interface Organization {
   id: ID;
   name: string;
   slug: string;
+  /** The organization's public web address. Optional — null when unset. */
+  websiteUrl?: string | null;
   createdAt?: ISODateString;
   updatedAt?: ISODateString;
   /** Present on GET /organizations/current. */
@@ -89,10 +91,37 @@ export interface SessionUser {
   email: string;
   accountType: AccountType;
   preferredLocale: Locale;
+  /**
+   * Short-lived signed URL for the profile picture, or null for "no picture".
+   * Null is a normal state, not a missing value: the UI renders initials.
+   */
+  avatarUrl: string | null;
   /** True once the user has created their personal job-seeker profile. */
   hasCandidateAccount: boolean;
   activeOrganization: ActiveOrganization | null;
   memberships: Membership[];
+}
+
+/**
+ * The caller's own editable account, as GET/PATCH /account/me returns it.
+ *
+ * Deliberately smaller than `SessionUser`: this is the identity a person edits
+ * (name, sign-in address, picture), not the workspace context they are looking
+ * at. Both account types use the same shape.
+ */
+export interface AccountProfile {
+  id: ID;
+  fullName: string;
+  email: string;
+  accountType: AccountType;
+  /** null means "no picture" — the UI falls back to initials. */
+  avatarUrl: string | null;
+}
+
+/** PATCH /account/me — send only the fields that changed. */
+export interface AccountProfileInput {
+  fullName?: string;
+  email?: string;
 }
 
 /** One live browser/device session from GET /auth/sessions. */

@@ -107,6 +107,8 @@ export interface MeResponse {
     fullName: string;
     accountType: AccountType;
     preferredLocale: SupportedLocale;
+    /** Short-lived signed URL, or null when the account has no picture. */
+    avatarUrl?: string | null;
   };
   candidateAccount: { exists: boolean };
   activeOrganization: {
@@ -169,6 +171,8 @@ export interface OrganizationResponse {
   id: string;
   name: string;
   slug: string;
+  /** Optional public web address; null when the organization has none. */
+  websiteUrl?: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: {
@@ -186,6 +190,24 @@ export interface OrganizationStatsResponse {
   candidates: number;
   applications: number;
   documents: number;
+}
+
+/**
+ * GET/PATCH /account/me, and the reply to an avatar upload or delete.
+ *
+ * The storage key is never in here: the backend mints a short-lived
+ * `avatarUrl` per response instead, so nothing durable a client holds can be
+ * turned back into a permanent link to somebody's picture.
+ */
+export interface AccountProfileResponse {
+  id: string;
+  email: string;
+  fullName: string;
+  accountType: AccountType;
+  preferredLocale: SupportedLocale;
+  avatarUrl: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface UserResponse {
