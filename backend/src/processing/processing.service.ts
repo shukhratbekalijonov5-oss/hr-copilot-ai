@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import {
   DocumentStatus,
@@ -26,6 +27,7 @@ export class ProcessingService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantService,
     private readonly gateway: ProcessingGateway,
+    private readonly ownedVacancies: OwnedVacancyService,
   ) {}
 
   /** Creates the PENDING tracking row that accompanies a queued document. */
@@ -220,15 +222,39 @@ export class ProcessingService {
 
   // -- Read APIs for the frontend -----------------------------------------
 
+  /**
+   * Processing monitoring, organization-wide by default.
+   *
+   * Processing stays DOCUMENT-centric — a job belongs to a document, not a
+   * vacancy, and one applicant's submitted resume serves every vacancy that
+   * person applied to, so nothing here duplicates jobs per vacancy. The
+   * optional `vacancyId` (must be one of the CALLER'S OWN vacancies) merely
+   * FILTERS to jobs whose document belongs to an applicant of that vacancy.
+   * Jobs for documents with no candidate link (legacy rows from before HR
+   * upload was removed) are only reachable through the unfiltered
+   * organization view.
+   */
   async findAll(
     organizationId: string,
+    userId: string,
     page: number,
     limit: number,
     status?: ProcessingJobStatus,
+    vacancyId?: string,
   ): Promise<PaginatedResult<unknown>> {
+    if (vacancyId) {
+      await this.ownedVacancies.requireOwned(userId, organizationId, vacancyId);
+    }
     const where = {
       ...this.tenant.scope(organizationId),
       ...(status ? { status } : {}),
+      ...(vacancyId
+        ? {
+            document: {
+              candidate: { applications: { some: { vacancyId } } },
+            },
+          }
+        : {}),
     };
 
     const [data, total] = await this.prisma.$transaction([

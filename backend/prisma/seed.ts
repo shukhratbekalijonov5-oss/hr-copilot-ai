@@ -247,38 +247,62 @@ async function main(): Promise<void> {
     employmentType: 'Full-time',
   });
 
-  // --- Manually uploaded candidates (no CandidateAccount — correct) ---------
+  // --- Applicants: real people who applied themselves -----------------------
+  //
+  // The ONLY way a candidate enters a recruiter's pipeline is by applying, so
+  // the seed mirrors that shape: a User with a CandidateAccount, an org-side
+  // Candidate LINKED to that account, and a DIRECT application. Recruiters can
+  // no longer create candidates, so seeding an accountless one would fabricate
+  // a state the product cannot produce (and every applicant surface filters
+  // such rows out anyway).
 
-  const candidateSeeds = [
-    { fullName: 'Aziza Karimova', email: 'aziza.karimova@example.test', phone: '+998 90 000 0001', location: 'Tashkent, UZ', currentTitle: 'Backend Engineer', totalExperienceYears: 6 },
-    { fullName: 'Tobias Lindqvist', email: 'tobias.lindqvist@example.test', phone: '+46 70 000 0002', location: 'Stockholm, SE', currentTitle: 'Senior Software Engineer', totalExperienceYears: 9 },
-    { fullName: 'Rina Okafor', email: 'rina.okafor@example.test', phone: '+234 80 000 0003', location: 'Lagos, NG', currentTitle: 'Platform Engineer', totalExperienceYears: 4 },
-    { fullName: 'Mateo Silva', email: 'mateo.silva@example.test', phone: '+55 11 00000 0004', location: 'São Paulo, BR', currentTitle: 'Full-stack Developer', totalExperienceYears: 3 },
-    { fullName: 'Hana Yamamoto', email: 'hana.yamamoto@example.test', phone: '+81 90 0000 0005', location: 'Osaka, JP', currentTitle: 'Staff Engineer', totalExperienceYears: 11 },
+  const applicantSeeds = [
+    { email: 'aziza.karimova@example.test', fullName: 'Aziza Karimova', locale: Locale.uz, phone: '+998 90 000 0001', location: 'Tashkent, UZ', headline: 'Backend Engineer', years: 6, status: ApplicationStatus.NEW },
+    { email: 'tobias.lindqvist@example.test', fullName: 'Tobias Lindqvist', locale: Locale.en, phone: '+46 70 000 0002', location: 'Stockholm, SE', headline: 'Senior Software Engineer', years: 9, status: ApplicationStatus.REVIEWING },
+    { email: 'rina.okafor@example.test', fullName: 'Rina Okafor', locale: Locale.en, phone: '+234 80 000 0003', location: 'Lagos, NG', headline: 'Platform Engineer', years: 4, status: ApplicationStatus.NEW },
   ];
 
-  // Annotated so TypeScript does not infer never[] from the empty literal.
-  const candidates: Awaited<ReturnType<typeof prisma.candidate.create>>[] = [];
-  for (const seed of candidateSeeds) {
-    const existing = await prisma.candidate.findFirst({
-      where: { organizationId: northwind.id, email: seed.email },
-    });
-    candidates.push(
-      existing ??
-        (await prisma.candidate.create({
-          data: { ...seed, organizationId: northwind.id },
-        })),
+  const applicants: string[] = [];
+  for (const seed of applicantSeeds) {
+    const user = await upsertUser(
+      seed.email,
+      seed.fullName,
+      AccountType.CANDIDATE,
+      seed.locale,
     );
-  }
-
-  // A few applications at different human-chosen stages. Nothing here was
-  // decided by the system; all were recruiter-created, hence MANUAL_UPLOAD.
-  const stages = [
-    ApplicationStatus.NEW,
-    ApplicationStatus.REVIEWING,
-    ApplicationStatus.INTERVIEW,
-  ];
-  for (const [index, candidate] of candidates.slice(0, 3).entries()) {
+    const account = await prisma.candidateAccount.upsert({
+      where: { userId: user.id },
+      update: {},
+      create: {
+        userId: user.id,
+        headline: seed.headline,
+        location: seed.location,
+        phone: seed.phone,
+      },
+      select: { id: true },
+    });
+    const candidate = await prisma.candidate.upsert({
+      where: {
+        organizationId_candidateAccountId: {
+          organizationId: northwind.id,
+          candidateAccountId: account.id,
+        },
+      },
+      update: {},
+      create: {
+        organizationId: northwind.id,
+        candidateAccountId: account.id,
+        fullName: seed.fullName,
+        email: seed.email,
+        phone: seed.phone,
+        location: seed.location,
+        currentTitle: seed.headline,
+        totalExperienceYears: seed.years,
+      },
+      select: { id: true },
+    });
+    // Stages differ so the pipeline UI has something to show; a human moved
+    // each one — nothing here was decided by the system.
     await prisma.application.upsert({
       where: {
         vacancyId_candidateId: { vacancyId: vacancy.id, candidateId: candidate.id },
@@ -287,15 +311,18 @@ async function main(): Promise<void> {
       create: {
         vacancyId: vacancy.id,
         candidateId: candidate.id,
-        status: stages[index],
-        source: ApplicationSource.MANUAL_UPLOAD,
+        status: seed.status,
+        source: ApplicationSource.DIRECT,
       },
     });
+    applicants.push(candidate.id);
   }
 
   // No documents, evidence or processing jobs are seeded: those only exist as
-  // the result of a real upload, and faking them would misrepresent the
-  // processing pipeline as having run.
+  // the result of a real application upload, and faking them would
+  // misrepresent the processing pipeline as having run. Use
+  // `npm run seed:synthetic` for a dataset that goes through the real apply
+  // path end to end.
   console.log('Seed complete');
   console.log(`  organization : ${northwind.slug} (${northwind.name})`);
   console.log(`  second org   : ${rival.slug} (for tenant-isolation checks)`);
@@ -305,7 +332,7 @@ async function main(): Promise<void> {
   console.log(`  job seeker   : ${seeker.email} (CANDIDATE, uz)`);
   console.log(`  job seeker 2 : ${seekerKo.email} (CANDIDATE, ko)`);
   console.log(`  vacancy      : ${vacancy.title} (public slug: ${vacancy.publicSlug})`);
-  console.log(`  candidates   : ${candidates.length} (manual, no CandidateAccount)`);
+  console.log(`  applicants   : ${applicants.length} (CandidateAccount + DIRECT application)`);
   console.log(`  password     : ${DEV_PASSWORD}  (development only)`);
 }
 

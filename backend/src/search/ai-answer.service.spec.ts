@@ -1,6 +1,7 @@
 import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { AiAnswerService } from './ai-answer.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import {
   AiServiceDisabledError,
   isSupportedLocale,
@@ -64,13 +65,26 @@ describe('AiAnswerService', () => {
       vacancy: {
         findFirst: jest.fn().mockResolvedValue({
           id: VAC,
+          title: 'Backend Engineer',
+          status: 'OPEN',
+          createdById: USER,
           requirements: [
             { id: 'r1', text: 'NestJS', type: 'SKILL', required: true },
           ],
         }),
       },
+      application: {
+        // The candidate HAS applied to the vacancy by default (the applicant
+        // association is what every candidate-in-vacancy AI path requires).
+        findFirst: jest.fn().mockResolvedValue({ id: 'assoc-1' }),
+      },
     };
-    service = new AiAnswerService(ai, prisma, new TenantService());
+    service = new AiAnswerService(
+      ai,
+      prisma,
+      new TenantService(),
+      new OwnedVacancyService(prisma),
+    );
   });
 
   describe('tenant identity', () => {
@@ -91,7 +105,11 @@ describe('AiAnswerService', () => {
       prisma.candidate.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.answer(ORG_A, USER, { query: 'x', candidateId: 'foreign' }),
+        service.answer(ORG_A, USER, {
+          query: 'x',
+          candidateId: 'foreign',
+          vacancyId: VAC,
+        }),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(ai.answerQuestion).not.toHaveBeenCalled();
     });
@@ -109,7 +127,7 @@ describe('AiAnswerService', () => {
       prisma.candidate.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.summariseCandidate(ORG_A, USER, 'foreign'),
+        service.summariseCandidate(ORG_A, USER, 'foreign', VAC),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(ai.summariseCandidate).not.toHaveBeenCalled();
     });
@@ -148,7 +166,7 @@ describe('AiAnswerService', () => {
     it('summaries and interview questions use the same precedence', async () => {
       prisma.user.findUnique.mockResolvedValue({ preferredLocale: 'ko' });
 
-      await service.summariseCandidate(ORG_A, USER, CAND, undefined);
+      await service.summariseCandidate(ORG_A, USER, CAND, VAC, undefined);
       expect(ai.summariseCandidate.mock.calls[0][0].locale).toBe('ko');
 
       await service.interviewQuestions(ORG_A, USER, CAND, VAC, undefined);
@@ -207,6 +225,85 @@ describe('AiAnswerService', () => {
       await expect(service.answer(ORG_A, USER, { query: 'x' })).rejects.toThrow(
         'provider timeout',
       );
+    });
+  });
+
+  describe('vacancy-scoped workspace rule', () => {
+    it('asking ABOUT a candidate requires a selected vacancy', async () => {
+      await expect(
+        service.answer(ORG_A, USER, { query: 'x', candidateId: CAND }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(ai.answerQuestion).not.toHaveBeenCalled();
+    });
+
+    it('Ask sends the selected vacancy as generation grounding', async () => {
+      await service.answer(ORG_A, USER, {
+        query: 'Does the candidate know NestJS?',
+        candidateId: CAND,
+        vacancyId: VAC,
+      });
+
+      expect(ai.answerQuestion.mock.calls[0][0].vacancy).toEqual({
+        vacancyId: VAC,
+        title: 'Backend Engineer',
+        requirements: [{ text: 'NestJS', required: true }],
+      });
+    });
+
+    it('the org-wide AI Search grounded answer stays lawful without a vacancy', async () => {
+      await service.answer(ORG_A, USER, { query: 'kubernetes experience' });
+
+      expect(ai.answerQuestion.mock.calls[0][0].vacancy).toBeNull();
+    });
+
+    it("a same-org colleague's vacancy is refused for Ask/summary/questions", async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({
+        id: VAC,
+        title: 'Backend Engineer',
+        status: 'OPEN',
+        createdById: 'someone-else',
+        requirements: [],
+      });
+
+      await expect(
+        service.answer(ORG_A, USER, { query: 'x', vacancyId: VAC }),
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        service.summariseCandidate(ORG_A, USER, CAND, VAC),
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        service.interviewQuestions(ORG_A, USER, CAND, VAC),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(ai.summariseCandidate).not.toHaveBeenCalled();
+      expect(ai.interviewQuestions).not.toHaveBeenCalled();
+    });
+
+    it('a candidate outside the selected vacancy is refused everywhere', async () => {
+      prisma.application.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.summariseCandidate(ORG_A, USER, CAND, VAC),
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        service.interviewQuestions(ORG_A, USER, CAND, VAC),
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        service.answer(ORG_A, USER, {
+          query: 'x',
+          candidateId: CAND,
+          vacancyId: VAC,
+        }),
+      ).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('the summary is grounded in the SELECTED vacancy requirements', async () => {
+      await service.summariseCandidate(ORG_A, USER, CAND, VAC);
+
+      expect(ai.summariseCandidate.mock.calls[0][0].vacancy).toEqual({
+        vacancyId: VAC,
+        title: 'Backend Engineer',
+        requirements: [{ text: 'NestJS', required: true }],
+      });
     });
   });
 });

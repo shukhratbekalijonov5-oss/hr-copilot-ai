@@ -93,12 +93,27 @@ def locale_instruction(locale: str) -> str:
     )
 
 
-def build_answer_prompt(question: str, hits: list[EvidenceHit], locale: str) -> str:
+def build_answer_prompt(
+    question: str,
+    hits: list[EvidenceHit],
+    locale: str,
+    *,
+    vacancy_context: str | None = None,
+) -> str:
+    vacancy_block = (
+        f"SELECTED VACANCY (context for the question — NOT evidence; never "
+        f"cite it):\n{vacancy_context}\n\n"
+        if vacancy_context
+        else ""
+    )
     return (
         f"{locale_instruction(locale)}\n\n"
+        f"{vacancy_block}"
         f"EVIDENCE PASSAGES:\n\n{format_evidence(hits)}\n\n"
         f"QUESTION FROM THE HR USER:\n{question}\n\n"
-        "Answer using only the passages above. Cite every passage you rely "
+        "Answer using only the passages above. When a selected vacancy is "
+        "given, interpret the question in that vacancy's context. Cite every "
+        "passage you rely "
         "on by its chunkId — both in the cited_chunk_ids field and, when you "
         "reference it inline, as [<chunkId>]. NEVER cite by passage number "
         "(do not write [1] or [2]). If the passages do not answer the "
@@ -106,7 +121,30 @@ def build_answer_prompt(question: str, hits: list[EvidenceHit], locale: str) -> 
     )
 
 
-def build_summary_prompt(hits: list[EvidenceHit], locale: str) -> str:
+def build_summary_prompt(
+    hits: list[EvidenceHit],
+    locale: str,
+    *,
+    vacancy_context: str | None = None,
+) -> str:
+    if vacancy_context:
+        # Vacancy-contextual summary: what the documents STATE as it relates
+        # to this vacancy's requirements — still descriptive, never a verdict.
+        return (
+            f"{locale_instruction(locale)}\n\n"
+            f"SELECTED VACANCY (context only — NOT evidence; never cite it):\n"
+            f"{vacancy_context}\n\n"
+            f"EVIDENCE PASSAGES:\n\n{format_evidence(hits)}\n\n"
+            "Summarise what these documents state about the candidate AS IT "
+            "RELATES to the selected vacancy above: for each area the vacancy "
+            "asks about that the passages actually address, describe what the "
+            "documents say. You may note that the passages do not mention a "
+            "requirement, but never speculate beyond them.\n\n"
+            "Cite the chunkId supporting each statement — never a passage "
+            "number like [1]. Do not assess the candidate's quality, "
+            "seniority or suitability, do not score, rank or recommend — "
+            "describe what the evidence states, nothing more."
+        )
     return (
         f"{locale_instruction(locale)}\n\n"
         f"EVIDENCE PASSAGES:\n\n{format_evidence(hits)}\n\n"

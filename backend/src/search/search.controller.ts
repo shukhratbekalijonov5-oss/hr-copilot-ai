@@ -34,10 +34,14 @@ export class SearchController {
   @HttpCode(HttpStatus.OK)
   @Post('evidence')
   searchEvidence(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: EvidenceSearchDto,
   ) {
-    return this.searchService.searchEvidence(organizationId, dto);
+    return this.searchService.searchEvidence(
+      user.organizationId!,
+      user.id,
+      dto,
+    );
   }
 }
 
@@ -71,6 +75,7 @@ export class AiController {
       user.organizationId!,
       user.id,
       candidateId,
+      dto.vacancyId,
       dto.locale,
     );
   }

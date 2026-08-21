@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -17,6 +19,10 @@ import {
   CreateJobRequirementDto,
   UpdateJobRequirementDto,
 } from './dto/job-requirement.dto';
+import {
+  BulkDeleteVacanciesDto,
+  QueryVacancyCandidatesDto,
+} from './dto/vacancy-candidates.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { OrgScoped } from '../common/decorators/org-scoped.decorator';
@@ -49,6 +55,37 @@ export class VacanciesController {
     return this.vacanciesService.findAll(organizationId, query);
   }
 
+  /**
+   * MY VACANCIES — only vacancies the caller personally created in the
+   * active organization. The selector source for the whole HR workspace.
+   * Declared before ':id' so the literal path wins route matching.
+   */
+  @Get('mine')
+  findMine(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: QueryVacanciesDto,
+  ) {
+    return this.vacanciesService.findMine(user.organizationId!, user.id, query);
+  }
+
+  /**
+   * Bulk delete of an explicit selection of OWN vacancies. All-or-nothing;
+   * POST (not DELETE) because the selection travels in the body.
+   */
+  @Roles(Role.OWNER, Role.HR_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @Post('bulk-delete')
+  bulkDelete(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkDeleteVacanciesDto,
+  ) {
+    return this.vacanciesService.bulkRemove(
+      user.organizationId!,
+      user.id,
+      dto.vacancyIds,
+    );
+  }
+
   @Get(':id')
   findOne(
     @CurrentUser('organizationId') organizationId: string,
@@ -57,24 +94,40 @@ export class VacanciesController {
     return this.vacanciesService.findOne(organizationId, id);
   }
 
+  /** The candidates working inside ONE selected (owned) vacancy. */
+  @Get(':id/candidates')
+  listCandidates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: QueryVacancyCandidatesDto,
+  ) {
+    return this.vacanciesService.listVacancyCandidates(
+      user.organizationId!,
+      user.id,
+      id,
+      query,
+    );
+  }
+
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Patch(':id')
   update(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateVacancyDto,
   ) {
-    return this.vacanciesService.update(organizationId, id, dto);
+    return this.vacanciesService.update(user.organizationId!, user.id, id, dto);
   }
 
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Patch(':id/close')
   close(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.vacanciesService.setStatus(
-      organizationId,
+      user.organizationId!,
+      user.id,
       id,
       VacancyStatus.CLOSED,
     );
@@ -83,11 +136,12 @@ export class VacanciesController {
   @Roles(Role.OWNER, Role.HR_ADMIN)
   @Patch(':id/archive')
   archive(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.vacanciesService.setStatus(
-      organizationId,
+      user.organizationId!,
+      user.id,
       id,
       VacancyStatus.ARCHIVED,
     );
@@ -96,10 +150,10 @@ export class VacanciesController {
   @Roles(Role.OWNER, Role.HR_ADMIN)
   @Delete(':id')
   remove(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.vacanciesService.remove(organizationId, id);
+    return this.vacanciesService.remove(user.organizationId!, user.id, id);
   }
 
   // -- Job requirements ----------------------------------------------------
@@ -115,23 +169,29 @@ export class VacanciesController {
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Post(':id/requirements')
   addRequirement(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateJobRequirementDto,
   ) {
-    return this.vacanciesService.addRequirement(organizationId, id, dto);
+    return this.vacanciesService.addRequirement(
+      user.organizationId!,
+      user.id,
+      id,
+      dto,
+    );
   }
 
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Patch(':id/requirements/:requirementId')
   updateRequirement(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('requirementId', ParseUUIDPipe) requirementId: string,
     @Body() dto: UpdateJobRequirementDto,
   ) {
     return this.vacanciesService.updateRequirement(
-      organizationId,
+      user.organizationId!,
+      user.id,
       id,
       requirementId,
       dto,
@@ -141,12 +201,13 @@ export class VacanciesController {
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Delete(':id/requirements/:requirementId')
   removeRequirement(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('requirementId', ParseUUIDPipe) requirementId: string,
   ) {
     return this.vacanciesService.removeRequirement(
-      organizationId,
+      user.organizationId!,
+      user.id,
       id,
       requirementId,
     );

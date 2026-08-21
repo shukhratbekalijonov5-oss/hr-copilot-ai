@@ -348,10 +348,24 @@ async function seed(
 
   /** The OWNER of each organization, used as vacancy creator. */
   const ownerByOrgIndex = new Map<number, string>();
+  // Vacancy creators per org: the OWNER plus any HR-capable members
+  // (HR_ADMIN/RECRUITER). Vacancies are attributed round-robin so the same
+  // organization has SEVERAL HR users each owning their own vacancies —
+  // exactly what the vacancy-scoped workspace rule needs in dev data.
+  const vacancyCreatorsByOrgIndex = new Map<number, string[]>();
   plan.orgUsers.forEach((user, index) => {
     for (const membership of user.memberships) {
       if (membership.role === 'OWNER') {
         ownerByOrgIndex.set(membership.orgIndex, orgUserIds[index]!);
+      }
+      if (
+        membership.role === 'OWNER' ||
+        membership.role === 'HR_ADMIN' ||
+        membership.role === 'RECRUITER'
+      ) {
+        const list = vacancyCreatorsByOrgIndex.get(membership.orgIndex) ?? [];
+        list.push(orgUserIds[index]!);
+        vacancyCreatorsByOrgIndex.set(membership.orgIndex, list);
       }
     }
   });
@@ -406,8 +420,12 @@ async function seed(
 
     await mapLimit([...byOrg.entries()], 6, async ([orgIndex, entries]) => {
       const organizationId = orgIds[orgIndex]!;
-      const createdById = ownerByOrgIndex.get(orgIndex)!;
-      for (const { vacancy, index } of entries) {
+      const creators =
+        vacancyCreatorsByOrgIndex.get(orgIndex) ??
+        [ownerByOrgIndex.get(orgIndex)!];
+      for (const [position, { vacancy, index }] of entries.entries()) {
+        // Deterministic round-robin: same plan → same creators.
+        const createdById = creators[position % creators.length]!;
         const created = await vacanciesService.create(organizationId, createdById, {
           title: vacancy.title,
           department: vacancy.department,
@@ -507,8 +525,14 @@ async function seed(
     for (const vacancyIndex of plan.closeAfterSave) {
       const vacancyId = vacancyIds[vacancyIndex]!;
       const organizationId = orgIds[plan.vacancies[vacancyIndex]!.orgIndex]!;
+      // Vacancy mutations are creator-only now — close as the actual creator.
+      const vacancy = await prisma.vacancy.findUnique({
+        where: { id: vacancyId },
+        select: { createdById: true },
+      });
+      if (!vacancy) continue;
       await vacanciesService
-        .setStatus(organizationId, vacancyId, VacancyStatus.CLOSED)
+        .setStatus(organizationId, vacancy.createdById, vacancyId, VacancyStatus.CLOSED)
         .catch(() => undefined);
     }
   });
@@ -622,6 +646,12 @@ async function verify(
     orderBy: { slug: 'asc' },
     select: { id: true, slug: true, name: true },
   });
+  // Org-wide search (no vacancy filter) only needs any member's identity.
+  const searchMember = await prisma.organizationMember.findFirstOrThrow({
+    where: { organizationId: searchOrg.id },
+    select: { userId: true },
+  });
+  const searchUserId = searchMember.userId;
 
   const DEMO_QUERIES = [
     'I need a backend engineer with NestJS and PostgreSQL',
@@ -641,7 +671,7 @@ async function verify(
     for (const query of DEMO_QUERIES) {
       const started = Date.now();
       try {
-        const result = await search.searchEvidence(searchOrg.id, {
+        const result = await search.searchEvidence(searchOrg.id, searchUserId, {
           query,
           limit: 5,
         });

@@ -10,7 +10,8 @@ describe("document error localization", () => {
     expect(isDocumentErrorCode("FILE_TOO_LARGE")).toBe(true);
     expect(isDocumentErrorCode("UNSUPPORTED_FILE_TYPE")).toBe(true);
     expect(isDocumentErrorCode("PERSONAL_DOCUMENT_LIMIT_REACHED")).toBe(true);
-    expect(isDocumentErrorCode("HR_DOCUMENT_UPLOAD_NOT_ALLOWED")).toBe(true);
+    // HR upload was removed from the API, so its code is gone with it.
+    expect(isDocumentErrorCode("HR_DOCUMENT_UPLOAD_NOT_ALLOWED")).toBe(false);
     expect(isDocumentErrorCode("SOMETHING_ELSE")).toBe(false);
   });
 

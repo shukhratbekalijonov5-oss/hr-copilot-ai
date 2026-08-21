@@ -1,6 +1,7 @@
 import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { SearchService } from './search.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import { AiServiceDisabledError } from '../ai/ai-service.client';
 
 const ORG_A = 'org-a';
@@ -43,13 +44,29 @@ describe('SearchService', () => {
           .mockResolvedValue([{ id: 'cand-1', fullName: 'Ji-woo Han' }]),
       },
       document: { findFirst: jest.fn().mockResolvedValue({ id: 'doc-1' }) },
+      vacancy: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'vac-1',
+          title: 'Backend Engineer',
+          status: 'OPEN',
+          createdById: 'hr-a',
+        }),
+      },
+      application: {
+        findMany: jest.fn().mockResolvedValue([{ candidateId: 'cand-1' }]),
+      },
     };
-    service = new SearchService(ai, prisma, new TenantService());
+    service = new SearchService(
+      ai,
+      prisma,
+      new TenantService(),
+      new OwnedVacancyService(prisma),
+    );
   });
 
   describe('tenant identity', () => {
     it('sends the organizationId derived from the authenticated user', async () => {
-      await service.searchEvidence(ORG_A, { query: 'kubernetes' });
+      await service.searchEvidence(ORG_A, 'hr-a', { query: 'kubernetes' });
 
       expect(ai.searchEvidence).toHaveBeenCalledWith(
         'kubernetes',
@@ -61,7 +78,7 @@ describe('SearchService', () => {
       // The DTO has no organizationId field, and the global ValidationPipe
       // rejects unknown properties — this asserts the service itself also
       // ignores any stray value.
-      await service.searchEvidence(ORG_A, {
+      await service.searchEvidence(ORG_A, 'hr-a', {
         query: 'kubernetes',
         organizationId: ORG_B,
       } as never);
@@ -73,7 +90,7 @@ describe('SearchService', () => {
       prisma.candidate.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.searchEvidence(ORG_A, {
+        service.searchEvidence(ORG_A, 'hr-a', {
           query: 'x',
           candidateId: 'cand-other',
         }),
@@ -85,13 +102,16 @@ describe('SearchService', () => {
       prisma.document.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.searchEvidence(ORG_A, { query: 'x', documentId: 'doc-other' }),
+        service.searchEvidence(ORG_A, 'hr-a', {
+          query: 'x',
+          documentId: 'doc-other',
+        }),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(ai.searchEvidence).not.toHaveBeenCalled();
     });
 
     it('resolves candidate names scoped to the organization', async () => {
-      await service.searchEvidence(ORG_A, { query: 'kubernetes' });
+      await service.searchEvidence(ORG_A, 'hr-a', { query: 'kubernetes' });
 
       expect(
         prisma.candidate.findMany.mock.calls[0][0].where.organizationId,
@@ -101,7 +121,7 @@ describe('SearchService', () => {
 
   describe('results', () => {
     it('preserves provenance for citation', async () => {
-      const response = await service.searchEvidence(ORG_A, {
+      const response = await service.searchEvidence(ORG_A, 'hr-a', {
         query: 'kubernetes',
       });
       const result = response.results[0];
@@ -114,14 +134,14 @@ describe('SearchService', () => {
     });
 
     it('enriches hits with the candidate name', async () => {
-      const response = await service.searchEvidence(ORG_A, {
+      const response = await service.searchEvidence(ORG_A, 'hr-a', {
         query: 'kubernetes',
       });
       expect(response.results[0].candidateName).toBe('Ji-woo Han');
     });
 
     it('keeps relevance scores under a name that is not a candidate rating', async () => {
-      const response = await service.searchEvidence(ORG_A, {
+      const response = await service.searchEvidence(ORG_A, 'hr-a', {
         query: 'kubernetes',
       });
       const result = response.results[0];
@@ -137,7 +157,9 @@ describe('SearchService', () => {
     it('returns an empty result set when no evidence is found', async () => {
       ai.searchEvidence.mockResolvedValue(aiResult([]));
 
-      const response = await service.searchEvidence(ORG_A, { query: 'AWS' });
+      const response = await service.searchEvidence(ORG_A, 'hr-a', {
+        query: 'AWS',
+      });
 
       expect(response.results).toEqual([]);
       expect(response.totalConsidered).toBe(0);
@@ -151,7 +173,7 @@ describe('SearchService', () => {
       );
 
       await expect(
-        service.searchEvidence(ORG_A, { query: 'kubernetes' }),
+        service.searchEvidence(ORG_A, 'hr-a', { query: 'kubernetes' }),
       ).rejects.toBeInstanceOf(ServiceUnavailableException);
     });
 
@@ -159,8 +181,107 @@ describe('SearchService', () => {
       ai.searchEvidence.mockRejectedValue(new Error('connection refused'));
 
       await expect(
-        service.searchEvidence(ORG_A, { query: 'kubernetes' }),
+        service.searchEvidence(ORG_A, 'hr-a', { query: 'kubernetes' }),
       ).rejects.toThrow('connection refused');
+    });
+  });
+
+  describe('selected-vacancy scoping', () => {
+    it('an owned vacancyId restricts hits to that vacancy candidates', async () => {
+      ai.searchEvidence.mockResolvedValue(
+        aiResult([
+          HIT,
+          { ...HIT, candidateId: 'cand-other', documentId: 'doc-2' },
+        ]),
+      );
+
+      const response = await service.searchEvidence(ORG_A, 'hr-a', {
+        query: 'kubernetes',
+        vacancyId: 'vac-1',
+      });
+
+      // Only cand-1 is associated with vac-1 (application.findMany mock).
+      expect(response.results).toHaveLength(1);
+      expect(response.results[0].candidateId).toBe('cand-1');
+      // Over-fetch so the trimmed page can still fill the requested limit.
+      expect(ai.searchEvidence.mock.calls[0][1].limit).toBeGreaterThan(10);
+    });
+
+    it("a same-org colleague's vacancy is refused with VACANCY_NOT_OWNED", async () => {
+      await expect(
+        service.searchEvidence(ORG_A, 'hr-b', {
+          query: 'kubernetes',
+          vacancyId: 'vac-1',
+        }),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(ai.searchEvidence).not.toHaveBeenCalled();
+    });
+
+    it('a vacancy with no applicants returns empty without querying the index', async () => {
+      prisma.application.findMany.mockResolvedValue([]);
+
+      const response = await service.searchEvidence(ORG_A, 'hr-a', {
+        query: 'kubernetes',
+        vacancyId: 'vac-1',
+      });
+
+      expect(response.results).toEqual([]);
+      expect(ai.searchEvidence).not.toHaveBeenCalled();
+    });
+
+    it('the vacancy association set counts real APPLICATIONS only', async () => {
+      await service.searchEvidence(ORG_A, 'hr-a', {
+        query: 'kubernetes',
+        vacancyId: 'vac-1',
+      });
+
+      expect(prisma.application.findMany.mock.calls[0][0].where).toMatchObject({
+        vacancyId: 'vac-1',
+        source: 'DIRECT',
+        candidate: { candidateAccountId: { not: null } },
+      });
+    });
+  });
+
+  describe('no orphaned talent database', () => {
+    it('drops hits whose candidate is not an applicant of this organization', async () => {
+      // A vector left behind by the removed recruiter-upload feature: the
+      // chunk is still in the index, but its candidate is not an applicant.
+      prisma.candidate.findMany.mockResolvedValue([]);
+
+      const response = await service.searchEvidence(ORG_A, 'hr-a', {
+        query: 'kubernetes',
+      });
+
+      expect(response.results).toEqual([]);
+      expect(prisma.candidate.findMany.mock.calls[0][0].where).toMatchObject({
+        organizationId: ORG_A,
+        candidateAccountId: { not: null },
+      });
+    });
+
+    it('drops a hit that carries no candidate at all', async () => {
+      ai.searchEvidence.mockResolvedValue(
+        aiResult([{ ...HIT, candidateId: null }]),
+      );
+
+      const response = await service.searchEvidence(ORG_A, 'hr-a', {
+        query: 'kubernetes',
+      });
+
+      expect(response.results).toEqual([]);
+    });
+
+    it('an explicit candidate filter must also name an applicant', async () => {
+      prisma.candidate.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.searchEvidence(ORG_A, 'hr-a', {
+          query: 'kubernetes',
+          candidateId: 'cand-manual',
+        }),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(ai.searchEvidence).not.toHaveBeenCalled();
     });
   });
 });

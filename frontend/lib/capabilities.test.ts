@@ -35,11 +35,6 @@ describe("backend capability flags", () => {
     expect(BACKEND_CAPABILITIES.sessionManagement).toBe(true);
   });
 
-  it("enables application provenance now that the API returns it", () => {
-    // Verified live: POST /api/applications responds with source MANUAL_UPLOAD.
-    expect(BACKEND_CAPABILITIES.applicationSource).toBe(true);
-  });
-
   it("keeps flags off for routes the API still does not expose", () => {
     // No integration endpoints and no credential storage; no retry route.
     expect(BACKEND_CAPABILITIES.integrations).toBe(false);

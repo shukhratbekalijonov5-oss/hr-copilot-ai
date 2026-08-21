@@ -157,6 +157,48 @@ const en = {
     oneOfOne: "1 of 1",
   },
 
+  notifications: {
+    title: "Notifications",
+    bellLabel: "Open notifications",
+    bellUnreadLabel: "Open notifications, {count} unread",
+    unread: "{count} unread",
+    allCaughtUp: "All caught up",
+    markAllRead: "Mark all read",
+    loadMore: "Load more",
+    noDestination: "No linked page",
+    empty: {
+      hrTitle: "No recruiting notifications",
+      hrDescription:
+        "Applications, candidate messages, and CV processing updates will appear here.",
+      candidateTitle: "No notifications",
+      candidateDescription:
+        "Messages, interview invites, and application updates will appear here.",
+    },
+    errors: {
+      load: "Could not load notifications.",
+      markRead: "Could not mark this notification as read.",
+      markAll: "Could not mark notifications as read.",
+    },
+    fallbacks: {
+      candidateUnavailable: "Candidate unavailable",
+      vacancyUnavailable: "Vacancy unavailable",
+      recruiter: "Recruiter",
+    },
+    messages: {
+      newMessageFallback: "New message",
+      interviewInvitation: "You have been invited to an interview.",
+      vacancyDeleted: "Your applied vacancy “{vacancy}” was deleted.",
+      applicationRejected: "The hiring team decided not to move forward.",
+    },
+    types: {
+      NEW_APPLICATION: "New application",
+      NEW_MESSAGE: "New message",
+      INTERVIEW_INVITATION: "Interview invitation",
+      VACANCY_DELETED: "Vacancy update",
+      APPLICATION_REJECTED: "Application update",
+    },
+  },
+
   auth: {
     candidate: "Candidate",
     organization: "Organization",
@@ -268,10 +310,8 @@ const en = {
     statCompletedAnalysesHint: "Documents indexed and ready to read",
     quickCreateVacancy: "Create vacancy",
     quickCreateVacancyHint: "Define requirements the copilot will look for.",
-    quickAddCandidate: "Add candidate",
-    quickAddCandidateHint: "Create a person, then upload their resume.",
-    quickUploadResumes: "Upload resumes",
-    quickUploadResumesHint: "Drop PDFs or DOCX and watch them index.",
+    quickReviewApplicants: "Review applicants",
+    quickReviewApplicantsHint: "See who has applied to your vacancies.",
     recentVacancies: "Recent vacancies",
     recentCandidates: "Recent candidates",
     processingActivity: "Processing activity",
@@ -282,9 +322,9 @@ const en = {
     noVacancies: "No vacancies yet",
     noVacanciesHint:
       "Create your first vacancy to tell the copilot what to look for.",
-    noCandidates: "No candidates yet",
+    noCandidates: "No applicants yet",
     noCandidatesHint:
-      "Add a candidate and upload their resume to start building your pipeline.",
+      "Candidates who apply to your vacancies will appear here.",
     nothingProcessed: "Nothing processed yet",
     nothingProcessedHint:
       "Uploaded documents appear here as they move through the pipeline.",
@@ -339,10 +379,6 @@ const en = {
     title: "Candidates",
     description:
       "Everyone in your pipeline, with the state of their documents. Nobody is ranked or filtered by the model.",
-    add: "Add candidate",
-    addTitle: "Add a candidate",
-    addDescription:
-      "Create the person first, then upload their resume so it can be indexed.",
     searchPlaceholder: "Search candidates",
     filterVacancy: "Vacancy",
     allVacancies: "All vacancies",
@@ -361,14 +397,14 @@ const en = {
     location: "Location",
     email: "Email",
     phone: "Phone",
-    added: "Added",
+    added: "First applied",
     documents: "Documents",
     documentsUploaded: {
-      one: "{count} file uploaded",
-      other: "{count} files uploaded",
+      one: "{count} file submitted",
+      other: "{count} files submitted",
     } as Plural,
-    uploadPrompt:
-      "Upload a resume to have it parsed, indexed and checked against this vacancy’s requirements.",
+    noDocumentsYet:
+      "Nothing submitted yet. The resume an applicant sends with their application appears here.",
     applications: "Applications",
     applicationsHint:
       "Stage changes are recorded against the person who made them.",
@@ -405,8 +441,6 @@ const en = {
       "Browsers cannot render DOCX inline. Open the file to read it — the extracted text and its citations still appear alongside.",
     openFile: "Open {name}",
     showingCitation: "Showing citation",
-    linkedCandidateUploadNotAllowed:
-      "This candidate is linked to a job-seeker account, so HR cannot add documents here. Their organization-scoped copies come from applications they submit.",
     noDocuments: "No documents",
   },
 
@@ -427,8 +461,6 @@ const en = {
       UNSUPPORTED_FILE_TYPE: "Upload a PDF or DOCX file.",
       PERSONAL_DOCUMENT_LIMIT_REACHED:
         "You can store up to 3 documents. Delete one to upload another.",
-      HR_DOCUMENT_UPLOAD_NOT_ALLOWED:
-        "Upload documents only for manual candidates. This candidate's files come from their own applications.",
     },
   },
 
@@ -658,15 +690,15 @@ const en = {
     selectedCount: "{count} / {max}",
     vacancy: "Vacancy",
     vacancyOption: "{title} ({count})",
-    nothingToCompare: "Nothing to compare yet",
+    nothingToCompare: "No applicants available for comparison",
     nothingToCompareHint:
-      "Once a vacancy has candidates with indexed resumes, you can line their requirement evidence up side by side.",
-    noneProcessed: "No candidate on this vacancy has finished processing yet.",
+      "Once this vacancy has applicants with indexed resumes, you can line their requirement evidence up side by side.",
+    noneProcessed: "No applicant on this vacancy has finished processing yet.",
     processedRatio:
       "{ready} of {total} candidates on this vacancy have finished processing. The rest appear here once their documents are indexed.",
-    selectAtLeast: "Select at least {min} candidates",
+    selectAtLeast: "At least {min} applicants are required to compare",
     selectAtLeastHint:
-      "The comparison lines up requirement evidence from each candidate’s documents.",
+      "The comparison lines up requirement evidence from each applicant’s submitted documents.",
     tableCaption: "Requirement evidence for {vacancy}",
     columnRequirement: "Requirement",
     legendTitle: "What the cells mean",
@@ -930,10 +962,7 @@ const en = {
       "Attaching a vacancy is what gives the requirement checks something to compare against.",
     applyToVacancy: "Apply to vacancy",
     noVacancy: "No vacancy for now",
-    errFullName: "Full name is required.",
-    errFullNameShort: "Enter the candidate's full name.",
-    errEmail: "Enter a valid email address.",
-    errYears: "Enter a number between 0 and 80.",
+    errVacancyRequired: "Select one of your vacancies to add this candidate to.",
   },
 
   vacancyDetail: {
@@ -949,14 +978,14 @@ const en = {
       one: "{count} candidate attached to this vacancy",
       other: "{count} candidates attached to this vacancy",
     } as Plural,
-    noCandidates: "No candidates yet",
+    noCandidates: "No applicants yet",
     noCandidatesHint:
-      "Add a candidate and upload their resume — each one is checked against the requirements above.",
+      "Candidates who apply to this vacancy will appear here, and each resume is checked against the requirements above.",
     atAGlance: "At a glance",
     lastUpdated: "Last updated",
     readingResumes: "Reading resumes",
     readingResumesHint:
-      "Documents attach to a candidate, not to a vacancy. Add the person first, then upload their resume from their page — that is what links the file to these requirements.",
+      "Applicants submit their own resume when they apply. Each submission is read and checked against the requirements above — nothing is uploaded on their behalf.",
     created: "Created {date}",
     deletedOrWrongLink: "This vacancy may have been deleted, or the link is wrong.",
     candidateRemovedOrWrongLink:
@@ -964,8 +993,6 @@ const en = {
     newVacancyTitle: "Create vacancy",
     newVacancyHint:
       "Requirements you add here are what every uploaded resume gets checked against.",
-    newCandidateHint:
-      "Create the person first, then upload their resume on the next screen.",
     scopedSearchLabel: "Search this vacancy's candidates",
     scopedSearchPlaceholder:
       "Ask in plain language — e.g. who has run Kubernetes in production?",
@@ -1172,7 +1199,6 @@ const en = {
       "Its stage is final. The hiring team is the only side that can change it now.",
     stageNote:
       "Stages are set by the hiring team. The only change you can make is withdrawing.",
-    source: "Source",
   },
 
   chat: {
@@ -1201,8 +1227,6 @@ const en = {
     viewVacancy: "View vacancy",
     viewJob: "View job",
     chatUnavailable: "Chat unavailable",
-    noCandidateAccount:
-      "This candidate does not have a platform Candidate account, so in-app chat is unavailable.",
     candidateRejectedNotice:
       "The candidate was rejected and the interview chat was deleted.",
     vacancyClosedNotice:
@@ -1324,6 +1348,47 @@ const en = {
     unavailable: "Matching is temporarily unavailable",
     unavailableHint:
       "The matching service is not reachable right now. Nothing was computed — try again shortly.",
+  },
+  vacancyScope: {
+    selectorLabel: "My vacancy",
+    myVacancies: "My vacancies",
+    choosePlaceholder: "Select a vacancy",
+    allVacancies: "All my vacancies",
+    noneTitle: "No vacancies yet",
+    noneHint: "Create a vacancy first — candidates, evidence and chats all live inside one.",
+    invalidSelection: "Not one of your vacancies",
+    selectFirstTitle: "Select one of your vacancies",
+    selectFirstHint: "Pick a vacancy above to work inside it.",
+    notOwned: "This vacancy was created by another member of your organization. You can only work inside vacancies you created.",
+    notFound: "That vacancy is not available.",
+    candidateNotInVacancy: "This candidate is not in the selected vacancy.",
+    noCandidatesTitle: "No applicants yet",
+    noCandidatesHint: "Candidates who apply to this vacancy will appear here.",
+    scopedToVacancy: "For: {title}",
+    select: "Select",
+    selected: "Selected",
+    ownedByOther: "Created by a colleague",
+    deleteSelected: "Delete selected",
+    deleteConfirmTitle: "Delete the selected vacancy?",
+    deleteConfirmTitlePlural: "Delete the selected vacancies?",
+    deleteConfirmHint: "This also removes their candidates' applications, evidence and interview chats.",
+    yes: "Yes",
+    no: "No",
+    deleting: "Deleting",
+    deleteFailed: "Nothing was deleted. The selection includes a vacancy you cannot delete.",
+    deletedCount: {
+      one: "{count} vacancy deleted",
+      other: "{count} vacancies deleted",
+    } as Plural,
+    selectedCount: {
+      one: "{count} selected",
+      other: "{count} selected",
+    } as Plural,
+    selectAll: "Select all",
+    clearSelection: "Clear selection",
+    chatUnavailable: "Conversation unavailable",
+    chatUnavailableHint: "It may have been removed, or it belongs to a vacancy you did not create.",
+    accountRequired: "This candidate has no platform account, so interview chat is unavailable.",
   },
   status: {
     vacancy: {

@@ -22,9 +22,8 @@ import {
   ApplicationStatusBadge,
   DocumentStatusBadge,
 } from "@/components/ui/StatusBadge";
+import { MyVacancySelector } from "@/components/vacancies/MyVacancySelector";
 import { DocumentViewer } from "@/components/candidates/DocumentViewer";
-import { ResumeUploader } from "@/components/upload/ResumeUploader";
-import { ApplicationSourceBadge } from "@/components/candidates/ApplicationSourceBadge";
 import {
   AlertIcon,
   MailIcon,
@@ -36,18 +35,28 @@ import { useI18n } from "@/lib/i18n/context";
 import { APPLICATION_STATUSES } from "@/lib/types";
 import type {
   AiFailureReason,
+  Application,
   ApplicationStatus,
   Candidate,
   Citation,
   EvidenceMap,
+  MyVacancy,
   Role,
-  Vacancy,
 } from "@/lib/types";
 
 interface CandidateWorkspaceProps {
   candidate: Candidate;
-  /** The candidate's primary application's vacancy, or null. */
-  vacancy: Vacancy | null;
+  /**
+   * Vacancies this candidate is in AND the caller created. Resolved on the
+   * server from real associations — never invented client-side.
+   */
+  eligibleVacancies: MyVacancy[];
+  /** The active vacancy, resolved from `?vacancyId=`. */
+  activeVacancy: MyVacancy | null;
+  /** True when the URL asked for a vacancy that is not selectable. */
+  invalidSelection: boolean;
+  /** The application in the ACTIVE vacancy — the stage shown in Overview. */
+  activeApplication: Application | null;
   applicationConversationId: string | null;
   /** Stored requirement mapping, read server-side. Null when never run. */
   evidenceMap: EvidenceMap | null;
@@ -66,7 +75,10 @@ interface CandidateWorkspaceProps {
  */
 export function CandidateWorkspace({
   candidate,
-  vacancy,
+  eligibleVacancies,
+  activeVacancy,
+  invalidSelection,
+  activeApplication,
   applicationConversationId,
   evidenceMap,
   evidenceMapFailure,
@@ -83,33 +95,24 @@ export function CandidateWorkspace({
   const [statusError, setStatusError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const application = candidate.applications[0] ?? null;
-  const canUploadHrDocument = candidate.candidateAccountId === null;
+  // The stage is per-vacancy: the same person sits in several pipelines with
+  // independent stages, so this follows the selection rather than being a
+  // candidate-global property.
+  const application = activeApplication;
   const [primaryApplication, setPrimaryApplication] = useState(application);
   const [conversationId, setConversationId] = useState(applicationConversationId);
-  const [chatUnavailable, setChatUnavailable] = useState(
-    application?.status === "INTERVIEW" && !applicationConversationId,
-  );
 
   /**
-   * Which vacancy the AI panels work against.
+   * Which vacancy everything vacancy-dependent works against.
    *
-   * Evidence mapping and interview questions are defined per (candidate,
-   * vacancy), so a candidate applying to several roles needs to say which one.
-   * Defaulting to the first application and hiding the rest would quietly show
-   * one role's requirements while claiming to describe the candidate.
+   * There is exactly ONE source of truth for it — the `?vacancyId=` search
+   * param resolved on the server — so Overview, Evidence, Summary, Questions
+   * and Ask can never disagree about which vacancy is active. Switching it is
+   * a navigation, which re-runs the server component and remounts the
+   * dependent panels, so nothing from the previous vacancy survives.
    */
-  const vacancyOptions = candidate.applications
-    .map((item) => item.vacancy)
-    .filter((item): item is NonNullable<typeof item> => Boolean(item));
-
-  const [selectedVacancyId, setSelectedVacancyId] = useState(
-    vacancy?.id ?? vacancyOptions[0]?.id ?? null,
-  );
-
-  const selectedVacancy =
-    vacancyOptions.find((item) => item.id === selectedVacancyId) ??
-    (vacancy ? { id: vacancy.id, title: vacancy.title, status: vacancy.status } : null);
+  const selectedVacancy = activeVacancy;
+  const selectedVacancyId = activeVacancy?.id ?? null;
 
   /**
    * Opens the passage behind a citation.
@@ -138,10 +141,9 @@ export function CandidateWorkspace({
           return;
         }
         setPrimaryApplication(result.data.application);
-        setConversationId(result.data.conversation?.id ?? null);
-        setChatUnavailable(
-          result.data.chatUnavailableReason === "NO_CANDIDATE_ACCOUNT",
-        );
+        // An applicant always owns the account they applied with, so the
+        // invitation always comes back with its conversation.
+        setConversationId(result.data.conversation.id);
         router.refresh();
         return;
       }
@@ -157,7 +159,6 @@ export function CandidateWorkspace({
       }
       if (status === "REJECTED") {
         setConversationId(null);
-        setChatUnavailable(false);
       }
       setPrimaryApplication({ ...primaryApplication, status });
       router.refresh();
@@ -309,30 +310,15 @@ export function CandidateWorkspace({
               </li>
             ))}
           </ul>
-        ) : null}
-
-        <CardBody
-          className={
-            candidate.documents.length > 0 ? "border-t border-line" : undefined
-          }
-        >
-          {candidate.documents.length === 0 ? (
-            <p className="mb-3 text-[13px] leading-relaxed text-ink-muted">
-              {d.candidates.uploadPrompt}
-            </p>
-          ) : null}
-          {canUploadHrDocument ? (
-            <>
-              {/* Documents attach to this manual candidate, which is what links
-                  them to the vacancy's requirement checks. */}
-              <ResumeUploader candidateId={candidate.id} />
-            </>
-          ) : (
+        ) : (
+          <CardBody>
+            {/* No upload control: these files are the applicant's own
+                submissions, and only they can add or remove them. */}
             <p className="text-[13px] leading-relaxed text-ink-muted">
-              {d.candidates.linkedCandidateUploadNotAllowed}
+              {d.candidates.noDocumentsYet}
             </p>
-          )}
-        </CardBody>
+          </CardBody>
+        )}
       </Card>
 
       <Card>
@@ -360,7 +346,6 @@ export function CandidateWorkspace({
                     {f(d.candidates.appliedOn, { date: date(item.createdAt) })}
                   </span>
                 </div>
-                <ApplicationSourceBadge source={item.source} />
                 <ApplicationStatusBadge status={item.status} />
               </li>
             ))}
@@ -375,20 +360,6 @@ export function CandidateWorkspace({
     evidenceMap && evidenceMap.vacancyId === selectedVacancyId
       ? evidenceMap
       : null;
-
-  const vacancyPicker =
-    vacancyOptions.length > 1 ? (
-      <Select
-        aria-label={d.candidates.filterVacancy}
-        value={selectedVacancyId ?? ""}
-        options={vacancyOptions.map((item) => ({
-          value: item.id,
-          label: item.title,
-        }))}
-        onChange={(event) => setSelectedVacancyId(event.target.value)}
-        className="mb-3 sm:max-w-md"
-      />
-    ) : null;
 
   const evidenceTab = !selectedVacancy ? (
     <Card>
@@ -406,7 +377,6 @@ export function CandidateWorkspace({
     </Card>
   ) : (
     <>
-      {vacancyPicker}
       <EvidenceMapPanel
         // Remounts on a vacancy change so the panel reloads for the new pair.
         key={selectedVacancy.id}
@@ -446,7 +416,10 @@ export function CandidateWorkspace({
       label: d.candidates.tabSummary,
       content: (
         <SummaryPanel
+          key={selectedVacancy?.id ?? "none"}
           candidateId={candidate.id}
+          vacancyId={selectedVacancy?.id ?? ""}
+          vacancyTitle={selectedVacancy?.title}
           ready={analysisReady}
           notReady={notReady}
           onSelectCitation={openCitation}
@@ -459,8 +432,8 @@ export function CandidateWorkspace({
       label: d.candidates.tabQuestions,
       content: (
         <>
-          {vacancyPicker}
-          <InterviewQuestionsPanel
+              <InterviewQuestionsPanel
+            key={selectedVacancy?.id ?? "none"}
             candidateId={candidate.id}
             vacancyId={selectedVacancy?.id ?? null}
             ready={analysisReady}
@@ -476,8 +449,10 @@ export function CandidateWorkspace({
       label: d.candidates.tabAsk,
       content: (
         <AnswerPanel
+          key={selectedVacancy?.id ?? "none"}
           candidateId={candidate.id}
-          vacancyId={selectedVacancy?.id}
+          vacancyId={selectedVacancy?.id ?? ""}
+          vacancyTitle={selectedVacancy?.title}
           ready={analysisReady}
           notReady={notReady}
           onSelectCitation={openCitation}
@@ -489,6 +464,15 @@ export function CandidateWorkspace({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* The active vacancy is the page's context, so it sits at the top in
+          plain sight rather than inside a tab or a menu. */}
+      <MyVacancySelector
+        vacancies={eligibleVacancies}
+        value={selectedVacancyId}
+        invalid={invalidSelection}
+        label={d.vacancyScope.selectorLabel}
+      />
+
       <Card className="p-4">
         <div className="flex flex-wrap items-start gap-3">
           <Avatar name={candidate.fullName} size="lg" />
@@ -502,12 +486,12 @@ export function CandidateWorkspace({
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <DocumentStatusBadge status={candidate.processingStatus} />
-              {vacancy ? (
+              {selectedVacancy ? (
                 <Link
-                  href={`/vacancies/${vacancy.id}`}
+                  href={`/vacancies/${selectedVacancy.id}`}
                   className="text-[12.5px] text-ink-muted hover:text-brand"
                 >
-                  {vacancy.title}
+                  {selectedVacancy.title}
                 </Link>
               ) : null}
             </div>
@@ -565,13 +549,6 @@ export function CandidateWorkspace({
             </div>
           ) : null}
         </div>
-
-        {chatUnavailable ? (
-          <p className="mt-3 flex items-center gap-2 rounded-lg bg-warning-soft px-3 py-2 text-[13px] text-warning">
-            <AlertIcon className="size-4 shrink-0" />
-            {d.chat.noCandidateAccount}
-          </p>
-        ) : null}
 
         {statusError ? (
           <p

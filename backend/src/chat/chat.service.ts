@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
 import { MembershipService } from '../common/membership/membership.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import {
   DomainEventsService,
   type ConversationMessageView,
@@ -22,8 +23,9 @@ import type { QueryConversationsDto } from './dto/query-conversations.dto';
  * conversation from the live database:
  *
  *  - organization side: the conversation's organizationId must equal the
- *    caller's guard-validated active organization (cross-tenant ⇒ 404, the
- *    project-wide convention that never confirms foreign existence);
+ *    caller's guard-validated active organization AND its vacancy must have
+ *    been created by the caller (cross-tenant OR same-org non-creator ⇒ 404 —
+ *    conversations were never org-browsable, so existence is not disclosed);
  *  - candidate side: the conversation's candidateAccount must belong to the
  *    calling user (foreign ⇒ 404, indistinguishable from non-existent).
  *
@@ -37,6 +39,7 @@ export class ChatService {
     private readonly tenant: TenantService,
     private readonly memberships: MembershipService,
     private readonly events: DomainEventsService,
+    private readonly ownedVacancies: OwnedVacancyService,
   ) {}
 
   // -- Lifecycle (called by other services inside THEIR transactions) -------
@@ -131,12 +134,30 @@ export class ChatService {
 
   // -- Organization side -----------------------------------------------------
 
+  /**
+   * HR interview chats under the vacancy-scoped workspace rule: only
+   * conversations of vacancies the CALLER PERSONALLY CREATED, whether or not
+   * an explicit vacancyId filter is given. Same-org colleagues' conversations
+   * are never listed. An explicit vacancyId is resolved through the owned
+   * -vacancy policy FIRST so the caller gets the honest 403/404 instead of a
+   * silently empty page.
+   */
   async listForOrganization(
     organizationId: string,
+    userId: string,
     query: QueryConversationsDto,
   ): Promise<PaginatedResult<unknown>> {
+    if (query.vacancyId) {
+      await this.ownedVacancies.requireOwned(
+        userId,
+        organizationId,
+        query.vacancyId,
+      );
+    }
     const where: Prisma.ConversationWhereInput = {
       ...this.tenant.scope(organizationId),
+      // Creator scoping, unconditional — never rely on the client filter.
+      vacancy: { createdById: userId },
       ...(query.vacancyId ? { vacancyId: query.vacancyId } : {}),
     };
 
@@ -153,9 +174,23 @@ export class ChatService {
     return paginated(data, total, query.page, query.limit);
   }
 
-  async getForOrganization(organizationId: string, conversationId: string) {
+  /**
+   * Conversations were never org-browsable, so — unlike vacancies, where a
+   * same-org non-creator gets an honest 403 — a conversation of a colleague's
+   * vacancy is a plain 404, indistinguishable from non-existent. Guessing a
+   * conversation id buys nothing.
+   */
+  async getForOrganization(
+    organizationId: string,
+    userId: string,
+    conversationId: string,
+  ) {
     const conversation = await this.prisma.conversation.findFirst({
-      where: { id: conversationId, ...this.tenant.scope(organizationId) },
+      where: {
+        id: conversationId,
+        ...this.tenant.scope(organizationId),
+        vacancy: { createdById: userId },
+      },
       select: ORG_CONVERSATION_SELECT,
     });
     return this.tenant.assertFound(conversation, 'Conversation');
@@ -163,10 +198,11 @@ export class ChatService {
 
   async listMessagesForOrganization(
     organizationId: string,
+    userId: string,
     conversationId: string,
     query: PaginationQueryDto,
   ): Promise<PaginatedResult<ConversationMessageView>> {
-    await this.getForOrganization(organizationId, conversationId);
+    await this.getForOrganization(organizationId, userId, conversationId);
     return this.listMessages(conversationId, query);
   }
 
@@ -176,7 +212,7 @@ export class ChatService {
     conversationId: string,
     content: string,
   ): Promise<ConversationMessageView> {
-    await this.getForOrganization(organizationId, conversationId);
+    await this.getForOrganization(organizationId, senderUserId, conversationId);
     return this.persistMessage(
       conversationId,
       senderUserId,
@@ -271,9 +307,15 @@ export class ChatService {
 
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { organizationId: true },
+      select: {
+        organizationId: true,
+        vacancy: { select: { createdById: true } },
+      },
     });
     if (!conversation) return null;
+    // Vacancy creator only — organization membership alone no longer grants
+    // access to a colleague's interview conversations (REST and socket agree).
+    if (conversation.vacancy.createdById !== userId) return null;
     const membership = await this.memberships.findMembership(
       userId,
       conversation.organizationId,
@@ -346,6 +388,7 @@ export class ChatService {
     this.events.publish('chat.message.created', {
       conversationId,
       message: view,
+      senderUserId,
     });
     return view;
   }

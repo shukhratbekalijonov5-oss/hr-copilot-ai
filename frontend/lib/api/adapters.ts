@@ -18,6 +18,8 @@ import type {
   PublicJobResponse,
   SavedJobResponse,
   JobMatchesResponse,
+  MyVacancyResponse,
+  VacancyCandidateRowResponse,
   AiCandidateSummaryResponse,
   AiCitationResponse,
   AiInterviewQuestionsResponse,
@@ -50,6 +52,8 @@ import type {
   PublicJobDetail,
   SavedJob,
   JobMatchResult,
+  MyVacancy,
+  VacancyCandidate,
   CandidateEvidenceMatch,
   CandidateSummary,
   EvidenceMap,
@@ -411,8 +415,6 @@ export function toInviteToInterviewResult(
   return {
     application: toApplication(response.application),
     conversation: response.conversation,
-    chatAvailable: response.chatAvailable,
-    chatUnavailableReason: response.chatUnavailableReason,
   };
 }
 
@@ -860,5 +862,30 @@ export function toJobMatchResult(response: JobMatchesResponse): JobMatchResult {
     locale: response.locale,
     generated: response.generated,
     generatedAt: response.generatedAt,
+  };
+}
+
+/** GET /vacancies/mine — already slim; passed through unchanged. */
+export function toMyVacancy(response: MyVacancyResponse): MyVacancy {
+  return {
+    id: response.id,
+    title: response.title,
+    status: response.status,
+    createdAt: response.createdAt,
+    candidateCount: response.candidateCount,
+    requirementCount: response.requirementCount,
+  };
+}
+
+/**
+ * GET /vacancies/:vacancyId/candidates — the vacancy's applicants. Every row
+ * is somebody who applied, so there is no provenance to branch on.
+ */
+export function toVacancyCandidate(
+  response: VacancyCandidateRowResponse,
+): VacancyCandidate {
+  return {
+    candidate: { ...response.candidate },
+    application: { ...response.application },
   };
 }

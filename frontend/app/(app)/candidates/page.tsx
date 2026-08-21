@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CandidateListView } from "@/components/candidates/CandidateListView";
 import { getTranslations } from "@/lib/i18n/server";
+import { selectedVacancyId } from "@/lib/vacancy/selection";
 
 export async function generateMetadata(): Promise<Metadata> {
   const d = await getTranslations();
@@ -22,9 +23,7 @@ export default async function CandidatesPage(
     props.searchParams,
   ]);
 
-  const vacancyParam = searchParams.vacancy;
-  const initialVacancyId =
-    typeof vacancyParam === "string" ? vacancyParam : "all";
+  const initialVacancyId = selectedVacancyId(searchParams) ?? "all";
 
   return (
     <div className="mx-auto max-w-7xl">

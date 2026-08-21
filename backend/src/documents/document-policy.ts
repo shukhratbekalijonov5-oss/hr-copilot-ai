@@ -1,29 +1,32 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   HttpStatus,
   PayloadTooLargeException,
 } from '@nestjs/common';
 
 /**
  * Document ownership & upload policy — the single place the product rules
- * live, shared by every upload path (recruiter and candidate).
+ * live.
+ *
+ * There is exactly ONE upload path in the product: a candidate uploading their
+ * own file. HR cannot upload a document for anyone; the capability was removed
+ * from the API, not merely from the UI.
  *
  * Two disjoint ownership models exist and must never be collapsed:
  *
- *  - ORGANIZATION documents (`organizationId` set): recruiter uploads for
- *    manually added candidates, and org-scoped snapshot copies made at apply
- *    time. Indexed into the tenant collection; feed Recruiter AI Search.
- *  - PERSONAL documents (`candidateAccountId` set): a job seeker's own files.
- *    Indexed into the physically separate candidate collection; feed
- *    Candidate AI Job Match. Never reachable through tenant queries.
+ *  - PERSONAL documents (`candidateAccountId` set): a job seeker's own files,
+ *    the only thing anybody uploads. Indexed into the physically separate
+ *    candidate collection; feed Candidate AI Job Match. Never reachable
+ *    through tenant queries.
+ *  - ORGANIZATION documents (`organizationId` set): org-scoped snapshot copies
+ *    made at APPLY time from the resume the candidate submitted. Indexed into
+ *    the tenant collection; the only evidence Recruiter AI Search can reach.
+ *    Created by the apply flow alone — no request body can produce one.
  *
- * HR may upload ONLY for a manually added candidate of its own organization —
- * a Candidate row with `candidateAccountId = null`. A linked row means the
- * person applied through the platform themselves; their evidence then comes
- * exclusively from the snapshots their own applications created, and HR must
- * not graft additional files onto that identity.
+ * The snapshot is what keeps the two sides honest: a recruiter sees the file a
+ * person deliberately sent to THAT vacancy, and replacing (or deleting) the
+ * personal original later never rewrites an application's history.
  *
  * A CandidateAccount owns at most MAX_PERSONAL_DOCUMENTS personal files.
  * Every existing (non-deleted) personal document counts — including FAILED
@@ -49,7 +52,6 @@ export const DOCUMENT_ERROR_CODES = {
   FILE_TOO_LARGE: 'FILE_TOO_LARGE',
   UNSUPPORTED_FILE_TYPE: 'UNSUPPORTED_FILE_TYPE',
   PERSONAL_DOCUMENT_LIMIT_REACHED: 'PERSONAL_DOCUMENT_LIMIT_REACHED',
-  HR_DOCUMENT_UPLOAD_NOT_ALLOWED: 'HR_DOCUMENT_UPLOAD_NOT_ALLOWED',
 } as const;
 
 export type DocumentErrorCode =
@@ -87,15 +89,5 @@ export function personalDocumentLimitReached(): ConflictException {
       `You can store up to ${MAX_PERSONAL_DOCUMENTS} documents. ` +
       'Delete one to upload another.',
     code: DOCUMENT_ERROR_CODES.PERSONAL_DOCUMENT_LIMIT_REACHED,
-  });
-}
-
-/** 403 — HR upload against a candidate the policy does not allow. */
-export function hrUploadNotAllowed(message: string): ForbiddenException {
-  return new ForbiddenException({
-    statusCode: HttpStatus.FORBIDDEN,
-    error: 'Forbidden',
-    message,
-    code: DOCUMENT_ERROR_CODES.HR_DOCUMENT_UPLOAD_NOT_ALLOWED,
   });
 }

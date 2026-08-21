@@ -17,8 +17,19 @@ import type {
  * The API's job payload nests only the document, so the candidate name is
  * resolved here rather than in the table component.
  */
+/**
+ * `vacancyId` filters to jobs whose DOCUMENT belongs to a candidate in that
+ * owned vacancy. Processing stays document-centric: one document is one job
+ * shared by every vacancy its candidate joins, so the filter selects rows —
+ * it never duplicates them per vacancy.
+ */
 export async function getProcessingJobs(
-  query: { status?: ProcessingJobStatus; page?: number; limit?: number } = {},
+  query: {
+    status?: ProcessingJobStatus;
+    vacancyId?: string;
+    page?: number;
+    limit?: number;
+  } = {},
 ): Promise<{ jobs: ProcessingJob[]; total: number }> {
   const [response, documents, candidates] = await Promise.all([
     apiFetch<Paginated<ProcessingJobResponse>>("/processing-jobs", {
@@ -26,6 +37,7 @@ export async function getProcessingJobs(
         page: query.page ?? 1,
         limit: query.limit ?? 100,
         status: query.status,
+        vacancyId: query.vacancyId,
       },
     }),
     getAllDocuments(),

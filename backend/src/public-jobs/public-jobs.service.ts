@@ -11,6 +11,7 @@ import { StorageService } from '../storage/storage.service';
 import { ProcessingService } from '../processing/processing.service';
 import { DocumentProcessingProducer } from '../queue/document-processing.producer';
 import { CandidateAccountService } from '../candidate-account/candidate-account.service';
+import { DomainEventsService } from '../common/events/domain-events.service';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import {
   ApplicationSource,
@@ -39,6 +40,7 @@ export class PublicJobsService {
     private readonly processing: ProcessingService,
     private readonly producer: DocumentProcessingProducer,
     private readonly candidateAccounts: CandidateAccountService,
+    private readonly events: DomainEventsService,
   ) {}
 
   async list(query: QueryPublicJobsDto): Promise<PaginatedResult<unknown>> {
@@ -265,6 +267,16 @@ export class PublicJobsService {
         `Enqueue failed for direct-application document ${documentId}: ${(error as Error).message}`,
       );
     }
+
+    // The application row is durably committed by now — tell the vacancy's
+    // creator. (Never before: a rolled-back apply must produce no ghost
+    // notification.)
+    this.events.publish('application.created', {
+      organizationId: vacancy.organizationId,
+      vacancyId: vacancy.id,
+      applicationId: (result.application as { id: string }).id,
+      candidateId: result.candidateId,
+    });
 
     return result.application;
   }

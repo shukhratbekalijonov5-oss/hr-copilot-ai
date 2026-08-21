@@ -16,10 +16,12 @@ import { PaginationQueryDto } from '../common/dto/pagination.dto';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 /**
- * Organization-side interview chat. Every member role may read and write —
- * INTERVIEWERs are exactly the people interviews are held with — while
- * conversation CREATION stays impossible here: only the interview-invitation
- * transition (POST /applications/:id/invite-interview) creates conversations.
+ * Organization-side interview chat under the vacancy-scoped workspace rule:
+ * an HR user reads and writes ONLY the conversations of vacancies they
+ * personally created — organization membership alone no longer grants access
+ * to a colleague's interview chats. Conversation CREATION stays impossible
+ * here: only the interview-invitation transition
+ * (POST /applications/:id/invite-interview) creates conversations.
  * organizationId always comes from the guard-validated membership, never from
  * the client.
  */
@@ -30,28 +32,37 @@ export class OrgConversationsController {
 
   @Get()
   list(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryConversationsDto,
   ) {
-    return this.chatService.listForOrganization(organizationId, query);
+    return this.chatService.listForOrganization(
+      user.organizationId!,
+      user.id,
+      query,
+    );
   }
 
   @Get(':id')
   get(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.chatService.getForOrganization(organizationId, id);
+    return this.chatService.getForOrganization(
+      user.organizationId!,
+      user.id,
+      id,
+    );
   }
 
   @Get(':id/messages')
   messages(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: PaginationQueryDto,
   ) {
     return this.chatService.listMessagesForOrganization(
-      organizationId,
+      user.organizationId!,
+      user.id,
       id,
       query,
     );

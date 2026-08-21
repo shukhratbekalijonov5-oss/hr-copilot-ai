@@ -4,7 +4,6 @@ export const DOCUMENT_ERROR_CODES = [
   "FILE_TOO_LARGE",
   "UNSUPPORTED_FILE_TYPE",
   "PERSONAL_DOCUMENT_LIMIT_REACHED",
-  "HR_DOCUMENT_UPLOAD_NOT_ALLOWED",
 ] as const;
 
 export type DocumentErrorCode = (typeof DOCUMENT_ERROR_CODES)[number];

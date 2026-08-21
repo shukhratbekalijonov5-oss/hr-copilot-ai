@@ -37,18 +37,16 @@ deletion regardless of how the transition is called).
 POST /applications/:id/invite-interview        (OWNER | HR_ADMIN | RECRUITER)
   -> 201 {
        application: { …status:"INTERVIEW"…, vacancy:{id,title}, candidate:{id,fullName} },
-       conversation: { id, vacancyId, createdAt } | null,
-       chatAvailable: boolean,
-       chatUnavailableReason?: "NO_CANDIDATE_ACCOUNT"
+       conversation: { id, vacancyId, createdAt }
      }
 ```
 
 - Idempotent: repeating it returns the SAME conversation — never a duplicate.
 - `409` when the vacancy is CLOSED/ARCHIVED.
-- Manual/external candidates (added by a recruiter, no platform account):
-  the pipeline still moves to INTERVIEW but `chatAvailable:false` with
-  `chatUnavailableReason:"NO_CANDIDATE_ACCOUNT"`. Show "no chat possible —
-  external candidate"; do NOT offer a chat UI.
+- `conversation` is always present. Every applicant owns the
+  CandidateAccount they applied with — recruiter-created candidates without
+  one were removed from the product — so the old `chatAvailable` /
+  `chatUnavailableReason:"NO_CANDIDATE_ACCOUNT"` fields are gone.
 - `PATCH /applications/:id/status {status:"INTERVIEW"}` routes through the
   same transition internally (same conversation guarantee), but the explicit
   endpoint above returns the conversation and should be preferred.
@@ -77,10 +75,21 @@ messages are **hard-deleted in the same transaction**. Connected clients get
 application that never reached interview simply succeeds — no conversation
 existed and no event fires.
 
-## 2. Conversations — organization side (@OrgScoped, any member role)
+## 2. Conversations — organization side (@OrgScoped, VACANCY CREATOR only)
+
+> **BREAKING (vacancy-scoped workspace, 2026-08-21):** organization
+> membership alone no longer grants access. Every route below — and the
+> socket `conversation.join` / `message.send` — additionally requires
+> `conversation.vacancy.createdById === caller`. A same-org colleague's
+> conversation is a plain `404`, indistinguishable from non-existent
+> (conversations were never org-browsable). The unfiltered list is
+> creator-scoped too; an explicit `vacancyId` filter must name one of the
+> CALLER'S OWN vacancies (else `403 VACANCY_NOT_OWNED` / `404`). Interview
+> invites likewise require the vacancy's creator. See
+> `vacancy-workspace-contracts.md` §8.
 
 ```
-GET  /conversations?vacancyId=&page=&limit=    -> paginated rows
+GET  /conversations?vacancyId=&page=&limit=    -> paginated rows (own vacancies only)
 GET  /conversations/:id                        -> one row
 GET  /conversations/:id/messages?page=&limit=  -> paginated, createdAt ASC
 POST /conversations/:id/messages {content}     -> 201 message
@@ -88,9 +97,9 @@ POST /conversations/:id/messages {content}     -> 201 message
 
 Row shape: `{ id, vacancyId, createdAt, updatedAt,
 vacancy:{id,title,status}, candidate:{id,fullName,email} }`, ordered by
-`updatedAt` DESC (most recently active first). Cross-tenant/unknown ids are
-`404` (never confirms existence). A CANDIDATE account gets `403
-AUTH_ACCOUNT_TYPE_MISMATCH` here.
+`updatedAt` DESC (most recently active first). Cross-tenant/unknown ids —
+and same-org non-creator ids — are `404` (never confirms existence). A
+CANDIDATE account gets `403 AUTH_ACCOUNT_TYPE_MISMATCH` here.
 
 ## 3. Conversations — candidate side (@CandidateScoped)
 

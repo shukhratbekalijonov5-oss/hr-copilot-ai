@@ -14,7 +14,7 @@ import { ChatService } from './chat.service';
 import { DomainEventsService } from '../common/events/domain-events.service';
 import type { JwtPayload } from '../common/interfaces/authenticated-user.interface';
 
-/** Server→client events: `message.new`, `conversation.closed`. */
+/** Server→client events: `message.new`, `conversation.closed`, `notification:new`. */
 
 const MAX_MESSAGE_LENGTH = 4000;
 
@@ -61,6 +61,18 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit {
     this.events.on('chat.message.created', ({ conversationId, message }) => {
       this.server?.to(room(conversationId)).emit('message.new', message);
     });
+    // Notification fan-out rides this same authenticated socket: the row is
+    // already committed (PostgreSQL is authoritative); this is delivery only,
+    // to every tab/device in the recipient's personal room. The recipient id
+    // comes from the persisted row — never from anything a socket sent.
+    this.events.on(
+      'notification.created',
+      ({ recipientUserId, notification }) => {
+        this.server
+          ?.to(userRoom(recipientUserId))
+          .emit('notification:new', notification);
+      },
+    );
     this.events.on(
       'chat.conversations.deleted',
       ({ conversationIds, reason }) => {
@@ -100,6 +112,9 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit {
       // Authentication only. Authorization happens per conversation, per
       // command, against live rows — the socket stores nothing but identity.
       (client.data as SocketData).userId = payload.sub;
+      // The personal room for notification delivery. Joined from the VERIFIED
+      // token subject — a client cannot name someone else's room.
+      await client.join(userRoom(payload.sub));
     } catch {
       this.logger.debug('Rejected websocket connection with invalid token');
       client.disconnect(true);
@@ -172,3 +187,5 @@ export class ChatGateway implements OnGatewayConnection, OnModuleInit {
 
 const room = (conversationId: string): string =>
   `conversation:${conversationId}`;
+
+const userRoom = (userId: string): string => `user:${userId}`;

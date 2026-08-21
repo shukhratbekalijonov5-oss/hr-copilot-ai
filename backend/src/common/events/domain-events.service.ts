@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type {
+  ApplicationStatus,
   ConversationParty,
   VacancyStatus,
 } from '../../generated/prisma/enums';
@@ -30,34 +31,84 @@ export interface ConversationMessageView {
 }
 
 /**
- * Every in-process domain event and its payload. Kept deliberately small:
- * the planned notification system consumes `interview.invited`,
- * `application.rejected` and `vacancy.closed`; the `chat.*` events are the
- * realtime fan-out used by the chat gateway today.
+ * Every in-process domain event and its payload. Kept deliberately small: the
+ * notification system consumes `application.created`, `chat.message.created`,
+ * `interview.invited`, `application.rejected` and `vacancy.deleted`; the
+ * `chat.*` events are the realtime fan-out used by the chat gateway.
  */
 export interface DomainEventMap {
+  /**
+   * A candidate applied to a vacancy and the row is committed. There is only
+   * one producer (PublicJobsService.apply) and one shape of application, so
+   * consumers need no source check: every one of these is a real person
+   * applying to somebody's vacancy.
+   */
+  'application.created': {
+    organizationId: string;
+    vacancyId: string;
+    applicationId: string;
+    candidateId: string;
+  };
   'interview.invited': {
     organizationId: string;
     vacancyId: string;
     applicationId: string;
     candidateId: string;
-    /** null for manual/external candidates with no platform account. */
-    candidateAccountId: string | null;
-    /** null when no chat could be unlocked (no platform account). */
-    conversationId: string | null;
+    /** The account the candidate applied with — every applicant has one. */
+    candidateAccountId: string;
+    conversationId: string;
+    /** The HR user who performed the invitation. */
+    actorUserId: string;
+    /**
+     * The application's status BEFORE this invite. Lets consumers detect a
+     * genuine transition — a re-invite (INTERVIEW → INTERVIEW) is idempotent
+     * and must not notify again.
+     */
+    previousStatus: ApplicationStatus;
   };
   'application.rejected': {
     organizationId: string;
     vacancyId: string;
     applicationId: string;
     candidateId: string;
-    candidateAccountId: string | null;
+    /** The account the candidate applied with — every applicant has one. */
+    candidateAccountId: string;
     /**
      * The conversation hard-deleted by this rejection, or null when the
      * candidate had never been invited to interview (nothing existed to
      * delete).
      */
     deletedConversationId: string | null;
+    /**
+     * Status BEFORE the rejection. REJECTED → REJECTED re-saves are not a
+     * transition and must not re-notify the candidate.
+     */
+    previousStatus: ApplicationStatus;
+  };
+  /**
+   * A vacancy row was permanently deleted (single or bulk). Published once
+   * PER vacancy, strictly AFTER the delete transaction committed — a failed
+   * or rolled-back delete publishes nothing. `recipients` and the title were
+   * captured BEFORE deletion, because the applications and the vacancy row
+   * are gone by the time this fires.
+   */
+  'vacancy.deleted': {
+    organizationId: string;
+    vacancyId: string;
+    vacancyTitle: string;
+    actorUserId: string;
+    /** Every applicant with a platform account — the only reachable ones. */
+    recipients: { userId: string; candidateId: string }[];
+  };
+  /**
+   * A notification row was persisted — the realtime fan-out signal. The chat
+   * gateway forwards it to the recipient's `user:{id}` room; PostgreSQL is
+   * already authoritative by the time this fires.
+   */
+  'notification.created': {
+    recipientUserId: string;
+    /** The API-shaped notification, exactly as GET /notifications returns. */
+    notification: unknown;
   };
   /** Published only for genuine transitions into CLOSED (never re-published). */
   'vacancy.closed': {
@@ -69,6 +120,8 @@ export interface DomainEventMap {
   'chat.message.created': {
     conversationId: string;
     message: ConversationMessageView;
+    /** The authenticated sender — lets consumers exclude self-notification. */
+    senderUserId: string;
   };
   /**
    * Conversations were HARD-DELETED — by a vacancy ending, or by one

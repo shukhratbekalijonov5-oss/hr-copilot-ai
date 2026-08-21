@@ -61,6 +61,7 @@ describe('PublicJobsService', () => {
   let producer: { enqueueDocument: jest.Mock };
   let accounts: { requireAccount: jest.Mock };
   let service: PublicJobsService;
+  let events: { publish: jest.Mock };
 
   beforeEach(() => {
     prisma = createPrismaMock();
@@ -84,12 +85,14 @@ describe('PublicJobsService', () => {
         headline: 'Backend Engineer',
       }),
     };
+    events = { publish: jest.fn() };
     service = new PublicJobsService(
       prisma as unknown as PrismaService,
       storage as unknown as StorageService,
       processing as unknown as ProcessingService,
       producer as unknown as DocumentProcessingProducer,
       accounts as unknown as CandidateAccountService,
+      events as never,
     );
 
     prisma.user.findUniqueOrThrow.mockResolvedValue({

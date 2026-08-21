@@ -104,6 +104,48 @@ const ko: Dictionary = {
     oneOfOne: "1 / 1",
   },
 
+  notifications: {
+    title: "알림",
+    bellLabel: "알림 열기",
+    bellUnreadLabel: "알림 열기, 읽지 않음 {count}개",
+    unread: "읽지 않음 {count}개",
+    allCaughtUp: "모두 확인했습니다",
+    markAllRead: "모두 읽음",
+    loadMore: "더 보기",
+    noDestination: "연결된 페이지 없음",
+    empty: {
+      hrTitle: "채용 알림이 없습니다",
+      hrDescription:
+        "지원, 지원자 메시지, CV 처리 업데이트가 여기에 표시됩니다.",
+      candidateTitle: "알림이 없습니다",
+      candidateDescription:
+        "메시지, 인터뷰 초대, 지원 상태 업데이트가 여기에 표시됩니다.",
+    },
+    errors: {
+      load: "알림을 불러오지 못했습니다.",
+      markRead: "이 알림을 읽음 처리하지 못했습니다.",
+      markAll: "알림을 읽음 처리하지 못했습니다.",
+    },
+    fallbacks: {
+      candidateUnavailable: "지원자 정보 없음",
+      vacancyUnavailable: "공고 정보 없음",
+      recruiter: "채용 담당자",
+    },
+    messages: {
+      newMessageFallback: "새 메시지",
+      interviewInvitation: "인터뷰 초대를 받았습니다.",
+      vacancyDeleted: "ì§ìíì  “{vacancy}” ê³µê³ ê° ì­ì ëììµëë¤.",
+      applicationRejected: "채용팀이 다음 단계로 진행하지 않기로 했습니다.",
+    },
+    types: {
+      NEW_APPLICATION: "새 지원",
+      NEW_MESSAGE: "새 메시지",
+      INTERVIEW_INVITATION: "인터뷰 초대",
+      VACANCY_DELETED: "ê³µê³  ìë¦¼",
+      APPLICATION_REJECTED: "지원 업데이트",
+    },
+  },
+
   auth: {
     candidate: "지원자",
     organization: "조직",
@@ -211,10 +253,8 @@ const ko: Dictionary = {
     statCompletedAnalysesHint: "색인이 끝나 열람 가능한 문서",
     quickCreateVacancy: "채용 공고 등록",
     quickCreateVacancyHint: "코파일럿이 확인할 요건을 정의합니다.",
-    quickAddCandidate: "지원자 추가",
-    quickAddCandidateHint: "지원자를 등록한 뒤 이력서를 업로드합니다.",
-    quickUploadResumes: "이력서 업로드",
-    quickUploadResumesHint: "PDF 또는 DOCX를 올리면 색인 과정을 볼 수 있습니다.",
+    quickReviewApplicants: "지원자 검토",
+    quickReviewApplicantsHint: "내 공고에 지원한 사람을 확인합니다.",
     recentVacancies: "최근 채용 공고",
     recentCandidates: "최근 지원자",
     processingActivity: "처리 현황",
@@ -224,8 +264,8 @@ const ko: Dictionary = {
     openProcessingQueue: "처리 대기열 열기",
     noVacancies: "등록된 채용 공고가 없습니다",
     noVacanciesHint: "첫 공고를 등록해 코파일럿이 무엇을 볼지 알려 주세요.",
-    noCandidates: "등록된 지원자가 없습니다",
-    noCandidatesHint: "지원자를 추가하고 이력서를 올려 파이프라인을 시작하세요.",
+    noCandidates: "아직 지원자가 없습니다",
+    noCandidatesHint: "내 공고에 지원한 사람이 여기에 표시됩니다.",
     nothingProcessed: "아직 처리된 문서가 없습니다",
     nothingProcessedHint: "업로드한 문서가 파이프라인을 지나며 여기에 표시됩니다.",
     noDepartment: "부서 미지정",
@@ -277,9 +317,6 @@ const ko: Dictionary = {
     title: "지원자",
     description:
       "파이프라인의 모든 지원자와 문서 상태입니다. 모델이 지원자를 순위 매기거나 걸러내지 않습니다.",
-    add: "지원자 추가",
-    addTitle: "지원자 추가",
-    addDescription: "지원자를 먼저 등록한 뒤 이력서를 올리면 색인됩니다.",
     searchPlaceholder: "지원자 검색",
     filterVacancy: "채용 공고",
     allVacancies: "전체 공고",
@@ -297,11 +334,11 @@ const ko: Dictionary = {
     location: "지역",
     email: "이메일",
     phone: "전화번호",
-    added: "등록일",
+    added: "최초 지원일",
     documents: "문서",
-    documentsUploaded: { other: "파일 {count}개 업로드됨" },
-    uploadPrompt:
-      "이력서를 업로드하면 파싱·색인 후 이 공고의 요건과 대조됩니다.",
+    documentsUploaded: { other: "제출된 파일 {count}개" },
+    noDocumentsYet:
+      "아직 제출된 문서가 없습니다. 지원자가 지원 시 보낸 이력서가 여기에 표시됩니다.",
     applications: "지원 현황",
     applicationsHint: "단계 변경은 변경한 담당자와 함께 기록됩니다.",
     applicationStage: "지원 단계",
@@ -336,8 +373,6 @@ const ko: Dictionary = {
       "브라우저는 DOCX를 바로 표시할 수 없습니다. 파일을 열어 확인하세요. 추출된 텍스트와 출처는 옆에 그대로 표시됩니다.",
     openFile: "{name} 열기",
     showingCitation: "출처 표시 중",
-    linkedCandidateUploadNotAllowed:
-      "이 지원자는 구직자 계정과 연결되어 있어 HR이 여기에서 문서를 추가할 수 없습니다. 조직용 사본은 지원자가 제출한 지원서에서 생성됩니다.",
     noDocuments: "문서 없음",
   },
 
@@ -358,8 +393,6 @@ const ko: Dictionary = {
       UNSUPPORTED_FILE_TYPE: "PDF 또는 DOCX 파일을 업로드하세요.",
       PERSONAL_DOCUMENT_LIMIT_REACHED:
         "문서는 최대 3개까지 보관할 수 있습니다. 하나를 삭제한 뒤 다시 업로드하세요.",
-      HR_DOCUMENT_UPLOAD_NOT_ALLOWED:
-        "수동으로 만든 지원자에게만 문서를 업로드할 수 있습니다. 이 지원자의 파일은 본인이 제출한 지원서에서 옵니다.",
     },
   },
 
@@ -826,10 +859,7 @@ const ko: Dictionary = {
       "채용 공고를 연결해야 요건 확인이 대조할 기준을 갖게 됩니다.",
     applyToVacancy: "연결할 채용 공고",
     noVacancy: "지금은 연결하지 않음",
-    errFullName: "이름을 입력하세요.",
-    errFullNameShort: "지원자의 전체 이름을 입력하세요.",
-    errEmail: "올바른 이메일 주소를 입력하세요.",
-    errYears: "0에서 80 사이의 숫자를 입력하세요.",
+    errVacancyRequired: "이 지원자를 추가할 내 채용 공고를 선택하세요.",
   },
 
   vacancyDetail: {
@@ -842,14 +872,14 @@ const ko: Dictionary = {
     noRequirementsHint:
       "요건은 업로드된 이력서를 대조하는 기준입니다. 요건이 없으면 찾을 근거도 없습니다.",
     candidatesAttached: { other: "이 공고에 지원자 {count}명 연결됨" },
-    noCandidates: "등록된 지원자가 없습니다",
+    noCandidates: "아직 지원자가 없습니다",
     noCandidatesHint:
-      "지원자를 추가하고 이력서를 업로드하세요. 각 이력서가 위 요건과 대조됩니다.",
+      "이 공고에 지원한 사람이 여기에 표시되며, 제출한 이력서가 위 요건과 대조됩니다.",
     atAGlance: "요약",
     lastUpdated: "최종 수정",
     readingResumes: "이력서 확인 방법",
     readingResumesHint:
-      "문서는 채용 공고가 아니라 지원자에 연결됩니다. 먼저 지원자를 등록한 뒤 해당 페이지에서 이력서를 업로드하면 파일이 이 요건들과 연결됩니다.",
+      "지원자가 지원할 때 본인의 이력서를 직접 제출합니다. 제출된 이력서는 위 요건과 대조되며, 대신 업로드하는 경로는 없습니다.",
     created: "{date} 등록",
     deletedOrWrongLink: "삭제된 공고이거나 링크가 잘못되었을 수 있습니다.",
     candidateRemovedOrWrongLink:
@@ -857,8 +887,6 @@ const ko: Dictionary = {
     newVacancyTitle: "채용 공고 등록",
     newVacancyHint:
       "여기에 추가한 요건이 업로드되는 모든 이력서의 대조 기준이 됩니다.",
-    newCandidateHint:
-      "먼저 지원자를 등록하면 다음 화면에서 이력서를 업로드할 수 있습니다.",
     scopedSearchLabel: "이 공고의 지원자 검색",
     scopedSearchPlaceholder:
       "자연어로 질문하세요 — 예: 프로덕션에서 쿠버네티스를 운영한 사람은?",
@@ -1047,7 +1075,6 @@ const ko: Dictionary = {
       "최종 단계에 도달했습니다. 이제부터는 채용팀만 상태를 변경할 수 있습니다.",
     stageNote:
       "단계는 채용팀이 설정합니다. 지원자가 할 수 있는 변경은 철회뿐입니다.",
-    source: "지원 경로",
   },
 
   chat: {
@@ -1076,8 +1103,6 @@ const ko: Dictionary = {
     viewVacancy: "공고 보기",
     viewJob: "공고 보기",
     chatUnavailable: "채팅을 사용할 수 없음",
-    noCandidateAccount:
-      "이 지원자는 플랫폼 Candidate 계정이 없어 인앱 채팅을 사용할 수 없습니다.",
     candidateRejectedNotice:
       "지원자가 불합격 처리되어 인터뷰 채팅이 삭제되었습니다.",
     vacancyClosedNotice:
@@ -1198,6 +1223,41 @@ const ko: Dictionary = {
     unavailable: "매칭을 일시적으로 사용할 수 없습니다",
     unavailableHint:
       "매칭 서비스에 지금 연결할 수 없습니다. 아무것도 계산되지 않았으니 잠시 후 다시 시도하세요.",
+  },
+  vacancyScope: {
+    selectorLabel: "내 채용 공고",
+    myVacancies: "내 채용 공고",
+    choosePlaceholder: "채용 공고 선택",
+    allVacancies: "내 공고 전체",
+    noneTitle: "등록한 채용 공고가 없습니다",
+    noneHint: "먼저 채용 공고를 등록하세요. 지원자, 근거, 대화는 모두 공고 안에서 관리됩니다.",
+    invalidSelection: "내가 등록한 공고가 아닙니다",
+    selectFirstTitle: "내 채용 공고를 선택하세요",
+    selectFirstHint: "위에서 공고를 선택하면 해당 공고 안에서 작업합니다.",
+    notOwned: "이 공고는 같은 조직의 다른 담당자가 등록했습니다. 본인이 등록한 공고에서만 작업할 수 있습니다.",
+    notFound: "해당 채용 공고를 사용할 수 없습니다.",
+    candidateNotInVacancy: "이 지원자는 선택한 공고에 속해 있지 않습니다.",
+    noCandidatesTitle: "아직 지원자가 없습니다",
+    noCandidatesHint: "이 공고에 지원한 사람이 여기에 표시됩니다.",
+    scopedToVacancy: "대상: {title}",
+    select: "선택",
+    selected: "선택됨",
+    ownedByOther: "다른 담당자가 등록",
+    deleteSelected: "선택 항목 삭제",
+    deleteConfirmTitle: "선택한 채용 공고를 삭제할까요?",
+    deleteConfirmTitlePlural: "선택한 채용 공고들을 삭제할까요?",
+    deleteConfirmHint: "해당 공고의 지원 내역, 근거, 면접 대화도 함께 삭제됩니다.",
+    yes: "예",
+    no: "아니요",
+    deleting: "삭제 중",
+    deleteFailed: "아무것도 삭제되지 않았습니다. 삭제할 수 없는 공고가 선택에 포함되어 있습니다.",
+    deletedCount: { other: "공고 {count}건 삭제됨" } as Plural,
+    selectedCount: { other: "{count}건 선택됨" } as Plural,
+    selectAll: "전체 선택",
+    clearSelection: "선택 해제",
+    chatUnavailable: "대화를 사용할 수 없습니다",
+    chatUnavailableHint: "삭제되었거나, 본인이 등록하지 않은 공고의 대화일 수 있습니다.",
+    accountRequired: "이 지원자는 플랫폼 계정이 없어 면접 대화를 사용할 수 없습니다.",
   },
   status: {
     vacancy: {

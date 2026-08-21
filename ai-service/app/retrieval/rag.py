@@ -24,6 +24,7 @@ from app.models.schemas import (
     CandidateSummaryResponse,
     EvidenceHit,
     RagResponse,
+    VacancyContext,
 )
 from app.retrieval.search import search_evidence
 
@@ -49,6 +50,7 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
     store,
     reranker,
     generator: GenerationClient,
+    vacancy: VacancyContext | None = None,
 ) -> RagResponse:
     started = time.perf_counter()
     metrics.increment(metrics.RAG_REQUESTS)
@@ -95,7 +97,10 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
     try:
         with metrics.timed(metrics.LLM_DURATION):
             generated = generator.generate_grounded_answer(
-                question=query, evidence=context, locale=locale
+                question=query,
+                evidence=context,
+                locale=locale,
+                vacancy_context=format_vacancy_context(vacancy),
             )
     except Exception:
         metrics.increment(metrics.LLM_ERRORS)
@@ -152,14 +157,23 @@ def summarise_candidate(
     store,
     reranker,
     generator: GenerationClient,
+    vacancy: VacancyContext | None = None,
 ) -> CandidateSummaryResponse:
     started = time.perf_counter()
 
     # A broad query: the goal is coverage of the candidate's own documents, not
-    # relevance to a specific question.
+    # relevance to a specific question. With a selected vacancy, the vacancy's
+    # title and requirement texts steer retrieval toward the evidence that
+    # matters for THAT role.
+    base_query = (
+        "professional experience, skills, projects, education, certifications, languages"
+    )
+    if vacancy is not None:
+        requirement_terms = " ".join(r.text for r in vacancy.requirements)
+        base_query = f"{vacancy.title} {requirement_terms} {base_query}"[:1000]
     retrieval = search_evidence(
         organization_id=organization_id,
-        query="professional experience, skills, projects, education, certifications, languages",
+        query=base_query,
         limit=limit,
         candidate_id=candidate_id,
         document_id=None,
@@ -182,7 +196,11 @@ def summarise_candidate(
             durationMs=_elapsed(started),
         )
 
-    generated = generator.generate_candidate_summary(evidence=context, locale=locale)
+    generated = generator.generate_candidate_summary(
+        evidence=context,
+        locale=locale,
+        vacancy_context=format_vacancy_context(vacancy),
+    )
     outcome = validate_citations(
         generated.cited_chunk_ids,
         context,
@@ -201,6 +219,24 @@ def summarise_candidate(
         durationMs=_elapsed(started),
         model=generated.model,
     )
+
+
+def format_vacancy_context(vacancy: VacancyContext | None) -> str | None:
+    """Renders the selected vacancy as a compact prompt block.
+
+    Candidate-visible fields only; the caller (backend) already restricted the
+    payload to title + requirement texts.
+    """
+    if vacancy is None:
+        return None
+    lines = [f"Title: {vacancy.title}"]
+    if vacancy.requirements:
+        lines.append("Requirements:")
+        lines.extend(
+            f"- {'[required]' if r.required else '[nice-to-have]'} {r.text}"
+            for r in vacancy.requirements
+        )
+    return "\n".join(lines)
 
 
 def _resolve_status(model_status: str, citations: list) -> str:

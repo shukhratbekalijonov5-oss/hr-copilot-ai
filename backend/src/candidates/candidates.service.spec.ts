@@ -7,17 +7,21 @@ const ORG_A = 'org-a';
 const ORG_B = 'org-b';
 
 function createPrismaMock() {
-  return {
+  const mock = {
     candidate: {
-      create: jest.fn(),
       findMany: jest.fn(),
       findFirst: jest.fn(),
       count: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
     },
-    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    $transaction: jest.fn(),
   };
+  mock.$transaction.mockImplementation(
+    (arg: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)) =>
+      typeof arg === 'function' ? arg(mock) : Promise.all(arg),
+  );
+  return mock;
 }
 
 describe('CandidatesService', () => {
@@ -32,16 +36,12 @@ describe('CandidatesService', () => {
     );
   });
 
-  describe('create', () => {
-    it('stamps the caller organization onto the candidate', async () => {
-      prisma.candidate.create.mockResolvedValue({ id: 'c1' });
-
-      await service.create(ORG_A, { fullName: 'Aziza Karimova' });
-
-      expect(prisma.candidate.create).toHaveBeenCalledWith({
-        data: { fullName: 'Aziza Karimova', organizationId: ORG_A },
-      });
-    });
+  it('exposes no way to create a candidate', () => {
+    // HR-side candidate creation was removed from the product: a Candidate
+    // row exists only because a person applied.
+    expect(
+      (service as unknown as Record<string, unknown>).create,
+    ).toBeUndefined();
   });
 
   describe('findAll — tenant isolation', () => {
@@ -56,6 +56,14 @@ describe('CandidatesService', () => {
       expect(
         prisma.candidate.findMany.mock.calls[0][0].where.organizationId,
       ).toBe(ORG_A);
+    });
+
+    it('lists APPLICANTS only — never a leftover recruiter-created record', async () => {
+      await service.findAll(ORG_A, { page: 1, limit: 20, skip: 0 });
+
+      expect(
+        prisma.candidate.findMany.mock.calls[0][0].where.candidateAccountId,
+      ).toEqual({ not: null });
     });
 
     it('keeps the tenant filter alongside a metadata search', async () => {
@@ -107,6 +115,18 @@ describe('CandidatesService', () => {
         NotFoundException,
       );
       expect(prisma.candidate.delete).not.toHaveBeenCalled();
+    });
+
+    it('reads/edits are applicant-scoped, not merely tenant-scoped', async () => {
+      prisma.candidate.findFirst.mockResolvedValue(null);
+
+      await expect(service.findOne(ORG_A, 'c-manual')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.candidate.findFirst.mock.calls[0][0].where).toMatchObject({
+        organizationId: ORG_A,
+        candidateAccountId: { not: null },
+      });
     });
 
     it('permits access within the owning organization', async () => {

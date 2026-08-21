@@ -14,6 +14,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { Role } from '../generated/prisma/enums';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 /**
  * JD -> candidate evidence mapping.
@@ -32,13 +33,14 @@ export class EvidenceMapController {
   @HttpCode(HttpStatus.OK)
   @Post()
   run(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('candidateId', ParseUUIDPipe) candidateId: string,
     @Param('vacancyId', ParseUUIDPipe) vacancyId: string,
     @Body() dto: RunEvidenceMapDto,
   ) {
     return this.evidenceMapService.run(
-      organizationId,
+      user.organizationId!,
+      user.id,
       candidateId,
       vacancyId,
       dto.locale ?? 'en',
@@ -48,10 +50,15 @@ export class EvidenceMapController {
   /** Reads the stored mapping. Every requirement is listed, mapped or not. */
   @Get()
   read(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('candidateId', ParseUUIDPipe) candidateId: string,
     @Param('vacancyId', ParseUUIDPipe) vacancyId: string,
   ) {
-    return this.evidenceMapService.read(organizationId, candidateId, vacancyId);
+    return this.evidenceMapService.read(
+      user.organizationId!,
+      user.id,
+      candidateId,
+      vacancyId,
+    );
   }
 }

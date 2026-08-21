@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import {
-  BellIcon,
   ChevronDownIcon,
   LogoutIcon,
   MenuIcon,
   SettingsIcon,
   UserIcon,
 } from "@/components/ui/icons";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import type { SessionUser } from "@/lib/types";
 import type { WorkspaceContext } from "@/lib/workspace/types";
 import { useI18n } from "@/lib/i18n/context";
@@ -21,10 +21,16 @@ import { logoutAction } from "@/lib/auth/actions";
 interface HeaderProps {
   user: SessionUser;
   workspace: WorkspaceContext;
+  initialUnreadCount: number;
   onOpenSidebar: () => void;
 }
 
-export function Header({ user, workspace, onOpenSidebar }: HeaderProps) {
+export function Header({
+  user,
+  workspace,
+  initialUnreadCount,
+  onOpenSidebar,
+}: HeaderProps) {
   const { d } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -65,17 +71,12 @@ export function Header({ user, workspace, onOpenSidebar }: HeaderProps) {
       <div className="ml-auto flex items-center gap-1">
         <LocaleSwitcher />
 
-        {/* Notifications have no backing endpoint yet, so the control is
-            present but explicitly inert rather than showing an invented count. */}
-        <button
-          type="button"
-          disabled
-          className="relative rounded-md p-2 text-ink-subtle disabled:cursor-not-allowed"
-          aria-label={`${d.nav.notifications} — ${d.nav.notificationsUnavailable}`}
-          title={d.nav.notificationsUnavailable}
-        >
-          <BellIcon className="size-5" />
-        </button>
+        <NotificationBell
+          audience={
+            workspace.active.kind === "personal" ? "CANDIDATE" : "HR"
+          }
+          initialUnreadCount={initialUnreadCount}
+        />
 
         <div className="relative" ref={menuRef}>
           <button

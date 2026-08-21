@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import {
   AiServiceClient,
   AiServiceDisabledError,
@@ -43,17 +44,20 @@ export class EvidenceMapService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantService,
     private readonly ai: AiServiceClient,
+    private readonly ownedVacancies: OwnedVacancyService,
   ) {}
 
   /** Runs the mapping and persists the result. */
   async run(
     organizationId: string,
+    userId: string,
     candidateId: string,
     vacancyId: string,
     locale: SupportedLocale = 'en',
   ) {
     const { vacancy } = await this.assertScope(
       organizationId,
+      userId,
       candidateId,
       vacancyId,
     );
@@ -99,7 +103,7 @@ export class EvidenceMapService {
         `${candidateId} on vacancy ${vacancyId}`,
     );
 
-    return this.read(organizationId, candidateId, vacancyId);
+    return this.read(organizationId, userId, candidateId, vacancyId);
   }
 
   /**
@@ -191,9 +195,15 @@ export class EvidenceMapService {
   }
 
   /** Domain-shaped read: requirements with their status and evidence. */
-  async read(organizationId: string, candidateId: string, vacancyId: string) {
+  async read(
+    organizationId: string,
+    userId: string,
+    candidateId: string,
+    vacancyId: string,
+  ) {
     const { vacancy, candidate } = await this.assertScope(
       organizationId,
+      userId,
       candidateId,
       vacancyId,
     );
@@ -255,11 +265,23 @@ export class EvidenceMapService {
   }
 
   /** Both candidate and vacancy must belong to the caller's organization. */
+  /**
+   * The vacancy-scoped workspace gate for JD evidence (and therefore Compare):
+   * the vacancy must be the CALLER'S OWN (404 foreign, 403 VACANCY_NOT_OWNED
+   * same-org), the candidate must exist in the org (404), and the candidate
+   * must be ASSOCIATED with the selected vacancy (403
+   * CANDIDATE_NOT_IN_VACANCY) — Compare can never pull in a candidate from
+   * outside the selected vacancy. The stored mapping itself is keyed by
+   * (candidate, vacancy, requirement), so results computed for vacancy A are
+   * structurally invisible under vacancy B.
+   */
   private async assertScope(
     organizationId: string,
+    userId: string,
     candidateId: string,
     vacancyId: string,
   ) {
+    await this.ownedVacancies.requireOwned(userId, organizationId, vacancyId);
     const [candidate, vacancy] = await Promise.all([
       this.prisma.candidate.findFirst({
         where: { id: candidateId, ...this.tenant.scope(organizationId) },
@@ -277,9 +299,9 @@ export class EvidenceMapService {
         },
       }),
     ]);
-
     this.tenant.assertFound(candidate, 'Candidate');
     this.tenant.assertFound(vacancy, 'Vacancy');
+    await this.ownedVacancies.assertCandidateInVacancy(vacancyId, candidateId);
     return { candidate: candidate!, vacancy: vacancy! };
   }
 }

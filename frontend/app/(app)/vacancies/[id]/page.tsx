@@ -13,7 +13,7 @@ import {
   VacancyStatusBadge,
 } from "@/components/ui/StatusBadge";
 import { buttonStyles } from "@/components/ui/Button";
-import { CompareIcon, MessageIcon, PlusIcon, UsersIcon } from "@/components/ui/icons";
+import { CompareIcon, MessageIcon, UsersIcon } from "@/components/ui/icons";
 import { VacancyCloseButton } from "@/components/vacancies/VacancyCloseButton";
 import { getI18n } from "@/lib/i18n/server";
 import { formatDateFor } from "@/lib/i18n/format";
@@ -115,18 +115,11 @@ export default async function VacancyDetailPage(
         actions={
           <>
             <Link
-              href={`/compare?vacancy=${vacancy.id}`}
+              href={`/compare?vacancyId=${vacancy.id}`}
               className={buttonStyles("secondary", "md")}
             >
               <CompareIcon className="size-4" />
               {d.nav.compare}
-            </Link>
-            <Link
-              href={`/candidates/new?vacancy=${vacancy.id}`}
-              className={buttonStyles("primary", "md")}
-            >
-              <PlusIcon className="size-4" />
-              {d.candidates.add}
             </Link>
             {vacancy.status !== "CLOSED" && vacancy.status !== "ARCHIVED" ? (
               <VacancyCloseButton
@@ -226,7 +219,7 @@ export default async function VacancyDetailPage(
               )}
               action={
                 <Link
-                  href={`/candidates?vacancy=${vacancy.id}`}
+                  href={`/candidates?vacancyId=${vacancy.id}`}
                   className="text-[12.5px] font-medium text-brand hover:underline"
                 >
                   {d.common.viewAll}
@@ -238,14 +231,6 @@ export default async function VacancyDetailPage(
                 icon={<UsersIcon className="size-5" />}
                 title={d.vacancyDetail.noCandidates}
                 description={d.vacancyDetail.noCandidatesHint}
-                action={
-                  <Link
-                    href={`/candidates/new?vacancy=${vacancy.id}`}
-                    className={buttonStyles("primary", "sm")}
-                  >
-                    {d.candidates.add}
-                  </Link>
-                }
               />
             ) : (
               <ul className="divide-y divide-[var(--line)]">
@@ -326,17 +311,10 @@ export default async function VacancyDetailPage(
 
           <Card>
             <CardHeader title={d.vacancyDetail.readingResumes} />
-            <CardBody className="flex flex-col gap-3">
+            <CardBody>
               <p className="text-[13px] leading-relaxed text-ink-muted">
                 {d.vacancyDetail.readingResumesHint}
               </p>
-              <Link
-                href={`/candidates/new?vacancy=${vacancy.id}`}
-                className={buttonStyles("secondary", "md", "self-start")}
-              >
-                <PlusIcon className="size-4" />
-                {d.candidates.add}
-              </Link>
             </CardBody>
           </Card>
         </div>

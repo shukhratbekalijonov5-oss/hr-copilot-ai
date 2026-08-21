@@ -7,9 +7,7 @@ import {
   mapMissingCandidatesAction,
 } from "@/app/(app)/compare/actions";
 import { AiFailureNotice } from "@/components/ai/AiFailureNotice";
-import { aiReadiness } from "@/lib/api/adapters";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { Select } from "@/components/ui/Field";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonTable } from "@/components/ui/LoadingSkeleton";
 import { CitationLink } from "@/components/evidence/CitationLink";
@@ -20,62 +18,56 @@ import {
   MAX_COMPARE_CANDIDATES,
   MIN_COMPARE_CANDIDATES,
 } from "@/lib/constants";
+import { MyVacancySelector } from "@/components/vacancies/MyVacancySelector";
 import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import type {
   AiFailureReason,
-  Candidate,
   ComparisonResult,
-  Vacancy,
+  MyVacancy,
+  VacancyCandidate,
 } from "@/lib/types";
 
 interface CompareWorkspaceProps {
-  /** Only vacancies that have candidates — the rest cannot be compared. */
-  vacancies: Vacancy[];
-  candidates: Candidate[];
-  initialVacancyId: string;
+  /** The caller's OWN vacancies, from /vacancies/mine. */
+  vacancies: MyVacancy[];
+  /**
+   * The SELECTED vacancy's applicants, from /vacancies/:id/candidates. Never
+   * an org-wide candidate directory filtered in the browser.
+   */
+  vacancyCandidates: VacancyCandidate[];
+  activeVacancyId: string | null;
+  invalidSelection: boolean;
   initialSelected: string[];
   initialResult: ComparisonResult | null;
 }
 
-/** True when the candidate applied to this vacancy, whichever application it is. */
-function appliedTo(candidate: Candidate, vacancyId: string): boolean {
-  // Not `primaryVacancyId`: a candidate can hold several applications, and
-  // comparing them on a vacancy they applied to second is perfectly ordinary.
-  return candidate.applications.some(
-    (application) => application.vacancyId === vacancyId,
-  );
-}
-
 /**
- * Candidates on this vacancy with at least one indexed document.
- *
- * `aiReadiness` rather than `processingStatus === "COMPLETED"`: the latter is
- * the worst-case state across every file, so one failed upload would exclude a
- * candidate whose other resume is indexed and perfectly comparable.
+ * Who can actually be compared: any applicant of this vacancy with a document
+ * to compare. Membership is already guaranteed by the endpoint, so nothing is
+ * re-filtered by vacancy here.
  */
-function poolFor(candidates: Candidate[], vacancyId: string): Candidate[] {
-  return candidates.filter(
-    (candidate) =>
-      appliedTo(candidate, vacancyId) &&
-      aiReadiness(candidate.documents) === "ready",
-  );
-}
-
-function defaultSelection(pool: Candidate[]): string[] {
-  return pool.slice(0, 3).map((candidate) => candidate.id);
+function comparablePool(rows: VacancyCandidate[]): VacancyCandidate[] {
+  return rows.filter((row) => row.candidate.documentCount > 0);
 }
 
 export function CompareWorkspace({
   vacancies,
-  candidates,
-  initialVacancyId,
+  vacancyCandidates,
+  activeVacancyId,
+  invalidSelection,
   initialSelected,
   initialResult,
 }: CompareWorkspaceProps) {
-  const { d, f, p } = useI18n();
+  const { d, f } = useI18n();
 
-  const [vacancyId, setVacancyId] = useState(initialVacancyId);
+  /**
+   * The vacancy lives in the URL, so switching it re-runs the server component
+   * and this whole workspace is remounted with the new vacancy's candidates.
+   * That is what clears the previous selection, comparison table, evidence and
+   * error state — there is no stale slice left to reset by hand.
+   */
+  const vacancyId = activeVacancyId ?? "";
   const [selected, setSelected] = useState<string[]>(initialSelected);
   const [result, setResult] = useState<ComparisonResult | null>(initialResult);
   const [loading, setLoading] = useState(false);
@@ -88,21 +80,10 @@ export function CompareWorkspace({
   // Guards against an earlier request resolving after a later one.
   const requestRef = useRef(0);
 
-  const pool = useMemo(
-    () => poolFor(candidates, vacancyId),
-    [candidates, vacancyId],
-  );
+  const pool = useMemo(() => comparablePool(vacancyCandidates), [vacancyCandidates]);
 
-  /** Attached to the vacancy but not yet analysable. */
-  const pendingCount = useMemo(
-    () =>
-      candidates.filter(
-        (candidate) =>
-          appliedTo(candidate, vacancyId) &&
-          aiReadiness(candidate.documents) !== "ready",
-      ).length,
-    [candidates, vacancyId],
-  );
+  /** In the vacancy, but with nothing indexed to compare yet. */
+  const pendingCount = vacancyCandidates.length - pool.length;
 
   const apply = useCallback(async (nextVacancyId: string, ids: string[]) => {
     const requestId = requestRef.current + 1;
@@ -149,13 +130,6 @@ export function CompareWorkspace({
     }
   }, [mapping, vacancyId, selected]);
 
-  function changeVacancy(nextVacancyId: string) {
-    const nextSelection = defaultSelection(poolFor(candidates, nextVacancyId));
-    setVacancyId(nextVacancyId);
-    setSelected(nextSelection);
-    void apply(nextVacancyId, nextSelection);
-  }
-
   function toggle(candidateId: string) {
     const next = selected.includes(candidateId)
       ? selected.filter((id) => id !== candidateId)
@@ -168,20 +142,40 @@ export function CompareWorkspace({
     void apply(vacancyId, next);
   }
 
-  if (vacancies.length === 0) {
+  const selector = (
+    <MyVacancySelector
+      vacancies={vacancies}
+      value={activeVacancyId}
+      invalid={invalidSelection}
+    />
+  );
+
+  if (vacancies.length === 0 || !activeVacancyId) {
     return (
-      <Card>
-        <EmptyState
-          icon={<CompareIcon className="size-5" />}
-          title={d.compare.nothingToCompare}
-          description={d.compare.nothingToCompareHint}
-        />
-      </Card>
+      <div className="flex flex-col gap-4">
+        {selector}
+        <Card>
+          <EmptyState
+            icon={<CompareIcon className="size-5" />}
+            title={
+              vacancies.length === 0
+                ? d.compare.nothingToCompare
+                : d.vacancyScope.selectFirstTitle
+            }
+            description={
+              vacancies.length === 0
+                ? d.compare.nothingToCompareHint
+                : d.vacancyScope.selectFirstHint
+            }
+          />
+        </Card>
+      </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {selector}
       <Card>
         <CardHeader
           title={d.compare.selectTitle}
@@ -199,19 +193,7 @@ export function CompareWorkspace({
           }
         />
         <CardBody className="flex flex-col gap-3">
-          <Select
-            label={d.compare.vacancy}
-            value={vacancyId}
-            options={vacancies.map((vacancy) => ({
-              value: vacancy.id,
-              label: f(d.compare.vacancyOption, {
-                title: vacancy.title,
-                count: p(d.common.candidates, vacancy.candidateCount),
-              }),
-            }))}
-            onChange={(event) => changeVacancy(event.target.value)}
-            className="sm:max-w-md"
-          />
+
 
           {pool.length === 0 ? (
             <p className="rounded-lg bg-surface-muted px-3 py-2.5 text-[13px] text-ink-muted">
@@ -228,7 +210,8 @@ export function CompareWorkspace({
                 </p>
               ) : null}
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {pool.map((candidate) => {
+                {pool.map((row) => {
+                  const candidate = row.candidate;
                   const checked = selected.includes(candidate.id);
                   const atLimit =
                     !checked && selected.length >= MAX_COMPARE_CANDIDATES;

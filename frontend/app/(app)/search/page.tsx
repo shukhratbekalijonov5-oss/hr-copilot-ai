@@ -11,12 +11,15 @@ import {
   GroundedSummarySkeleton,
 } from "@/components/search/GroundedSummary";
 import { SearchForm } from "@/components/search/SearchForm";
+import { MyVacancySelector } from "@/components/vacancies/MyVacancySelector";
 import { getI18n } from "@/lib/i18n/server";
 import {
   MIN_EVIDENCE_QUERY_LENGTH,
   runEvidenceSearch,
   runGroundedAnswer,
 } from "@/lib/search/grounded-search";
+import { selectedVacancyId } from "@/lib/vacancy/selection";
+import { api } from "@/lib/api";
 
 export async function generateMetadata(): Promise<Metadata> {
   const { d } = await getI18n();
@@ -44,33 +47,50 @@ export async function generateMetadata(): Promise<Metadata> {
  */
 export default async function SearchPage(props: PageProps<"/search">) {
   await requireSession();
-  const [{ locale, d }, searchParams] = await Promise.all([
+  const [{ locale, d }, searchParams, myVacancies] = await Promise.all([
     getI18n(),
     props.searchParams,
+    // Optional scope. Search is deliberately org-wide by default — this
+    // screen is not vacancy-scoped by nature — so the picker offers "all"
+    // and only narrows when the user asks.
+    api.getAllMyVacancies().catch(() => []),
   ]);
 
   const raw = searchParams.q;
   const query = (typeof raw === "string" ? raw : "").trim();
   const active = query.length >= MIN_EVIDENCE_QUERY_LENGTH;
 
+  const requested = selectedVacancyId(searchParams);
+  const scopeId = myVacancies.some((v) => v.id === requested)
+    ? requested!
+    : undefined;
+
   // Deliberately not awaited — see above.
-  const answer = active ? runGroundedAnswer(query, locale) : null;
-  const evidence = active ? runEvidenceSearch(query) : null;
+  const answer = active ? runGroundedAnswer(query, locale, scopeId) : null;
+  const evidence = active ? runEvidenceSearch(query, scopeId) : null;
 
   return (
     <div className="mx-auto max-w-4xl">
       <PageHeader title={d.search.title} description={d.search.description} />
       <div className="flex flex-col gap-4">
+        {myVacancies.length > 0 ? (
+          <MyVacancySelector
+            vacancies={myVacancies}
+            value={scopeId ?? null}
+            allowEmpty
+          />
+        ) : null}
+
         <SearchForm key={query} query={active ? query : ""} />
 
         {answer ? (
-          <Suspense key={`answer-${query}`} fallback={<GroundedSummarySkeleton />}>
+          <Suspense key={`answer-${query}-${scopeId ?? "all"}`} fallback={<GroundedSummarySkeleton />}>
             <GroundedSummary result={answer} />
           </Suspense>
         ) : null}
 
         {evidence ? (
-          <Suspense key={`evidence-${query}`} fallback={<EvidenceResultsSkeleton />}>
+          <Suspense key={`evidence-${query}-${scopeId ?? "all"}`} fallback={<EvidenceResultsSkeleton />}>
             <EvidenceResults result={evidence} />
           </Suspense>
         ) : null}

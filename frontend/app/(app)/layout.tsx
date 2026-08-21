@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/layout/AppShell";
+import { api } from "@/lib/api";
 import { requireOrganizationWorkspace } from "@/lib/workspace/server";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
@@ -8,9 +9,16 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
    * longer valid, so every page below is genuinely authenticated.
    */
   const { session, workspace } = await requireOrganizationWorkspace();
+  const initialUnreadCount = await api
+    .getUnreadNotificationCount()
+    .catch(() => 0);
 
   return (
-    <AppShell user={session} workspace={workspace}>
+    <AppShell
+      user={session}
+      workspace={workspace}
+      initialUnreadCount={initialUnreadCount}
+    >
       {children}
     </AppShell>
   );

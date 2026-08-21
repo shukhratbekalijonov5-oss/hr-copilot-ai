@@ -189,7 +189,6 @@ describe('Interview chat (e2e, real database)', () => {
         .set('Authorization', `Bearer ${ownerToken}`)
         .expect(201);
 
-      expect(res.body.chatAvailable).toBe(true);
       expect(res.body.conversation.id).toBeTruthy();
       expect(res.body.application.status).toBe('INTERVIEW');
       conversationAliId = res.body.conversation.id;
@@ -548,7 +547,6 @@ describe('Interview chat (e2e, real database)', () => {
         .set('Authorization', `Bearer ${ownerToken}`)
         .expect(201);
 
-      expect(res.body.chatAvailable).toBe(true);
       // A new row — the deleted transcript never comes back.
       expect(res.body.conversation.id).not.toBe(conversationJasurId);
       conversationJasurId = res.body.conversation.id;
@@ -714,33 +712,51 @@ describe('Interview chat (e2e, real database)', () => {
     });
   });
 
-  describe('manual organization candidates', () => {
-    it('inviting a manual candidate (no platform account) transitions the pipeline but fabricates NO conversation', async () => {
-      const candidate = await request(http)
-        .post('/candidates')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ fullName: 'External Elena', email: `elena-${run}@ext.test` })
-        .expect(201);
-      const application = await request(http)
-        .post('/applications')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .send({ vacancyId, candidateId: candidate.body.id })
-        .expect(201);
-
-      const res = await request(http)
-        .post(`/applications/${application.body.id}/invite-interview`)
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .expect(201);
-
-      expect(res.body.chatAvailable).toBe(false);
-      expect(res.body.conversation).toBeNull();
-      expect(res.body.chatUnavailableReason).toBe('NO_CANDIDATE_ACCOUNT');
-      expect(res.body.application.status).toBe('INTERVIEW');
-
-      const conversations = await prisma.conversation.count({
-        where: { vacancyId, candidateId: candidate.body.id },
+  describe('no accountless candidate can reach the interview flow', () => {
+    it('a directly-inserted accountless candidate is invisible to the pipeline API', async () => {
+      // The product can no longer produce this row (recruiter-created
+      // candidates were removed); one is inserted here to prove the leftovers
+      // of that feature cannot be invited, chatted with, or even read.
+      const org = await prisma.organization.findUniqueOrThrow({
+        where: { slug: orgSlug },
+        select: { id: true },
       });
-      expect(conversations).toBe(0);
+      const orphan = await prisma.candidate.create({
+        data: {
+          organizationId: org.id,
+          fullName: 'External Elena',
+          email: `elena-${run}@ext.test`,
+        },
+        select: { id: true },
+      });
+      const association = await prisma.application.create({
+        data: {
+          vacancyId,
+          candidateId: orphan.id,
+          source: 'MANUAL_UPLOAD',
+        },
+        select: { id: true },
+      });
+
+      await request(http)
+        .post(`/applications/${association.id}/invite-interview`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(404);
+      await request(http)
+        .get(`/applications/${association.id}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(404);
+      await request(http)
+        .get(`/candidates/${orphan.id}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(404);
+
+      // No conversation was fabricated for them anywhere.
+      expect(
+        await prisma.conversation.count({
+          where: { vacancyId, candidateId: orphan.id },
+        }),
+      ).toBe(0);
     });
   });
 

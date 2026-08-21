@@ -3,10 +3,15 @@
 NestJS + TypeScript API for HR Copilot AI, an AI-assisted recruitment
 **intelligence** platform.
 
-The product flow is: HR creates a vacancy → uploads resumes → files are stored →
-an asynchronous processing job is created → the AI service parses and indexes
-the documents → candidate evidence becomes searchable → **a human reviews the
+The product flow is: HR creates a vacancy → a candidate applies with their own
+resume → the submitted file is snapshotted into the organization → an
+asynchronous processing job is created → the AI service parses and indexes the
+document → candidate evidence becomes searchable → **a human reviews the
 evidence and makes the hiring decision**.
+
+> HR cannot create candidates and cannot upload candidate files. Applying is
+> the only way a person enters a recruiter's pipeline — see
+> `docs/candidate-entry-model.md`.
 
 > The system never hires or rejects a candidate automatically. Application
 > status is changed only by an explicit request from a signed-in user.
@@ -182,9 +187,9 @@ User (account: email, fullName, preferredLocale en|ko|ru|uz)
 The same person may simultaneously be a job seeker, a RECRUITER in one
 organization and an INTERVIEWER in another. There is no global role and no
 CANDIDATE/EMPLOYEE role. Recruiter-side `Candidate` rows are organization
-records; they optionally link to a `CandidateAccount` when the person applied
-through HR Copilot directly (manual/imported candidates have no account, which
-is correct). Full API contracts: `docs/identity-contracts.md`.
+records created by the apply flow and linked to the applicant's
+`CandidateAccount`; every candidate the recruiter workflow shows has one. Full
+API contracts: `docs/identity-contracts.md`, `docs/candidate-entry-model.md`.
 
 ### Multi-tenancy
 
@@ -317,7 +322,7 @@ Progress is exposed at `GET /api/processing-jobs` and pushed over a WebSocket
 The Python AI service (`ai-service/`, port 8000) is **wired up and working**.
 
 ```
-upload → Document row → BullMQ PROCESS_DOCUMENT → worker
+apply → org snapshot Document row → BullMQ PROCESS_DOCUMENT → worker
        → streams the file to the AI service over the internal channel
        → parse → chunk → embed (PyTorch) → index (Qdrant)
        → COMPLETED
@@ -436,13 +441,12 @@ token except those marked public.
 | PATCH  | `/api/vacancies/:id/close`, `/archive`              |                           |
 | GET/POST | `/api/vacancies/:id/requirements`                 |                           |
 | PATCH/DELETE | `/api/vacancies/:id/requirements/:requirementId` |                     |
-| GET/POST | `/api/candidates`                                 | pagination + search       |
-| GET/PATCH/DELETE | `/api/candidates/:id`                     |                           |
-| GET/POST | `/api/applications`                               |                           |
+| GET    | `/api/candidates`                                   | applicants only; pagination + search |
+| GET/PATCH/DELETE | `/api/candidates/:id`                     | no POST — HR cannot create a candidate |
+| GET    | `/api/applications`                                 | no POST — applications come from applying |
 | GET/DELETE | `/api/applications/:id`                         |                           |
 | PATCH  | `/api/applications/:id/status`                      | **human-controlled only** |
-| POST   | `/api/documents`                                    | multipart upload — REQUIRES `candidateId` of an own MANUAL candidate |
-| GET    | `/api/documents`, `/api/documents/:id`              |                           |
+| GET    | `/api/documents`, `/api/documents/:id`              | read-only — no HR upload route exists |
 | GET    | `/api/documents/:id/download-url`                   | short-lived signed URL    |
 | GET    | `/api/documents/download`                           | signature-authorised (local driver) |
 | GET/POST | `/api/evidence`                                   |                           |
@@ -508,8 +512,9 @@ The generated client is written to `src/generated/prisma` and is **gitignored**
 
 `yarn db:seed` creates entirely fictional data: two organizations (the second
 exists so tenant isolation can be exercised by hand), an owner and a recruiter,
-one vacancy with six requirements, and five invented candidates using `.test`
-email addresses.
+one vacancy with six requirements, and three invented applicants using `.test`
+email addresses — each a CandidateAccount with a DIRECT application, the only
+shape the product can produce.
 
 **No real candidate or applicant data may ever be added to the seed file** — it
 is committed and shared with every contributor.
@@ -517,8 +522,8 @@ is committed and shared with every contributor.
 Development login: `recruiter@northwind-labs.test` / `DevPassword123!`
 
 No documents, evidence or processing jobs are seeded: those only exist as the
-result of a real upload, and faking them would misrepresent a pipeline that has
-not run.
+result of a real application, and faking them would misrepresent a pipeline
+that has not run.
 
 ### Synthetic dataset (~200 users, for scale testing)
 

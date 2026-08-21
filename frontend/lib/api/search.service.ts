@@ -10,6 +10,11 @@ export interface EvidenceSearchInput {
   /** Optional narrowing. Both are verified against the tenant by the backend. */
   candidateId?: string;
   documentId?: string;
+  /**
+   * Restricts results to candidates associated with this OWNED vacancy.
+   * Omitted keeps the organization-wide search.
+   */
+  vacancyId?: string;
   limit?: number;
   rerank?: boolean;
 }
@@ -33,6 +38,7 @@ export async function searchEvidence(
       query: input.query.trim(),
       candidateId: input.candidateId,
       documentId: input.documentId,
+      vacancyId: input.vacancyId,
       limit: input.limit ?? 20,
       rerank: input.rerank ?? true,
     },

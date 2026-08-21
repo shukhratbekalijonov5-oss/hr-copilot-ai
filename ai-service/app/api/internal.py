@@ -254,6 +254,7 @@ async def rag_endpoint(
         store=store,
         reranker=reranker,
         generator=generator,
+        vacancy=payload.vacancy,
     )
 
 
@@ -271,6 +272,7 @@ async def candidate_summary_endpoint(
         candidate_id=payload.candidateId,
         locale=payload.locale,
         limit=payload.limit,
+        vacancy=payload.vacancy,
         settings=settings,
         embedder=embedder,
         store=store,

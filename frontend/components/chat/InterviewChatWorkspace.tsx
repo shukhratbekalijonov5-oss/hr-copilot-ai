@@ -52,6 +52,12 @@ interface InterviewChatWorkspaceProps<T extends InterviewConversation> {
   viewerParty: InterviewChatParty;
   conversations: T[];
   selectedConversationId?: string | null;
+  /**
+   * The URL named a conversation that is not in the caller's creator-scoped
+   * list. Shown as "unavailable" instead of opening something else — and
+   * never retried, since the backend answers 404 by design.
+   */
+  unavailableConversation?: boolean;
 }
 
 function conversationTitle(conversation: InterviewConversation): string {
@@ -84,6 +90,7 @@ export function InterviewChatWorkspace<T extends InterviewConversation>({
   viewerParty,
   conversations: initialConversations,
   selectedConversationId,
+  unavailableConversation = false,
 }: InterviewChatWorkspaceProps<T>) {
   const { d, dateTime } = useI18n();
   const router = useRouter();
@@ -93,12 +100,16 @@ export function InterviewChatWorkspace<T extends InterviewConversation>({
 
   const [conversations, setConversations] = useState<T[]>(initialConversations);
   const [activeId, setActiveId] = useState<string | null>(
-    selectedConversationId ??
-      initialConversations.find(
-        (conversation) => conversation.id === searchParams.get("conversation"),
-      )?.id ??
-      initialConversations[0]?.id ??
-      null,
+    // An unreachable id selects nothing at all: opening the first conversation
+    // instead would silently show a different candidate's thread.
+    unavailableConversation
+      ? null
+      : (selectedConversationId ??
+        initialConversations.find(
+          (conversation) => conversation.id === searchParams.get("conversation"),
+        )?.id ??
+        initialConversations[0]?.id ??
+        null),
   );
   const [messagesById, setMessagesById] = useState<
     Record<string, InterviewMessage[]>
@@ -491,8 +502,16 @@ export function InterviewChatWorkspace<T extends InterviewConversation>({
         <div className="flex flex-1 items-center justify-center">
           <EmptyState
             icon={<MessageIcon className="size-5" />}
-            title={d.chat.selectConversation}
-            description={d.chat.selectConversationHint}
+            title={
+              unavailableConversation
+                ? d.vacancyScope.chatUnavailable
+                : d.chat.selectConversation
+            }
+            description={
+              unavailableConversation
+                ? d.vacancyScope.chatUnavailableHint
+                : d.chat.selectConversationHint
+            }
           />
         </div>
       )}

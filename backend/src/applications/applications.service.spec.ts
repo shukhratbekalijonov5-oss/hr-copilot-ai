@@ -1,11 +1,24 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ApplicationsService } from './applications.service';
 import { TenantService } from '../common/tenant/tenant.service';
-import { ApplicationStatus, VacancyStatus } from '../generated/prisma/enums';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
+import {
+  ApplicationSource,
+  ApplicationStatus,
+  VacancyStatus,
+} from '../generated/prisma/enums';
 import type { PrismaService } from '../prisma/prisma.service';
 
 const ORG_A = 'org-a';
 const ORG_B = 'org-b';
+/** The vacancy creator. */
+const HR_A = 'user-a';
+/** A same-org colleague who did NOT create the vacancy. */
+const HR_B = 'user-b';
 
 function createPrismaMock() {
   const mock = {
@@ -51,57 +64,24 @@ describe('ApplicationsService', () => {
       new TenantService(),
       chat as never,
       events as never,
+      // The REAL ownership policy over the same prisma mock.
+      new OwnedVacancyService(prisma as unknown as PrismaService),
     );
+    // Default: vacancy v1 exists in the caller org and was created by HR_A.
+    prisma.vacancy.findFirst.mockResolvedValue({
+      id: 'v1',
+      title: 'Backend Engineer',
+      status: 'OPEN',
+      createdById: HR_A,
+    });
   });
 
-  const dto = { vacancyId: 'v1', candidateId: 'c1' };
-
-  describe('create — both parents must be in the caller organization', () => {
-    it('links a candidate to a vacancy when both belong to the caller', async () => {
-      prisma.vacancy.findFirst.mockResolvedValue({ id: 'v1' });
-      prisma.candidate.findFirst.mockResolvedValue({ id: 'c1' });
-      prisma.application.findUnique.mockResolvedValue(null);
-      prisma.application.create.mockResolvedValue({ id: 'a1' });
-
-      await service.create(ORG_A, dto);
-
-      expect(prisma.application.create.mock.calls[0][0].data).toEqual({
-        vacancyId: 'v1',
-        candidateId: 'c1',
-        status: ApplicationStatus.NEW,
-      });
-    });
-
-    it("rejects attaching one org's candidate to another org's vacancy", async () => {
-      // The vacancy resolves under the caller org, the candidate does not.
-      prisma.vacancy.findFirst.mockResolvedValue({ id: 'v1' });
-      prisma.candidate.findFirst.mockResolvedValue(null);
-
-      await expect(service.create(ORG_A, dto)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
-      expect(prisma.application.create).not.toHaveBeenCalled();
-    });
-
-    it('rejects a vacancy from another organization', async () => {
-      prisma.vacancy.findFirst.mockResolvedValue(null);
-      prisma.candidate.findFirst.mockResolvedValue({ id: 'c1' });
-
-      await expect(service.create(ORG_B, dto)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
-      expect(prisma.application.create).not.toHaveBeenCalled();
-    });
-
-    it('rejects a duplicate candidate/vacancy pairing', async () => {
-      prisma.vacancy.findFirst.mockResolvedValue({ id: 'v1' });
-      prisma.candidate.findFirst.mockResolvedValue({ id: 'c1' });
-      prisma.application.findUnique.mockResolvedValue({ id: 'existing' });
-
-      await expect(service.create(ORG_A, dto)).rejects.toBeInstanceOf(
-        ConflictException,
-      );
-    });
+  it('exposes no way to create or associate an application', () => {
+    // Recruiter-made associations were removed: an Application row is written
+    // by the candidate applying, and by nothing else.
+    expect(
+      (service as unknown as Record<string, unknown>).create,
+    ).toBeUndefined();
   });
 
   describe('findAll — tenancy through both relations', () => {
@@ -113,7 +93,12 @@ describe('ApplicationsService', () => {
 
       const where = prisma.application.findMany.mock.calls[0][0].where;
       expect(where.vacancy).toEqual({ organizationId: ORG_A });
-      expect(where.candidate).toEqual({ organizationId: ORG_A });
+      expect(where.candidate).toEqual({
+        organizationId: ORG_A,
+        candidateAccountId: { not: null },
+      });
+      // Applicants only: a historical recruiter-made row is not listed.
+      expect(where.source).toBe(ApplicationSource.DIRECT);
     });
   });
 
@@ -121,14 +106,14 @@ describe('ApplicationsService', () => {
     const row = {
       id: 'a1',
       vacancyId: 'v1',
-      candidate: { id: 'c1', candidateAccountId: null },
+      candidate: { id: 'c1', candidateAccountId: 'acct-1' },
     };
 
     it('applies the requested status', async () => {
       prisma.application.findFirst.mockResolvedValue(row);
       prisma.application.update.mockResolvedValue({ id: 'a1' });
 
-      await service.updateStatus(ORG_A, 'a1', ApplicationStatus.OFFER);
+      await service.updateStatus(ORG_A, HR_A, 'a1', ApplicationStatus.OFFER);
 
       expect(prisma.application.update.mock.calls[0][0].data).toEqual({
         status: ApplicationStatus.OFFER,
@@ -139,7 +124,12 @@ describe('ApplicationsService', () => {
       prisma.application.findFirst.mockResolvedValue(row);
       prisma.application.update.mockResolvedValue({ id: 'a1' });
 
-      await service.updateStatus(ORG_A, 'a1', ApplicationStatus.REVIEWING);
+      await service.updateStatus(
+        ORG_A,
+        HR_A,
+        'a1',
+        ApplicationStatus.REVIEWING,
+      );
 
       expect(prisma.application.update).toHaveBeenCalled();
     });
@@ -148,7 +138,7 @@ describe('ApplicationsService', () => {
       prisma.application.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.updateStatus(ORG_B, 'a1', ApplicationStatus.HIRED),
+        service.updateStatus(ORG_B, HR_A, 'a1', ApplicationStatus.HIRED),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.application.update).not.toHaveBeenCalled();
     });
@@ -162,7 +152,12 @@ describe('ApplicationsService', () => {
       prisma.application.update.mockResolvedValue({ id: 'a1' });
       chat.createForInvitationTx.mockResolvedValue({ id: 'conv-1' });
 
-      await service.updateStatus(ORG_A, 'a1', ApplicationStatus.INTERVIEW);
+      await service.updateStatus(
+        ORG_A,
+        HR_A,
+        'a1',
+        ApplicationStatus.INTERVIEW,
+      );
 
       expect(chat.createForInvitationTx).toHaveBeenCalledWith(prisma, {
         organizationId: ORG_A,
@@ -180,7 +175,7 @@ describe('ApplicationsService', () => {
       });
       prisma.application.update.mockResolvedValue({ id: 'a1' });
 
-      await service.updateStatus(ORG_A, 'a1', ApplicationStatus.REJECTED);
+      await service.updateStatus(ORG_A, HR_A, 'a1', ApplicationStatus.REJECTED);
 
       expect(chat.createForInvitationTx).not.toHaveBeenCalled();
       expect(events.publish).toHaveBeenCalledWith(
@@ -202,7 +197,7 @@ describe('ApplicationsService', () => {
       prisma.application.update.mockResolvedValue({ id: 'a1' });
       chat.purgeCandidateVacancyConversationTx.mockResolvedValue(['conv-1']);
 
-      await service.updateStatus(ORG_A, 'a1', ApplicationStatus.REJECTED);
+      await service.updateStatus(ORG_A, HR_A, 'a1', ApplicationStatus.REJECTED);
 
       // Scoped to exactly this candidate on exactly this vacancy, and handed
       // the SAME transaction client as the status update.
@@ -234,7 +229,7 @@ describe('ApplicationsService', () => {
       prisma.application.update.mockResolvedValue({ id: 'a1' });
       chat.purgeCandidateVacancyConversationTx.mockResolvedValue([]);
 
-      await service.updateStatus(ORG_A, 'a1', ApplicationStatus.REJECTED);
+      await service.updateStatus(ORG_A, HR_A, 'a1', ApplicationStatus.REJECTED);
 
       expect(events.publish).not.toHaveBeenCalledWith(
         'chat.conversations.deleted',
@@ -258,7 +253,7 @@ describe('ApplicationsService', () => {
       );
 
       await expect(
-        service.updateStatus(ORG_A, 'a1', ApplicationStatus.REJECTED),
+        service.updateStatus(ORG_A, HR_A, 'a1', ApplicationStatus.REJECTED),
       ).rejects.toThrow('purge failed');
       // The rejection propagated out of $transaction — with a real database
       // the status update rolls back with it, and nothing was announced.
@@ -269,14 +264,17 @@ describe('ApplicationsService', () => {
       prisma.application.findFirst.mockResolvedValue(row);
       prisma.application.update.mockResolvedValue({ id: 'a1' });
 
-      await service.updateStatus(ORG_A, 'a1', ApplicationStatus.OFFER);
+      await service.updateStatus(ORG_A, HR_A, 'a1', ApplicationStatus.OFFER);
 
       expect(chat.purgeCandidateVacancyConversationTx).not.toHaveBeenCalled();
     });
   });
 
   describe('inviteToInterview — THE conversation-creating transition', () => {
-    const appRow = (accountId: string | null, status = VacancyStatus.OPEN) => ({
+    const appRow = (
+      accountId: string,
+      status: VacancyStatus = VacancyStatus.OPEN,
+    ) => ({
       id: 'a1',
       vacancy: { id: 'v1', status },
       candidate: { id: 'c1', candidateAccountId: accountId },
@@ -291,12 +289,11 @@ describe('ApplicationsService', () => {
         createdAt: new Date(),
       });
 
-      const result = await service.inviteToInterview(ORG_A, 'a1');
+      const result = await service.inviteToInterview(ORG_A, HR_A, 'a1');
 
       expect(prisma.application.update.mock.calls[0][0].data).toEqual({
         status: ApplicationStatus.INTERVIEW,
       });
-      expect(result.chatAvailable).toBe(true);
       expect(result.conversation).toMatchObject({ id: 'conv-1' });
       expect(events.publish).toHaveBeenCalledWith(
         'interview.invited',
@@ -307,20 +304,21 @@ describe('ApplicationsService', () => {
       );
     });
 
-    it('a manual candidate without a platform account gets NO conversation — and none is fabricated', async () => {
-      prisma.application.findFirst.mockResolvedValue(appRow(null));
-      prisma.application.update.mockResolvedValue({ id: 'a1' });
+    it('reads the application under the applicant scope, never tenancy alone', async () => {
+      // A historical recruiter-made association simply is not found here, so
+      // the accountless-candidate branch cannot be reached at all.
+      prisma.application.findFirst.mockResolvedValue(null);
 
-      const result = await service.inviteToInterview(ORG_A, 'a1');
+      await expect(
+        service.inviteToInterview(ORG_A, HR_A, 'a-manual'),
+      ).rejects.toBeInstanceOf(NotFoundException);
 
-      expect(chat.createForInvitationTx).not.toHaveBeenCalled();
-      expect(result.chatAvailable).toBe(false);
-      expect(result.conversation).toBeNull();
-      expect(result.chatUnavailableReason).toBe('NO_CANDIDATE_ACCOUNT');
-      // The pipeline still transitioned — external interviews are legitimate.
-      expect(prisma.application.update.mock.calls[0][0].data).toEqual({
-        status: ApplicationStatus.INTERVIEW,
+      const where = prisma.application.findFirst.mock.calls[0][0].where;
+      expect(where.source).toBe(ApplicationSource.DIRECT);
+      expect(where.candidate).toMatchObject({
+        candidateAccountId: { not: null },
       });
+      expect(chat.createForInvitationTx).not.toHaveBeenCalled();
     });
 
     it('refuses to invite on a CLOSED vacancy (would bypass close-deletes-chats)', async () => {
@@ -329,7 +327,7 @@ describe('ApplicationsService', () => {
       );
 
       await expect(
-        service.inviteToInterview(ORG_A, 'a1'),
+        service.inviteToInterview(ORG_A, HR_A, 'a1'),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(prisma.application.update).not.toHaveBeenCalled();
       expect(chat.createForInvitationTx).not.toHaveBeenCalled();
@@ -337,10 +335,21 @@ describe('ApplicationsService', () => {
 
     it("404s on another organization's application", async () => {
       prisma.application.findFirst.mockResolvedValue(null);
+      prisma.vacancy.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.inviteToInterview(ORG_B, 'a1'),
+        service.inviteToInterview(ORG_B, HR_A, 'a1'),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("a same-org colleague cannot invite on HR A's vacancy", async () => {
+      prisma.application.findFirst.mockResolvedValue(appRow('acct-1'));
+
+      await expect(
+        service.inviteToInterview(ORG_A, HR_B, 'a1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.application.update).not.toHaveBeenCalled();
+      expect(chat.createForInvitationTx).not.toHaveBeenCalled();
     });
   });
 
@@ -352,7 +361,7 @@ describe('ApplicationsService', () => {
       prisma.application.delete.mockResolvedValue({ id: 'a1' });
       chat.purgeCandidateVacancyConversationTx.mockResolvedValue(['conv-1']);
 
-      const result = await service.remove(ORG_A, 'a1');
+      const result = await service.remove(ORG_A, HR_A, 'a1');
 
       // Scoped to this pair only, on the same transaction client that deletes.
       expect(chat.purgeCandidateVacancyConversationTx).toHaveBeenCalledWith(
@@ -379,7 +388,7 @@ describe('ApplicationsService', () => {
       prisma.application.delete.mockResolvedValue({ id: 'a1' });
       chat.purgeCandidateVacancyConversationTx.mockResolvedValue([]);
 
-      const result = await service.remove(ORG_A, 'a1');
+      const result = await service.remove(ORG_A, HR_A, 'a1');
 
       expect(result).toEqual({ id: 'a1', deleted: true });
       // No conversation existed — nothing to announce.
@@ -392,7 +401,9 @@ describe('ApplicationsService', () => {
         new Error('purge failed'),
       );
 
-      await expect(service.remove(ORG_A, 'a1')).rejects.toThrow('purge failed');
+      await expect(service.remove(ORG_A, HR_A, 'a1')).rejects.toThrow(
+        'purge failed',
+      );
       // The purge runs first, so the delete never issued; with a real database
       // the surrounding transaction rolls back regardless.
       expect(prisma.application.delete).not.toHaveBeenCalled();
@@ -402,7 +413,9 @@ describe('ApplicationsService', () => {
     it("404s on another organization's application without deleting anything", async () => {
       prisma.application.findFirst.mockResolvedValue(null);
 
-      await expect(service.remove(ORG_B, 'a1')).rejects.toBeInstanceOf(
+      prisma.vacancy.findFirst.mockResolvedValue(null);
+
+      await expect(service.remove(ORG_B, HR_A, 'a1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
       expect(chat.purgeCandidateVacancyConversationTx).not.toHaveBeenCalled();

@@ -139,6 +139,56 @@ export interface RegisterInput {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Notifications                                                              */
+/* -------------------------------------------------------------------------- */
+
+export const NOTIFICATION_TYPES = [
+  "NEW_APPLICATION",
+  "NEW_MESSAGE",
+  "INTERVIEW_INVITATION",
+  "VACANCY_DELETED",
+  "APPLICATION_REJECTED",
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+export const NOTIFICATION_AUDIENCES = ["HR", "CANDIDATE"] as const;
+export type NotificationAudience = (typeof NOTIFICATION_AUDIENCES)[number];
+
+export interface Notification {
+  id: ID;
+  type: NotificationType;
+  audience: NotificationAudience;
+  isRead: boolean;
+  createdAt: ISODateString;
+  vacancyId: ID | null;
+  vacancyTitle: string | null;
+  candidateId: ID | null;
+  candidateName: string | null;
+  actorUserId: ID | null;
+  actorName: string | null;
+  conversationId: ID | null;
+  messageId: ID | null;
+  interviewId: ID | null;
+  applicationId: ID | null;
+  messagePreview: string | null;
+}
+
+export interface NotificationPage {
+  notifications: Notification[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface NotificationQuery {
+  page?: number;
+  limit?: number;
+  unreadOnly?: boolean;
+  type?: NotificationType;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Vacancies — mirrors prisma VacancyStatus / RequirementType                  */
 /* -------------------------------------------------------------------------- */
 
@@ -335,9 +385,11 @@ export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 /**
  * Where an application came from.
  *
- * The API has no `source` column yet, so this is never populated today. It is
- * declared with the platform's agreed names so that when the column lands the
- * frontend does not introduce competing vocabulary.
+ * New applications are always `DIRECT` — applying is the only way one can be
+ * created. `MANUAL_UPLOAD` mirrors the backend enum, which keeps the value so
+ * historical rows from the removed recruiter-created-candidate feature stay
+ * truthful about their origin; no UI renders it. The remaining members are
+ * reserved for future ingestion channels.
  */
 export const APPLICATION_SOURCES = [
   "DIRECT",
@@ -393,8 +445,15 @@ export interface Candidate {
   primaryVacancyTitle: string | null;
 }
 
-export interface CreateCandidateInput {
-  fullName: string;
+/**
+ * POST /candidates.
+
+/**
+ * Recruiter enrichment of an applicant's org-side record. There is no create
+ * counterpart: HR cannot create a candidate.
+ */
+export interface UpdateCandidateInput {
+  fullName?: string;
   email?: string;
   phone?: string;
   location?: string;
@@ -463,13 +522,14 @@ export interface InterviewConversationPage<T extends InterviewConversation> {
   totalPages: number;
 }
 
-export type ChatUnavailableReason = "NO_CANDIDATE_ACCOUNT";
-
+/**
+ * Inviting always unlocks the conversation: every applicant owns the
+ * CandidateAccount they applied with, so there is no accountless case left to
+ * describe.
+ */
 export interface InviteToInterviewResult {
   application: Application;
-  conversation: { id: ID; vacancyId: ID; createdAt: ISODateString } | null;
-  chatAvailable: boolean;
-  chatUnavailableReason?: ChatUnavailableReason;
+  conversation: { id: ID; vacancyId: ID; createdAt: ISODateString };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1029,3 +1089,59 @@ export interface JobMatchResult {
   generated: boolean;
   generatedAt: ISODateString;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Vacancy-scoped HR workspace                                                 */
+/*                                                                             */
+/* HR users work inside vacancies they personally created. The backend         */
+/* re-validates the selected vacancy on every request, so the selection here   */
+/* is UX only: a stale one degrades to a localized 403/404, never to another   */
+/* user's data.                                                                */
+/* -------------------------------------------------------------------------- */
+
+/** A row from GET /vacancies/mine — the creator-scoped selector source. */
+export interface MyVacancy {
+  id: ID;
+  title: string;
+  status: VacancyStatus;
+  createdAt: ISODateString;
+  candidateCount: number;
+  requirementCount: number;
+}
+
+/**
+ * An APPLICANT of one selected vacancy — somebody who applied to it
+ * themselves. That is the only way anybody appears here, so there is no
+ * source or account flag to branch on.
+ */
+export interface VacancyCandidate {
+  candidate: {
+    id: ID;
+    fullName: string;
+    email: string | null;
+    phone: string | null;
+    location: string | null;
+    currentTitle: string | null;
+    totalExperienceYears: number | null;
+    documentCount: number;
+    evidenceCount: number;
+  };
+  application: {
+    id: ID;
+    /** The stage in THIS vacancy — never a candidate-global property. */
+    status: ApplicationStatus;
+    createdAt: ISODateString;
+  };
+}
+
+/**
+ * Why a vacancy-scoped operation was refused.
+ *
+ * Mapped from the backend's machine-readable `code` (and the 404 that means
+ * "foreign or unknown"), never from its English message.
+ */
+export type VacancyAccessReason =
+  | "not_owned"
+  | "candidate_not_in_vacancy"
+  | "candidate_already_in_vacancy"
+  | "vacancy_not_found";

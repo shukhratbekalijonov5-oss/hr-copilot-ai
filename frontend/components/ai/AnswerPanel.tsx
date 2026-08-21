@@ -17,7 +17,12 @@ import type { AiFailureReason, Citation, GroundedAnswer } from "@/lib/types";
 
 interface AnswerPanelProps {
   candidateId: string;
-  vacancyId?: string;
+  /**
+   * The active vacancy. Required: the backend adds its title and requirements
+   * to the generation context, and refuses a candidate question without one.
+   */
+  vacancyId: string;
+  vacancyTitle?: string;
   ready: boolean;
   notReady: { title: string; description: string } | null;
   onSelectCitation?: (citation: Citation) => void;
@@ -35,6 +40,7 @@ interface AnswerPanelProps {
 export function AnswerPanel({
   candidateId,
   vacancyId,
+  vacancyTitle,
   ready,
   notReady,
   onSelectCitation,
@@ -66,8 +72,8 @@ export function AnswerPanel({
     startTransition(async () => {
       const result = await askAboutCandidateAction(
         candidateId,
-        trimmed,
         vacancyId,
+        trimmed,
       );
       if (result.ok) setAnswer(result.data);
       else {
@@ -92,7 +98,14 @@ export function AnswerPanel({
   return (
     <div className="flex flex-col gap-3">
       <Card>
-        <CardHeader title={d.ai.ask} description={d.ai.askDescription} />
+        <CardHeader
+          title={d.ai.ask}
+          description={
+            vacancyTitle
+              ? `${f(d.vacancyScope.scopedToVacancy, { title: vacancyTitle })} · ${d.ai.askDescription}`
+              : d.ai.askDescription
+          }
+        />
         <CardBody>
           <form
             onSubmit={(event) => {

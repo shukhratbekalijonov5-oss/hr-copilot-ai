@@ -9,10 +9,16 @@ import type { WorkspaceContext } from "@/lib/workspace/types";
 interface AppShellProps {
   user: SessionUser;
   workspace: WorkspaceContext;
+  initialUnreadCount: number;
   children: ReactNode;
 }
 
-export function AppShell({ user, workspace, children }: AppShellProps) {
+export function AppShell({
+  user,
+  workspace,
+  initialUnreadCount,
+  children,
+}: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Escape closes the mobile drawer; navigation closes it via `onNavigate`.
@@ -53,6 +59,7 @@ export function AppShell({ user, workspace, children }: AppShellProps) {
         <Header
           user={user}
           workspace={workspace}
+          initialUnreadCount={initialUnreadCount}
           onOpenSidebar={() => setSidebarOpen(true)}
         />
         <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6">{children}</main>

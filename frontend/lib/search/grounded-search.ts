@@ -23,7 +23,9 @@ import type { EvidenceSearchResult, GroundedAnswer } from "@/lib/types";
  * validated answer.
  *
  * Neither call sends a candidateId: this page is the org-wide search, and the
- * tenant itself always comes from the JWT, never from a parameter.
+ * tenant itself always comes from the JWT, never from a parameter. An optional
+ * owned `vacancyId` narrows retrieval to that pipeline's candidates and gives
+ * generation the vacancy's context; omitting it keeps the search org-wide.
  */
 
 import {
@@ -40,6 +42,7 @@ export type EvidenceFetchResult =
 /** Retrieval half. Same result shape the search screen has always rendered. */
 export async function runEvidenceSearch(
   query: string,
+  vacancyId?: string,
 ): Promise<EvidenceFetchResult> {
   const trimmed = query.trim();
   if (trimmed.length < MIN_EVIDENCE_QUERY_LENGTH) {
@@ -47,7 +50,10 @@ export async function runEvidenceSearch(
   }
 
   try {
-    return { ok: true, result: await api.searchEvidence({ query: trimmed }) };
+    return {
+      ok: true,
+      result: await api.searchEvidence({ query: trimmed, vacancyId }),
+    };
   } catch (error) {
     if (error instanceof ApiError) {
       // 503 means retrieval itself is down. That is a different thing from
@@ -70,13 +76,16 @@ export async function runEvidenceSearch(
 export async function runGroundedAnswer(
   query: string,
   locale: Locale,
+  vacancyId?: string,
 ): Promise<AiActionResult<GroundedAnswer>> {
   const trimmed = query.trim();
   if (trimmed.length < MIN_ANSWER_QUERY_LENGTH) {
     return { ok: false, reason: "invalid", message: "Query too short." };
   }
 
+  // No candidateId here — this is the org-wide surface — so the vacancy stays
+  // optional generation context rather than a required pair.
   return runAiAction("generation", () =>
-    api.answerQuestion({ query: trimmed, locale }),
+    api.answerQuestion({ query: trimmed, locale, vacancyId }),
   );
 }

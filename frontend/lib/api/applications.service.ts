@@ -31,17 +31,10 @@ export async function getApplications(query: {
   };
 }
 
-export async function createApplication(
-  candidateId: string,
-  vacancyId: string,
-): Promise<Application> {
-  return toApplication(
-    await apiFetch<ApplicationResponse>("/applications", {
-      method: "POST",
-      body: { candidateId, vacancyId },
-    }),
-  );
-}
+/*
+ * There is no createApplication: `POST /applications` was removed. An
+ * application exists because the candidate applied to the vacancy.
+ */
 
 /**
  * Moves an application to another stage. This is always a person's action —

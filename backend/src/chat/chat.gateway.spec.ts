@@ -114,7 +114,9 @@ describe('ChatGateway', () => {
 
       const ack = await gateway.join(client, { conversationId: 'guessed' });
 
-      expect(client.join).not.toHaveBeenCalled();
+      // The only join is the connection-time personal room — never the
+      // guessed conversation's.
+      expect(client.join).not.toHaveBeenCalledWith('conversation:guessed');
       expect(ack).toEqual({ joined: false, error: 'NOT_FOUND' });
     });
   });
@@ -174,10 +176,22 @@ describe('ChatGateway', () => {
       events.publish('chat.message.created', {
         conversationId: 'conv-1',
         message: message as never,
+        senderUserId: 'user-1',
       });
 
       expect(to).toHaveBeenCalledWith('conversation:conv-1');
       expect(emit).toHaveBeenCalledWith('message.new', message);
+    });
+
+    it('delivers notifications to the recipient personal room only', () => {
+      const notification = { id: 'n1', type: 'NEW_MESSAGE' };
+      events.publish('notification.created', {
+        recipientUserId: 'user-9',
+        notification,
+      });
+
+      expect(to).toHaveBeenCalledWith('user:user-9');
+      expect(emit).toHaveBeenCalledWith('notification:new', notification);
     });
 
     it('vacancy close empties every affected room after notifying it', () => {

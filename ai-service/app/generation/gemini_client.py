@@ -83,14 +83,21 @@ class GeminiGenerationClient(GenerationClient):
     # -- public API --------------------------------------------------------
 
     def generate_grounded_answer(
-        self, *, question: str, evidence: list[EvidenceHit], locale: str
+        self,
+        *,
+        question: str,
+        evidence: list[EvidenceHit],
+        locale: str,
+        vacancy_context: str | None = None,
     ) -> GroundedAnswer:
         from app.generation.prompts import GROUNDING_RULES, build_answer_prompt
         from app.generation.schemas import AnswerPayload
 
         payload = self._generate(
             system=GROUNDING_RULES,
-            prompt=build_answer_prompt(question, evidence, locale),
+            prompt=build_answer_prompt(
+                question, evidence, locale, vacancy_context=vacancy_context
+            ),
             schema=AnswerPayload,
             operation="generate a grounded answer",
         )
@@ -102,14 +109,20 @@ class GeminiGenerationClient(GenerationClient):
         )
 
     def generate_candidate_summary(
-        self, *, evidence: list[EvidenceHit], locale: str
+        self,
+        *,
+        evidence: list[EvidenceHit],
+        locale: str,
+        vacancy_context: str | None = None,
     ) -> GroundedAnswer:
         from app.generation.prompts import GROUNDING_RULES, build_summary_prompt
         from app.generation.schemas import AnswerPayload
 
         payload = self._generate(
             system=GROUNDING_RULES,
-            prompt=build_summary_prompt(evidence, locale),
+            prompt=build_summary_prompt(
+                evidence, locale, vacancy_context=vacancy_context
+            ),
             schema=AnswerPayload,
             operation="generate a candidate summary",
         )

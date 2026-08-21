@@ -75,13 +75,20 @@ export async function inviteToInterviewAction(
 /* language of an answer can never drift from the language on screen.           */
 /* -------------------------------------------------------------------------- */
 
-/** POST /ai/candidates/:id/summary */
+/**
+ * POST /ai/candidates/:id/summary — now vacancy-scoped.
+ *
+ * `vacancyId` is required by the backend: the summary answers how the evidence
+ * relates to THIS vacancy and is grounded in its title and requirements, so a
+ * candidate in two pipelines gets two different summaries.
+ */
 export async function generateSummaryAction(
   candidateId: string,
+  vacancyId: string,
 ): Promise<AiActionResult<CandidateSummary>> {
   const locale = await getLocale();
   return runAiAction("generation", () =>
-    api.summariseCandidate(candidateId, locale),
+    api.summariseCandidate(candidateId, vacancyId, locale),
   );
 }
 
@@ -96,15 +103,25 @@ export async function generateInterviewQuestionsAction(
   );
 }
 
-/** POST /ai/answer, scoped to one candidate. */
+/**
+ * POST /ai/answer, scoped to one candidate INSIDE one vacancy.
+ *
+ * The backend requires `vacancyId` whenever `candidateId` is present — the
+ * selected vacancy's title and requirements become part of the generation
+ * context — so an ask without a selection is rejected here rather than sent
+ * to a guaranteed 400.
+ */
 export async function askAboutCandidateAction(
   candidateId: string,
+  vacancyId: string,
   query: string,
-  vacancyId?: string,
 ): Promise<AiActionResult<GroundedAnswer>> {
   const trimmed = query.trim();
   if (trimmed.length < 3) {
     return { ok: false, reason: "invalid", message: "Query too short." };
+  }
+  if (!vacancyId) {
+    return { ok: false, reason: "invalid", message: "Select a vacancy first." };
   }
 
   const locale = await getLocale();

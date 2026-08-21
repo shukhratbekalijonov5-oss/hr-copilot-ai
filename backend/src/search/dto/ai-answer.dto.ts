@@ -45,6 +45,14 @@ export class AiAnswerDto {
 }
 
 export class CandidateSummaryDto {
+  /**
+   * The selected vacancy the summary is generated FOR. Required: the summary
+   * answers "how does this candidate's evidence relate to THIS vacancy", not
+   * a generic profile question. Must be one of the caller's own vacancies.
+   */
+  @IsUUID()
+  vacancyId!: string;
+
   @IsOptional()
   @IsIn(SUPPORTED_LOCALES, {
     message: `locale must be one of: ${SUPPORTED_LOCALES.join(', ')}`,
@@ -52,4 +60,11 @@ export class CandidateSummaryDto {
   locale?: SupportedLocale;
 }
 
-export class InterviewQuestionsDto extends CandidateSummaryDto {}
+/** vacancyId travels in the route path for interview questions. */
+export class InterviewQuestionsDto {
+  @IsOptional()
+  @IsIn(SUPPORTED_LOCALES, {
+    message: `locale must be one of: ${SUPPORTED_LOCALES.join(', ')}`,
+  })
+  locale?: SupportedLocale;
+}

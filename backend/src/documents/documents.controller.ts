@@ -7,15 +7,10 @@ import {
   Post,
   Query,
   Res,
-  UploadedFile,
-  UseInterceptors,
-  Body,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import { DocumentsService } from './documents.service';
-import { UploadDocumentDto } from './dto/upload-document.dto';
 import { QueryDocumentsDto } from './dto/query-documents.dto';
 import { LocalStorageService } from '../storage/local-storage.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -23,8 +18,16 @@ import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { Role } from '../generated/prisma/enums';
-import type { ValidatableFile } from './file-validation';
 
+/**
+ * Organization documents, READ-ONLY as far as creation goes.
+ *
+ * There is no upload route: HR cannot put a file onto a candidate. Every
+ * organization document is the org-scoped snapshot copy an applicant's own
+ * application produced, so the bytes a recruiter can read are always ones the
+ * candidate chose to submit. Candidates manage their own files through
+ * /candidate-account/me/documents, which HR cannot reach.
+ */
 @OrgScoped()
 @Controller('documents')
 export class DocumentsController {
@@ -33,17 +36,6 @@ export class DocumentsController {
     private readonly localStorage: LocalStorageService,
     private readonly configService: ConfigService,
   ) {}
-
-  @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
-  @Post()
-  @UseInterceptors(FileInterceptor('file'))
-  upload(
-    @CurrentUser('organizationId') organizationId: string,
-    @UploadedFile() file: ValidatableFile | undefined,
-    @Body() dto: UploadDocumentDto,
-  ) {
-    return this.documentsService.upload(organizationId, file, dto);
-  }
 
   @Get()
   findAll(

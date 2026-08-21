@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/layout/AppShell";
 import { JobMatchStateProvider } from "@/components/candidate/JobMatchStateProvider";
+import { api } from "@/lib/api";
 import { jobMatchCacheKey } from "@/lib/candidate/job-match-cache-key";
 import { getLocale } from "@/lib/i18n/server";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
@@ -17,10 +18,17 @@ export default async function CandidateLayout({ children }: LayoutProps<"/">) {
     getLocale(),
   ]);
   const matchCacheKey = jobMatchCacheKey(session.id, locale);
+  const initialUnreadCount = await api
+    .getUnreadNotificationCount()
+    .catch(() => 0);
 
   return (
     <JobMatchStateProvider key={matchCacheKey} cacheKey={matchCacheKey}>
-      <AppShell user={session} workspace={workspace}>
+      <AppShell
+        user={session}
+        workspace={workspace}
+        initialUnreadCount={initialUnreadCount}
+      >
         {children}
       </AppShell>
     </JobMatchStateProvider>

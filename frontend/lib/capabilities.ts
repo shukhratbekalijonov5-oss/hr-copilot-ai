@@ -13,8 +13,11 @@ export const BACKEND_CAPABILITIES = {
   /** /api/auth/*, /api/users, /api/organizations */
   auth: true,
   vacancies: true,
+  /** Read/edit only — HR cannot create a candidate (`POST /candidates` gone). */
   candidates: true,
+  /** Read/transition only — applications are created by candidates applying. */
   applications: true,
+  /** Read/serve/delete only — there is no HR upload route. */
   documents: true,
   processingJobs: true,
   processingWebsocket: true,
@@ -76,12 +79,6 @@ export const BACKEND_CAPABILITIES = {
   directApplication: true,
   /** GET/POST/DELETE /api/candidate-account/me/saved-jobs — live. */
   savedJobs: true,
-  /**
-   * Application.source — live. The API returns a provenance value on every
-   * application (DIRECT for a self-application, MANUAL_UPLOAD for a recruiter
-   * upload), so the badge shows a real source rather than a guess.
-   */
-  applicationSource: true,
   /**
    * Session management: GET /api/auth/sessions, DELETE /auth/sessions/:id,
    * POST /auth/logout and /auth/logout-all — live.

@@ -130,6 +130,48 @@ const uz: Dictionary = {
     oneOfOne: "1 / 1",
   },
 
+  notifications: {
+    title: "Bildirishnomalar",
+    bellLabel: "Bildirishnomalarni ochish",
+    bellUnreadLabel: "Bildirishnomalarni ochish, {count} ta oʻqilmagan",
+    unread: "{count} ta oʻqilmagan",
+    allCaughtUp: "Hammasi oʻqilgan",
+    markAllRead: "Hammasini oʻqilgan qilish",
+    loadMore: "Yana yuklash",
+    noDestination: "Bogʻlangan sahifa yoʻq",
+    empty: {
+      hrTitle: "Rekruting bildirishnomalari yoʻq",
+      hrDescription:
+        "Arizalar, nomzod xabarlari va CV ishlov berish yangilanishlari shu yerda chiqadi.",
+      candidateTitle: "Bildirishnomalar yoʻq",
+      candidateDescription:
+        "Xabarlar, suhbat takliflari va ariza yangilanishlari shu yerda chiqadi.",
+    },
+    errors: {
+      load: "Bildirishnomalarni yuklab boʻlmadi.",
+      markRead: "Bu bildirishnomani oʻqilgan qilib boʻlmadi.",
+      markAll: "Bildirishnomalarni oʻqilgan qilib boʻlmadi.",
+    },
+    fallbacks: {
+      candidateUnavailable: "Nomzod mavjud emas",
+      vacancyUnavailable: "Vakansiya mavjud emas",
+      recruiter: "Rekruter",
+    },
+    messages: {
+      newMessageFallback: "Yangi xabar",
+      interviewInvitation: "Siz suhbatga taklif qilindingiz.",
+      vacancyDeleted: "Siz ariza topshirgan “{vacancy}” vakansiyasi o‘chirildi.",
+      applicationRejected: "Jamoa keyingi bosqichga oʻtmaslikka qaror qildi.",
+    },
+    types: {
+      NEW_APPLICATION: "Yangi ariza",
+      NEW_MESSAGE: "Yangi xabar",
+      INTERVIEW_INVITATION: "Suhbat taklifi",
+      VACANCY_DELETED: "Vakansiya yangiligi",
+      APPLICATION_REJECTED: "Ariza yangilanishi",
+    },
+  },
+
   auth: {
     candidate: "Nomzod",
     organization: "Tashkilot",
@@ -241,11 +283,9 @@ const uz: Dictionary = {
     statCompletedAnalysesHint: "Indekslangan va oʻqishga tayyor hujjatlar",
     quickCreateVacancy: "Vakansiya yaratish",
     quickCreateVacancyHint: "Kopilot qidiradigan talablarni belgilang.",
-    quickAddCandidate: "Nomzod qoʻshish",
-    quickAddCandidateHint: "Avval nomzodni yarating, soʻng rezyumesini yuklang.",
-    quickUploadResumes: "Rezyume yuklash",
-    quickUploadResumesHint:
-      "PDF yoki DOCX yuklang va indekslanishini kuzating.",
+    quickReviewApplicants: "Arizalarni koʻrish",
+    quickReviewApplicantsHint:
+      "Vakansiyalaringizga kim ariza topshirganini koʻring.",
     recentVacancies: "Soʻnggi vakansiyalar",
     recentCandidates: "Soʻnggi nomzodlar",
     processingActivity: "Qayta ishlash holati",
@@ -256,9 +296,9 @@ const uz: Dictionary = {
     noVacancies: "Hali vakansiya yoʻq",
     noVacanciesHint:
       "Kopilotga nimani qidirishni bildirish uchun birinchi vakansiyani yarating.",
-    noCandidates: "Hali nomzod yoʻq",
+    noCandidates: "Hali ariza yoʻq",
     noCandidatesHint:
-      "Nomzod qoʻshing va rezyumesini yuklab jarayonni boshlang.",
+      "Vakansiyalaringizga ariza topshirgan nomzodlar shu yerda koʻrinadi.",
     nothingProcessed: "Hali hech narsa qayta ishlanmadi",
     nothingProcessedHint:
       "Yuklangan hujjatlar jarayondan oʻtar ekan shu yerda koʻrinadi.",
@@ -313,10 +353,6 @@ const uz: Dictionary = {
     title: "Nomzodlar",
     description:
       "Jarayondagi barcha nomzodlar va ularning hujjat holati. Model hech kimni saralamaydi va tartiblamaydi.",
-    add: "Nomzod qoʻshish",
-    addTitle: "Nomzod qoʻshish",
-    addDescription:
-      "Avval nomzodni yarating, soʻng rezyumesini yuklang — u indekslanadi.",
     searchPlaceholder: "Nomzodlarni qidirish",
     filterVacancy: "Vakansiya",
     allVacancies: "Barcha vakansiyalar",
@@ -334,14 +370,14 @@ const uz: Dictionary = {
     location: "Manzil",
     email: "Email",
     phone: "Telefon",
-    added: "Qoʻshilgan",
+    added: "Birinchi ariza",
     documents: "Hujjatlar",
     documentsUploaded: {
-      one: "{count} fayl yuklandi",
-      other: "{count} fayl yuklandi",
+      one: "{count} fayl yuborilgan",
+      other: "{count} fayl yuborilgan",
     },
-    uploadPrompt:
-      "Rezyume yuklang — u tahlil qilinib, indekslanadi va ushbu vakansiya talablari bilan solishtiriladi.",
+    noDocumentsYet:
+      "Hozircha hujjat yoʻq. Nomzod ariza bilan yuborgan rezyume shu yerda koʻrinadi.",
     applications: "Arizalar",
     applicationsHint: "Bosqich oʻzgarishi uni bajargan xodim bilan qayd etiladi.",
     applicationStage: "Ariza bosqichi",
@@ -377,8 +413,6 @@ const uz: Dictionary = {
       "Brauzerlar DOCX’ni sahifa ichida koʻrsata olmaydi. Faylni alohida oching — ajratilgan matn va manbalar yonida qoladi.",
     openFile: "{name} faylini ochish",
     showingCitation: "Manba koʻrsatilmoqda",
-    linkedCandidateUploadNotAllowed:
-      "Bu nomzod ish qidiruvchi hisobiga bogʻlangan, shuning uchun HR bu yerda hujjat qoʻsha olmaydi. Tashkilot nusxalari nomzod yuborgan arizalardan yaratiladi.",
     noDocuments: "Hujjat yoʻq",
   },
 
@@ -399,8 +433,6 @@ const uz: Dictionary = {
       UNSUPPORTED_FILE_TYPE: "PDF yoki DOCX fayl yuklang.",
       PERSONAL_DOCUMENT_LIMIT_REACHED:
         "3 tagacha hujjat saqlash mumkin. Boshqasini yuklash uchun bittasini oʻchiring.",
-      HR_DOCUMENT_UPLOAD_NOT_ALLOWED:
-        "Hujjatlarni faqat qoʻlda yaratilgan nomzodlarga yuklash mumkin. Bu nomzodning fayllari oʻzi yuborgan arizalardan olinadi.",
     },
   },
 
@@ -904,10 +936,7 @@ const uz: Dictionary = {
       "Vakansiyaga bogʻlash talab tekshiruvlariga solishtirish uchun asos beradi.",
     applyToVacancy: "Vakansiyaga bogʻlash",
     noVacancy: "Hozircha vakansiyasiz",
-    errFullName: "Toʻliq ismni kiriting.",
-    errFullNameShort: "Nomzodning toʻliq ismini kiriting.",
-    errEmail: "Toʻgʻri email manzilini kiriting.",
-    errYears: "0 dan 80 gacha son kiriting.",
+    errVacancyRequired: "Bu nomzodni qoʻshish uchun oʻz vakansiyangizni tanlang.",
   },
 
   vacancyDetail: {
@@ -923,14 +952,14 @@ const uz: Dictionary = {
       one: "bu vakansiyaga {count} nomzod bogʻlangan",
       other: "bu vakansiyaga {count} nomzod bogʻlangan",
     },
-    noCandidates: "Hali nomzod yoʻq",
+    noCandidates: "Hali ariza yoʻq",
     noCandidatesHint:
-      "Nomzod qoʻshing va rezyumesini yuklang — har biri yuqoridagi talablar bilan solishtiriladi.",
+      "Bu vakansiyaga ariza topshirgan nomzodlar shu yerda koʻrinadi va har bir rezyume yuqoridagi talablar bilan solishtiriladi.",
     atAGlance: "Qisqacha",
     lastUpdated: "Oxirgi yangilanish",
     readingResumes: "Rezyumelar qanday oʻqiladi",
     readingResumesHint:
-      "Hujjatlar vakansiyaga emas, nomzodga bogʻlanadi. Avval odamni qoʻshing, soʻng uning sahifasidan rezyumesini yuklang — aynan shu faylni ushbu talablar bilan bogʻlaydi.",
+      "Nomzodlar ariza topshirayotganda oʻz rezyumesini oʻzlari yuboradi. Yuborilgan har bir rezyume yuqoridagi talablar bilan solishtiriladi — ular uchun hech kim fayl yuklamaydi.",
     created: "{date} da yaratilgan",
     deletedOrWrongLink: "Bu vakansiya oʻchirilgan yoki havola notoʻgʻri boʻlishi mumkin.",
     candidateRemovedOrWrongLink:
@@ -938,8 +967,6 @@ const uz: Dictionary = {
     newVacancyTitle: "Vakansiya yaratish",
     newVacancyHint:
       "Bu yerda qoʻshgan talablaringiz yuklanadigan har bir rezyume uchun tekshiruv mezoni boʻladi.",
-    newCandidateHint:
-      "Avval odamni yarating, keyingi ekranda rezyumesini yuklaysiz.",
     scopedSearchLabel: "Ushbu vakansiya nomzodlari boʻyicha qidiruv",
     scopedSearchPlaceholder:
       "Oddiy tilda soʻrang — masalan: kim prodda Kubernetes bilan ishlagan?",
@@ -1134,7 +1161,6 @@ const uz: Dictionary = {
       "Uning bosqichi yakuniy. Endi holatni faqat ishga qabul jamoasi oʻzgartira oladi.",
     stageNote:
       "Bosqichlarni ishga qabul jamoasi belgilaydi. Sizning yagona amalingiz — arizani qaytarib olish.",
-    source: "Manba",
   },
 
   chat: {
@@ -1163,8 +1189,6 @@ const uz: Dictionary = {
     viewVacancy: "Vakansiyani koʻrish",
     viewJob: "Vakansiyani koʻrish",
     chatUnavailable: "Chat mavjud emas",
-    noCandidateAccount:
-      "Bu nomzodda platformadagi Candidate hisobi yoʻq, shuning uchun ilova ichidagi chat mavjud emas.",
     candidateRejectedNotice:
       "Nomzod rad etildi va suhbat chati oʻchirildi.",
     vacancyClosedNotice: "Vakansiya yopildi va suhbat chati oʻchirildi.",
@@ -1285,6 +1309,47 @@ const uz: Dictionary = {
     unavailable: "Tanlash vaqtincha ishlamayapti",
     unavailableHint:
       "Tanlash xizmatiga hozir ulanib boʻlmadi. Hech narsa hisoblanmadi — birozdan soʻng qayta urinib koʻring.",
+  },
+  vacancyScope: {
+    selectorLabel: "Mening vakansiyam",
+    myVacancies: "Mening vakansiyalarim",
+    choosePlaceholder: "Vakansiyani tanlang",
+    allVacancies: "Barcha vakansiyalarim",
+    noneTitle: "Hozircha vakansiya yoʻq",
+    noneHint: "Avval vakansiya yarating — nomzodlar, dalillar va suhbatlar oʻsha vakansiya ichida boʻladi.",
+    invalidSelection: "Bu sizning vakansiyangiz emas",
+    selectFirstTitle: "Oʻz vakansiyangizni tanlang",
+    selectFirstHint: "Ichida ishlash uchun yuqoridan vakansiyani tanlang.",
+    notOwned: "Bu vakansiyani tashkilotingizning boshqa xodimi yaratgan. Siz faqat oʻzingiz yaratgan vakansiyalar ichida ishlay olasiz.",
+    notFound: "Bu vakansiya mavjud emas.",
+    candidateNotInVacancy: "Bu nomzod tanlangan vakansiyaga biriktirilmagan.",
+    noCandidatesTitle: "Hali ariza yoʻq",
+    noCandidatesHint: "Bu vakansiyaga ariza topshirgan nomzodlar shu yerda koʻrinadi.",
+    scopedToVacancy: "Kim uchun: {title}",
+    select: "Tanlash",
+    selected: "Tanlangan",
+    ownedByOther: "Hamkasb yaratgan",
+    deleteSelected: "Tanlanganlarni oʻchirish",
+    deleteConfirmTitle: "Tanlangan vakansiya oʻchirilsinmi?",
+    deleteConfirmTitlePlural: "Tanlangan vakansiyalar oʻchirilsinmi?",
+    deleteConfirmHint: "Ular bilan birga nomzodlarning arizalari, dalillari va suhbatlari ham oʻchiriladi.",
+    yes: "Ha",
+    no: "Yoʻq",
+    deleting: "Oʻchirilmoqda",
+    deleteFailed: "Hech narsa oʻchirilmadi. Tanlovda siz oʻchira olmaydigan vakansiya bor.",
+    deletedCount: {
+      one: "{count} ta vakansiya oʻchirildi",
+      other: "{count} ta vakansiya oʻchirildi",
+    } as Plural,
+    selectedCount: {
+      one: "{count} ta tanlandi",
+      other: "{count} ta tanlandi",
+    } as Plural,
+    selectAll: "Barchasini tanlash",
+    clearSelection: "Tanlovni bekor qilish",
+    chatUnavailable: "Suhbat mavjud emas",
+    chatUnavailableHint: "U oʻchirilgan boʻlishi yoki siz yaratmagan vakansiyaga tegishli boʻlishi mumkin.",
+    accountRequired: "Bu nomzodda platforma hisobi yoʻq, shuning uchun suhbat mavjud emas.",
   },
   status: {
     vacancy: {

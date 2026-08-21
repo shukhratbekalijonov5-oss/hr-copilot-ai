@@ -51,13 +51,15 @@ class ScriptedGenerator(GenerationClient):
     def model(self) -> str:
         return "scripted-test-model"
 
-    def generate_grounded_answer(self, *, question, evidence, locale):
+    def generate_grounded_answer(self, *, question, evidence, locale, vacancy_context=None):
         self.calls.append({"kind": "answer", "question": question,
-                           "evidence": evidence, "locale": locale})
+                           "evidence": evidence, "locale": locale,
+                           "vacancy_context": vacancy_context})
         return GroundedAnswer(self._answer, list(self._cited), self._status, self.model)
 
-    def generate_candidate_summary(self, *, evidence, locale):
-        self.calls.append({"kind": "summary", "evidence": evidence, "locale": locale})
+    def generate_candidate_summary(self, *, evidence, locale, vacancy_context=None):
+        self.calls.append({"kind": "summary", "evidence": evidence, "locale": locale,
+                           "vacancy_context": vacancy_context})
         return GroundedAnswer(self._answer, list(self._cited), self._status, self.model)
 
     def generate_interview_questions(self, *, requirement, evidence, locale, evidence_found):
@@ -406,3 +408,88 @@ class TestAnswerCitationConsistency:
             )
         )
         assert uuids <= accepted
+
+
+class TestVacancyContextGrounding:
+    """The SELECTED vacancy steers generation without ever becoming evidence."""
+
+    def _vacancy(self):
+        from app.models.schemas import VacancyContext, VacancyContextRequirement
+
+        return VacancyContext(
+            vacancyId="vac-1",
+            title="Senior Backend Engineer",
+            requirements=[
+                VacancyContextRequirement(text="Kubernetes", required=True),
+                VacancyContextRequirement(text="Korean language", required=False),
+            ],
+        )
+
+    def test_summary_passes_vacancy_context_to_the_generator(
+        self, store, embedder, indexed
+    ):
+        generator = ScriptedGenerator(answer="ok", status="GROUNDED")
+        summarise_candidate(
+            organization_id=indexed["org"],
+            candidate_id=CAND,
+            locale="en",
+            limit=8,
+            settings=get_settings(),
+            embedder=embedder,
+            store=store,
+            reranker=None,
+            generator=generator,
+            vacancy=self._vacancy(),
+        )
+        call = generator.calls[-1]
+        assert call["kind"] == "summary"
+        assert "Senior Backend Engineer" in call["vacancy_context"]
+        assert "[required] Kubernetes" in call["vacancy_context"]
+        assert "[nice-to-have] Korean language" in call["vacancy_context"]
+
+    def test_answer_passes_vacancy_context_to_the_generator(
+        self, store, embedder, indexed
+    ):
+        generator = ScriptedGenerator(answer="ok", status="GROUNDED")
+        answer_question(
+            organization_id=indexed["org"],
+            query="Does this candidate know Kubernetes?",
+            candidate_id=CAND,
+            locale="en",
+            limit=8,
+            settings=get_settings(),
+            embedder=embedder,
+            store=store,
+            reranker=None,
+            generator=generator,
+            vacancy=self._vacancy(),
+        )
+        call = generator.calls[-1]
+        assert call["kind"] == "answer"
+        assert "Senior Backend Engineer" in call["vacancy_context"]
+
+    def test_without_vacancy_the_context_stays_none(self, store, embedder, indexed):
+        generator = ScriptedGenerator(answer="ok", status="GROUNDED")
+        summarise_candidate(
+            organization_id=indexed["org"],
+            candidate_id=CAND,
+            locale="en",
+            limit=8,
+            settings=get_settings(),
+            embedder=embedder,
+            store=store,
+            reranker=None,
+            generator=generator,
+        )
+        assert generator.calls[-1]["vacancy_context"] is None
+
+    def test_vacancy_block_marks_itself_as_non_evidence(self):
+        from app.generation.prompts import build_answer_prompt, build_summary_prompt
+
+        answer = build_answer_prompt(
+            "q", [], "en", vacancy_context="Title: X"
+        )
+        summary = build_summary_prompt([], "en", vacancy_context="Title: X")
+        for prompt in (answer, summary):
+            assert "NOT evidence" in prompt
+            assert "Title: X" in prompt

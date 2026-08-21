@@ -17,6 +17,13 @@ import type { AiFailureReason, CandidateSummary, Citation } from "@/lib/types";
 
 interface SummaryPanelProps {
   candidateId: string;
+  /**
+   * The active vacancy. Required: the summary is grounded in this vacancy's
+   * title and requirements, so it cannot be generated without one.
+   */
+  vacancyId: string;
+  /** Shown next to the heading so the context is never ambiguous. */
+  vacancyTitle?: string;
   /** False while no document has finished indexing. */
   ready: boolean;
   /** Shown instead of the control when there is nothing to read yet. */
@@ -35,12 +42,14 @@ interface SummaryPanelProps {
  */
 export function SummaryPanel({
   candidateId,
+  vacancyId,
+  vacancyTitle,
   ready,
   notReady,
   onSelectCitation,
   activeCitationId,
 }: SummaryPanelProps) {
-  const { d } = useI18n();
+  const { d, f } = useI18n();
 
   const [summary, setSummary] = useState<CandidateSummary | null>(null);
   const [failure, setFailure] = useState<{
@@ -54,7 +63,7 @@ export function SummaryPanel({
     setFailure(null);
 
     startTransition(async () => {
-      const result = await generateSummaryAction(candidateId);
+      const result = await generateSummaryAction(candidateId, vacancyId);
       if (result.ok) setSummary(result.data);
       else {
         setSummary(null);
@@ -80,7 +89,11 @@ export function SummaryPanel({
       <Card>
         <CardHeader
           title={d.ai.summaryTitle}
-          description={d.ai.summaryDescription}
+          description={
+            vacancyTitle
+              ? `${f(d.vacancyScope.scopedToVacancy, { title: vacancyTitle })} · ${d.ai.summaryDescription}`
+              : d.ai.summaryDescription
+          }
           action={
             <Button
               type="button"

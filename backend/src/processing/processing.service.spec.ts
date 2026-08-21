@@ -1,5 +1,6 @@
 import { ProcessingService } from './processing.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import { DocumentStatus, ProcessingJobStatus } from '../generated/prisma/enums';
 
 const ORG_A = 'org-a';
@@ -29,6 +30,14 @@ describe('ProcessingService', () => {
           .fn()
           .mockResolvedValue({ id: 'd1', organizationId: ORG_A }),
       },
+      vacancy: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'v1',
+          title: 't',
+          status: 'OPEN',
+          createdById: 'hr-a',
+        }),
+      },
       $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     };
     gateway = {
@@ -36,7 +45,12 @@ describe('ProcessingService', () => {
       emitCompleted: jest.fn(),
       emitFailed: jest.fn(),
     };
-    service = new ProcessingService(prisma, new TenantService(), gateway);
+    service = new ProcessingService(
+      prisma,
+      new TenantService(),
+      gateway,
+      new OwnedVacancyService(prisma),
+    );
   });
 
   describe('createJob', () => {
@@ -132,11 +146,39 @@ describe('ProcessingService', () => {
       prisma.processingJob.findMany.mockResolvedValue([]);
       prisma.processingJob.count.mockResolvedValue(0);
 
-      await service.findAll(ORG_A, 1, 20);
+      await service.findAll(ORG_A, 'hr-a', 1, 20);
 
       expect(
         prisma.processingJob.findMany.mock.calls[0][0].where.organizationId,
       ).toBe(ORG_A);
+    });
+
+    it('the vacancy filter restricts to candidates ASSOCIATED with that owned vacancy', async () => {
+      prisma.processingJob.findMany.mockResolvedValue([]);
+      prisma.processingJob.count.mockResolvedValue(0);
+
+      await service.findAll(ORG_A, 'hr-a', 1, 20, undefined, 'v1');
+
+      const where = prisma.processingJob.findMany.mock.calls[0][0].where;
+      expect(where.organizationId).toBe(ORG_A);
+      // One job per document, always: the filter selects, it never duplicates.
+      expect(where.document).toEqual({
+        candidate: { applications: { some: { vacancyId: 'v1' } } },
+      });
+    });
+
+    it("a same-org colleague's vacancy filter is refused", async () => {
+      prisma.vacancy.findFirst.mockResolvedValue({
+        id: 'v1',
+        title: 't',
+        status: 'OPEN',
+        createdById: 'hr-a',
+      });
+
+      await expect(
+        service.findAll(ORG_A, 'hr-b', 1, 20, undefined, 'v1'),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(prisma.processingJob.findMany).not.toHaveBeenCalled();
     });
 
     it("404s on another organization's job", async () => {

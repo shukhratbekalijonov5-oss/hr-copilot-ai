@@ -99,7 +99,7 @@ User (email, fullName, preferredLocale, accountType: CANDIDATE | ORGANIZATION)
 | `DELETE /users/:id` | Removes the MEMBERSHIP (account survives). Response unchanged `{id, deleted:true}`. |
 | `PATCH /users/:id` | `role` updates the membership role; `fullName` still edits the account name. Same invariants (no self-role-change, last-OWNER protected). |
 | Vacancy responses | Now include `publicSlug` (stable share link id). |
-| Application responses | Now include `source` (`DIRECT`/`MANUAL_UPLOAD`/… ) and `submittedDocumentId` (nullable). |
+| Application responses | Now include `source` and `submittedDocumentId` (nullable). New rows are always `DIRECT`; `MANUAL_UPLOAD` survives only on historical rows from the removed recruiter-created-candidate feature. |
 | WebSocket `/processing` | Connection now also requires a live membership for the token's org claim; candidate-only tokens are disconnected. |
 
 Recruiter flows keep working with an unmodified frontend as long as it stores
@@ -209,21 +209,16 @@ Upload/limit error codes (localize on `code`, like the AUTH_* codes):
 | `FILE_TOO_LARGE` | 413 | File over 50 MB (`MAX_FILE_SIZE_BYTES`, default 52428800) — whichever layer rejects it. |
 | `UNSUPPORTED_FILE_TYPE` | 400 | Not PDF/DOCX by MIME, extension or magic-number content check. |
 | `PERSONAL_DOCUMENT_LIMIT_REACHED` | 409 | 4th personal file. |
-| `HR_DOCUMENT_UPLOAD_NOT_ALLOWED` | 403 | HR upload targeting an application-derived candidate (see below). |
 
-### 6c. HR upload policy (BREAKING for the recruiter frontend)
+### 6c. HR upload policy: there is none — HR cannot upload (BREAKING)
 
-`POST /documents` now **requires `candidateId`** and the target must be a
-**manually added candidate of the caller's organization** (a Candidate row
-with no linked platform account). Generic/unattached uploads are gone from
-the backend — the Dashboard / Candidates-list / Processing upload buttons
-must be removed in the frontend follow-up (processing MONITORING endpoints
-`GET /processing-jobs*` are unchanged). Rejections: missing `candidateId` →
-`400`; cross-tenant or unknown candidate → `404` (no existence leak);
-application-derived candidate → `403 HR_DOCUMENT_UPLOAD_NOT_ALLOWED` (their
-documents are the org-scoped snapshots their own applications created).
-There is no document-count limit for HR manual candidates; the 50 MB
-per-file limit applies.
+`POST /documents` **was removed** (404). Recruiters cannot upload a
+candidate document at all; the only upload surface in the product is the
+candidate's own `POST /candidate-account/me/documents`. Organization
+documents are written in exactly one place — the apply flow's org-scoped
+snapshot of the resume the candidate submitted — so recruiter-visible
+evidence always originates from a file the person chose to send.
+Processing MONITORING endpoints (`GET /processing-jobs*`) are unchanged.
 
 Profile fields: `headline?, location?, phone?, summary?, skills: string[],
 languages: string[], experience: [{title, company?, startDate?, endDate?,

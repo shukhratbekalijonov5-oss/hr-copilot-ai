@@ -15,6 +15,7 @@ import * as dashboard from "@/lib/api/dashboard.service";
 import * as documents from "@/lib/api/documents.service";
 import * as evidence from "@/lib/api/evidence.service";
 import * as interviewChat from "@/lib/api/interview-chat.service";
+import * as notifications from "@/lib/api/notifications.service";
 import * as processing from "@/lib/api/processing.service";
 import * as publicJobs from "@/lib/api/public-jobs.service";
 import * as search from "@/lib/api/search.service";
@@ -42,6 +43,11 @@ export const api = {
   getVacancies: vacancies.getVacancies,
   getAllVacancies: vacancies.getAllVacancies,
   getVacancy: vacancies.getVacancy,
+  getMyVacancies: vacancies.getMyVacancies,
+  getAllMyVacancies: vacancies.getAllMyVacancies,
+  getVacancyCandidates: vacancies.getVacancyCandidates,
+  deleteVacancy: vacancies.deleteVacancy,
+  bulkDeleteVacancies: vacancies.bulkDeleteVacancies,
   createVacancy: vacancies.createVacancy,
   updateVacancy: vacancies.updateVacancy,
   setVacancyStatus: vacancies.setVacancyStatus,
@@ -52,10 +58,8 @@ export const api = {
   getCandidates: candidates.getCandidates,
   getAllCandidates: candidates.getAllCandidates,
   getCandidate: candidates.getCandidate,
-  createCandidate: candidates.createCandidate,
   updateCandidate: candidates.updateCandidate,
   getApplications: applications.getApplications,
-  createApplication: applications.createApplication,
   setApplicationStatus: applications.setApplicationStatus,
   inviteToInterview: interviewChat.inviteToInterview,
 
@@ -69,12 +73,17 @@ export const api = {
   getCandidateMessages: interviewChat.getCandidateMessages,
   sendCandidateMessage: interviewChat.sendCandidateMessage,
 
+  // notifications
+  getNotifications: notifications.getNotifications,
+  getUnreadNotificationCount: notifications.getUnreadNotificationCount,
+  markNotificationRead: notifications.markNotificationRead,
+  markAllNotificationsRead: notifications.markAllNotificationsRead,
+
   // documents
   getDocuments: documents.getDocuments,
   getAllDocuments: documents.getAllDocuments,
   getDocument: documents.getDocument,
   getDocumentDownloadUrl: documents.getDocumentDownloadUrl,
-  uploadDocument: documents.uploadDocument,
 
   // processing
   getProcessingJobs: processing.getProcessingJobs,

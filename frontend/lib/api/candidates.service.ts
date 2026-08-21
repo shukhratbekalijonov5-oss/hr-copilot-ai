@@ -15,7 +15,7 @@ import type {
 import type {
   Candidate,
   CandidateQuery,
-  CreateCandidateInput,
+  UpdateCandidateInput,
 } from "@/lib/types";
 
 /**
@@ -115,20 +115,14 @@ export async function getCandidate(id: string): Promise<Candidate> {
   return toCandidate(await apiFetch<CandidateResponse>(`/candidates/${id}`));
 }
 
-export async function createCandidate(
-  input: CreateCandidateInput,
-): Promise<Candidate> {
-  return toCandidate(
-    await apiFetch<CandidateResponse>("/candidates", {
-      method: "POST",
-      body: input,
-    }),
-  );
-}
-
+/**
+ * There is no createCandidate: `POST /candidates` was removed from the API.
+ * A candidate record exists because a person applied — see
+ * backend/docs/candidate-entry-model.md.
+ */
 export async function updateCandidate(
   id: string,
-  input: Partial<CreateCandidateInput>,
+  input: UpdateCandidateInput,
 ): Promise<Candidate> {
   return toCandidate(
     await apiFetch<CandidateResponse>(`/candidates/${id}`, {

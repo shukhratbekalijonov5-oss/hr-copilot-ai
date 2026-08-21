@@ -38,13 +38,22 @@ import type {
  * Korean reader an English answer — so the caller must state the language.
  */
 
-export interface AnswerInput {
+/**
+ * `/ai/answer` input.
+ *
+ * The backend requires `vacancyId` whenever `candidateId` is present — a
+ * candidate question is always asked inside one vacancy's context — so the two
+ * are modelled as a pair that cannot be half-supplied. Without a candidate the
+ * vacancy stays optional org-wide search context.
+ */
+export type AnswerInput = {
   query: string;
-  candidateId?: string;
-  vacancyId?: string;
   locale: Locale;
   limit?: number;
-}
+} & (
+  | { candidateId: string; vacancyId: string }
+  | { candidateId?: undefined; vacancyId?: string }
+);
 
 /** POST /ai/answer — a grounded answer with validated citations. */
 export async function answerQuestion(
@@ -64,14 +73,21 @@ export async function answerQuestion(
   return toGroundedAnswer(response);
 }
 
-/** POST /ai/candidates/:id/summary — what the documents state, not a rating. */
+/**
+ * POST /ai/candidates/:id/summary — what the documents state, not a rating.
+ *
+ * `vacancyId` is REQUIRED: the summary answers "how does this evidence relate
+ * to THIS vacancy" and is grounded in its title and requirements, so the same
+ * candidate reads differently under two roles.
+ */
 export async function summariseCandidate(
   candidateId: string,
+  vacancyId: string,
   locale: Locale,
 ): Promise<CandidateSummary> {
   const response = await apiFetch<AiCandidateSummaryResponse>(
     `/ai/candidates/${candidateId}/summary`,
-    { method: "POST", body: { locale } },
+    { method: "POST", body: { vacancyId, locale } },
   );
 
   return toCandidateSummary(response);

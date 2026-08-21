@@ -15,6 +15,8 @@ import type {
   EvidenceMappingStatus,
   EvidenceType,
   InterviewQuestionKind,
+  NotificationAudience,
+  NotificationType,
   ProcessingJobStatus,
   RequirementType,
   Role,
@@ -122,6 +124,42 @@ export interface AuthSessionRowResponse {
   userAgent: string | null;
   deviceName: string | null;
   current: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Notifications                                                               */
+/* -------------------------------------------------------------------------- */
+
+export interface NotificationResponse {
+  id: string;
+  type: NotificationType;
+  audience: NotificationAudience;
+  isRead: boolean;
+  createdAt: string;
+  vacancyId?: string | null;
+  vacancyTitle?: string | null;
+  candidateId?: string | null;
+  candidateName?: string | null;
+  actorUserId?: string | null;
+  actorName?: string | null;
+  conversationId?: string | null;
+  messageId?: string | null;
+  interviewId?: string | null;
+  applicationId?: string | null;
+  messagePreview?: string | null;
+  /**
+   * Temporary tolerance for the parallel backend branch's nested view shape.
+   * Components never read these fields directly.
+   */
+  vacancy?: { id: string; title: string; deleted?: boolean } | null;
+  candidate?: { id: string; name?: string | null; fullName?: string | null } | null;
+  actor?: { id?: string | null; name?: string | null } | null;
+}
+
+export interface UnreadNotificationCountResponse {
+  unread?: number;
+  count?: number;
+  unreadCount?: number;
 }
 
 export interface OrganizationResponse {
@@ -235,9 +273,8 @@ export interface CandidateResponse {
 
 export interface InviteToInterviewResponse {
   application: ApplicationResponse;
-  conversation: { id: string; vacancyId: string; createdAt: string } | null;
-  chatAvailable: boolean;
-  chatUnavailableReason?: "NO_CANDIDATE_ACCOUNT";
+  /** Always present: every applicant owns the account they applied with. */
+  conversation: { id: string; vacancyId: string; createdAt: string };
 }
 
 export interface OrganizationConversationResponse {
@@ -626,4 +663,54 @@ export interface JobMatchesResponse {
   /** False when the Gemini explanation step was skipped or failed. */
   generated: boolean;
   generatedAt: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Vacancy-scoped HR workspace                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * GET /vacancies/mine — deliberately slim rows for the selector.
+ *
+ * Only the caller's OWN vacancies in the active organization. This is the
+ * source for every creator-scoped selector; the org-wide `GET /vacancies`
+ * catalog stays readable by every member but must not drive them.
+ */
+export interface MyVacancyResponse {
+  id: string;
+  title: string;
+  status: VacancyStatus;
+  createdAt: string;
+  candidateCount: number;
+  requirementCount: number;
+}
+
+/**
+ * GET /vacancies/:vacancyId/candidates — one normalized row for manual and
+ * platform candidates alike. `application.status` is the stage in THIS
+ * vacancy; the same person can sit in several with independent stages.
+ */
+export interface VacancyCandidateRowResponse {
+  candidate: {
+    id: string;
+    fullName: string;
+    email: string | null;
+    phone: string | null;
+    location: string | null;
+    currentTitle: string | null;
+    totalExperienceYears: number | null;
+    documentCount: number;
+    evidenceCount: number;
+  };
+  application: {
+    id: string;
+    status: ApplicationStatus;
+    createdAt: string;
+  };
+}
+
+/** POST /vacancies/bulk-delete — all-or-nothing. */
+export interface BulkDeleteVacanciesResponse {
+  deletedIds: string[];
+  deletedCount: number;
 }

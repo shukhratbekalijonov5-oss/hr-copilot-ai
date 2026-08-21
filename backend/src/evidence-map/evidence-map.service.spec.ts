@@ -5,12 +5,16 @@ import {
 } from '@nestjs/common';
 import { EvidenceMapService } from './evidence-map.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import { AiServiceDisabledError } from '../ai/ai-service.client';
 
 const ORG_A = 'org-a';
 const ORG_B = 'org-b';
 const CAND = 'cand-1';
 const VAC = 'vac-1';
+/** The vacancy creator; every call in this spec runs as them by default. */
+const HR_A = 'user-a';
+const HR_B = 'user-b';
 
 const REQUIREMENTS = [
   { id: 'r-nest', text: 'NestJS', type: 'SKILL', required: true },
@@ -84,8 +88,15 @@ describe('EvidenceMapService', () => {
         findFirst: jest.fn().mockResolvedValue({
           id: VAC,
           title: 'Backend Engineer',
+          status: 'OPEN',
+          createdById: HR_A,
           requirements: REQUIREMENTS,
         }),
+      },
+      application: {
+        // The candidate HAS applied to the vacancy by default (the applicant
+        // association is what every candidate-in-vacancy AI path requires).
+        findFirst: jest.fn().mockResolvedValue({ id: 'assoc-1' }),
       },
       document: { findMany: jest.fn().mockResolvedValue([{ id: 'doc-1' }]) },
       requirementEvidenceMap: {
@@ -104,12 +115,17 @@ describe('EvidenceMapService', () => {
       ),
     };
     ai = { mapEvidence: jest.fn().mockResolvedValue(aiMapping()) };
-    service = new EvidenceMapService(prisma, new TenantService(), ai);
+    service = new EvidenceMapService(
+      prisma,
+      new TenantService(),
+      ai,
+      new OwnedVacancyService(prisma),
+    );
   });
 
   describe('tenant isolation', () => {
     it('sends the organization derived from auth', async () => {
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(ai.mapEvidence.mock.calls[0][0].organizationId).toBe(ORG_A);
     });
@@ -117,7 +133,7 @@ describe('EvidenceMapService', () => {
     it('rejects a candidate from another organization', async () => {
       prisma.candidate.findFirst.mockResolvedValue(null);
 
-      await expect(service.run(ORG_B, CAND, VAC)).rejects.toBeInstanceOf(
+      await expect(service.run(ORG_B, HR_A, CAND, VAC)).rejects.toBeInstanceOf(
         NotFoundException,
       );
       expect(ai.mapEvidence).not.toHaveBeenCalled();
@@ -126,14 +142,14 @@ describe('EvidenceMapService', () => {
     it('rejects a vacancy from another organization', async () => {
       prisma.vacancy.findFirst.mockResolvedValue(null);
 
-      await expect(service.run(ORG_B, CAND, VAC)).rejects.toBeInstanceOf(
+      await expect(service.run(ORG_B, HR_A, CAND, VAC)).rejects.toBeInstanceOf(
         NotFoundException,
       );
       expect(ai.mapEvidence).not.toHaveBeenCalled();
     });
 
     it('scopes both lookups by organization', async () => {
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(
         prisma.candidate.findFirst.mock.calls[0][0].where.organizationId,
@@ -146,7 +162,7 @@ describe('EvidenceMapService', () => {
 
   describe('persistence policy', () => {
     it('stores a mapping row per requirement, including one with no evidence', async () => {
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(upsert).toHaveBeenCalledTimes(2);
       const statuses = upsert.mock.calls.map((c) => c[0].create.status);
@@ -154,7 +170,7 @@ describe('EvidenceMapService', () => {
     });
 
     it('stores evidence rows only for requirements that have evidence', async () => {
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(createMany).toHaveBeenCalledTimes(1);
       const rows = createMany.mock.calls[0][0].data;
@@ -163,13 +179,13 @@ describe('EvidenceMapService', () => {
     });
 
     it('preserves the source chunk id for traceability', async () => {
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(createMany.mock.calls[0][0].data[0].sourceChunkId).toBe('chunk-1');
     });
 
     it('stamps the caller organization onto stored evidence', async () => {
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(createMany.mock.calls[0][0].data[0].organizationId).toBe(ORG_A);
     });
@@ -183,7 +199,7 @@ describe('EvidenceMapService', () => {
         }),
       );
 
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(createMany.mock.calls[0][0].data).toHaveLength(0);
     });
@@ -191,7 +207,7 @@ describe('EvidenceMapService', () => {
 
   describe('idempotency', () => {
     it('deletes prior evidence before inserting the new set', async () => {
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(deleteMany).toHaveBeenCalledWith({
         where: { requirementMapId: 'map-r-nest' },
@@ -199,7 +215,7 @@ describe('EvidenceMapService', () => {
     });
 
     it('upserts on the candidate/vacancy/requirement key', async () => {
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(upsert.mock.calls[0][0].where).toEqual({
         candidateId_vacancyId_requirementId: {
@@ -211,7 +227,7 @@ describe('EvidenceMapService', () => {
     });
 
     it('re-running produces the same number of writes', async () => {
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
       const first = {
         upserts: upsert.mock.calls.length,
         inserts: createMany.mock.calls.length,
@@ -220,7 +236,7 @@ describe('EvidenceMapService', () => {
       upsert.mockClear();
       createMany.mockClear();
       deleteMany.mockClear();
-      await service.run(ORG_A, CAND, VAC);
+      await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(upsert.mock.calls.length).toBe(first.upserts);
       expect(createMany.mock.calls.length).toBe(first.inserts);
@@ -233,7 +249,7 @@ describe('EvidenceMapService', () => {
         new AiServiceDisabledError('map requirement evidence'),
       );
 
-      await expect(service.run(ORG_A, CAND, VAC)).rejects.toBeInstanceOf(
+      await expect(service.run(ORG_A, HR_A, CAND, VAC)).rejects.toBeInstanceOf(
         ServiceUnavailableException,
       );
     });
@@ -242,10 +258,12 @@ describe('EvidenceMapService', () => {
       prisma.vacancy.findFirst.mockResolvedValue({
         id: VAC,
         title: 'Empty',
+        status: 'OPEN',
+        createdById: HR_A,
         requirements: [],
       });
 
-      await expect(service.run(ORG_A, CAND, VAC)).rejects.toBeInstanceOf(
+      await expect(service.run(ORG_A, HR_A, CAND, VAC)).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(ai.mapEvidence).not.toHaveBeenCalled();
@@ -254,7 +272,9 @@ describe('EvidenceMapService', () => {
     it('never persists anything when the AI call fails', async () => {
       ai.mapEvidence.mockRejectedValue(new Error('ai down'));
 
-      await expect(service.run(ORG_A, CAND, VAC)).rejects.toThrow('ai down');
+      await expect(service.run(ORG_A, HR_A, CAND, VAC)).rejects.toThrow(
+        'ai down',
+      );
       expect(upsert).not.toHaveBeenCalled();
     });
   });
@@ -263,14 +283,14 @@ describe('EvidenceMapService', () => {
     it('lists every requirement, mapped or not', async () => {
       prisma.requirementEvidenceMap.findMany.mockResolvedValue([]);
 
-      const result = await service.read(ORG_A, CAND, VAC);
+      const result = await service.read(ORG_A, HR_A, CAND, VAC);
 
       expect(result.requirements).toHaveLength(2);
       expect(result.requirements[0].status).toBeNull();
     });
 
     it('scopes the read by organization', async () => {
-      await service.read(ORG_A, CAND, VAC);
+      await service.read(ORG_A, HR_A, CAND, VAC);
 
       expect(
         prisma.requirementEvidenceMap.findMany.mock.calls[0][0].where
@@ -291,12 +311,55 @@ describe('EvidenceMapService', () => {
         },
       ]);
 
-      const result = await service.read(ORG_A, CAND, VAC);
+      const result = await service.read(ORG_A, HR_A, CAND, VAC);
       const serialised = JSON.stringify(result).toLowerCase();
 
       expect(serialised).not.toContain('"score"');
       expect(serialised).not.toContain('fitpercentage');
       expect(serialised).not.toContain('"rating"');
+    });
+  });
+
+  describe('vacancy-scoped workspace rule (Compare backbone)', () => {
+    it("a same-org colleague cannot run or read under HR A's vacancy", async () => {
+      await expect(service.run(ORG_A, HR_B, CAND, VAC)).rejects.toMatchObject({
+        status: 403,
+      });
+      await expect(service.read(ORG_A, HR_B, CAND, VAC)).rejects.toMatchObject({
+        status: 403,
+      });
+      expect(ai.mapEvidence).not.toHaveBeenCalled();
+    });
+
+    it('a candidate outside the selected vacancy is refused with a stable code', async () => {
+      prisma.application.findFirst.mockResolvedValue(null);
+
+      try {
+        await service.run(ORG_A, HR_A, CAND, VAC);
+        fail('expected the mapping to be refused');
+      } catch (error) {
+        expect(
+          (error as { getResponse(): unknown }).getResponse(),
+        ).toMatchObject({
+          code: 'CANDIDATE_NOT_IN_VACANCY',
+        });
+      }
+      expect(ai.mapEvidence).not.toHaveBeenCalled();
+    });
+
+    it('requires a real APPLICATION, not merely any association row', async () => {
+      prisma.application.findFirst.mockResolvedValue({ id: 'assoc-1' });
+
+      await service.run(ORG_A, HR_A, CAND, VAC);
+
+      expect(ai.mapEvidence).toHaveBeenCalled();
+      const where = prisma.application.findFirst.mock.calls[0][0].where;
+      expect(where).toMatchObject({
+        vacancyId: VAC,
+        candidateId: CAND,
+        source: 'DIRECT',
+        candidate: { candidateAccountId: { not: null } },
+      });
     });
   });
 });

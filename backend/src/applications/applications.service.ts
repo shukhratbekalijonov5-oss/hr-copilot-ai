@@ -3,28 +3,29 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
 import { ChatService } from '../chat/chat.service';
 import { DomainEventsService } from '../common/events/domain-events.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
+import { APPLICANT_APPLICATION_SCOPE } from '../common/vacancy-access/applicant-scope';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import { ApplicationStatus, VacancyStatus } from '../generated/prisma/enums';
 import type { Prisma } from '../generated/prisma/client';
-import type { CreateApplicationDto } from './dto/create-application.dto';
 import type { QueryApplicationsDto } from './dto/query-applications.dto';
-
-/** Why the invitation could not unlock a chat. */
-export type ChatUnavailableReason = 'NO_CANDIDATE_ACCOUNT';
 
 export interface InviteToInterviewResult {
   application: unknown;
-  /** null when no chat could be unlocked — see chatUnavailableReason. */
-  conversation: { id: string; vacancyId: string; createdAt: Date } | null;
-  chatAvailable: boolean;
-  chatUnavailableReason?: ChatUnavailableReason;
+  conversation: { id: string; vacancyId: string; createdAt: Date };
 }
 
 /**
  * Applications carry no organizationId column of their own — they inherit
  * tenancy from both the vacancy and the candidate. Every query therefore
- * filters through those relations, and creation verifies that BOTH parents
- * belong to the caller's organization before linking them.
+ * filters through those relations.
+ *
+ * There is no create method: an application row is written by
+ * PublicJobsService.apply when a candidate applies, and by nothing else. This
+ * service is the recruiter's read/transition surface over what arrived, and
+ * every query additionally requires a genuine applicant association
+ * (APPLICANT_APPLICATION_SCOPE) — historical recruiter-made associations are
+ * outside the active workflow and answer 404 like any other unknown id.
  */
 @Injectable()
 export class ApplicationsService {
@@ -33,59 +34,16 @@ export class ApplicationsService {
     private readonly tenant: TenantService,
     private readonly chat: ChatService,
     private readonly events: DomainEventsService,
+    private readonly ownedVacancies: OwnedVacancyService,
   ) {}
-
-  async create(organizationId: string, dto: CreateApplicationDto) {
-    const [vacancy, candidate] = await Promise.all([
-      this.prisma.vacancy.findFirst({
-        where: { id: dto.vacancyId, ...this.tenant.scope(organizationId) },
-        select: { id: true },
-      }),
-      this.prisma.candidate.findFirst({
-        where: { id: dto.candidateId, ...this.tenant.scope(organizationId) },
-        select: { id: true },
-      }),
-    ]);
-
-    this.tenant.assertFound(vacancy, 'Vacancy');
-    this.tenant.assertFound(candidate, 'Candidate');
-
-    const existing = await this.prisma.application.findUnique({
-      where: {
-        vacancyId_candidateId: {
-          vacancyId: dto.vacancyId,
-          candidateId: dto.candidateId,
-        },
-      },
-      select: { id: true },
-    });
-    if (existing) {
-      throw new ConflictException(
-        'Candidate is already attached to this vacancy',
-      );
-    }
-
-    return this.prisma.application.create({
-      data: {
-        vacancyId: dto.vacancyId,
-        candidateId: dto.candidateId,
-        status: dto.status ?? ApplicationStatus.NEW,
-      },
-      include: {
-        vacancy: { select: { id: true, title: true, status: true } },
-        candidate: { select: { id: true, fullName: true, email: true } },
-      },
-    });
-  }
 
   async findAll(
     organizationId: string,
     query: QueryApplicationsDto,
   ): Promise<PaginatedResult<unknown>> {
     const where: Prisma.ApplicationWhereInput = {
-      // Tenancy through the relations, applied unconditionally.
-      vacancy: this.tenant.scope(organizationId),
-      candidate: this.tenant.scope(organizationId),
+      // Tenancy through the relations + applicant-only, unconditionally.
+      ...this.applicantScope(organizationId),
       ...(query.vacancyId ? { vacancyId: query.vacancyId } : {}),
       ...(query.candidateId ? { candidateId: query.candidateId } : {}),
       ...(query.status ? { status: query.status } : {}),
@@ -119,8 +77,7 @@ export class ApplicationsService {
     const application = await this.prisma.application.findFirst({
       where: {
         id,
-        vacancy: this.tenant.scope(organizationId),
-        candidate: this.tenant.scope(organizationId),
+        ...this.applicantScope(organizationId),
       },
       include: {
         vacancy: { include: { requirements: true } },
@@ -161,11 +118,12 @@ export class ApplicationsService {
    */
   async updateStatus(
     organizationId: string,
+    userId: string,
     id: string,
     status: ApplicationStatus,
   ) {
     if (status === ApplicationStatus.INTERVIEW) {
-      const result = await this.inviteToInterview(organizationId, id);
+      const result = await this.inviteToInterview(organizationId, userId, id);
       return result.application;
     }
 
@@ -173,16 +131,23 @@ export class ApplicationsService {
       await this.prisma.application.findFirst({
         where: {
           id,
-          vacancy: this.tenant.scope(organizationId),
-          candidate: this.tenant.scope(organizationId),
+          ...this.applicantScope(organizationId),
         },
         select: {
           id: true,
           vacancyId: true,
+          status: true,
           candidate: { select: { id: true, candidateAccountId: true } },
         },
       }),
       'Application',
+    );
+    // Pipeline stages belong to the vacancy's creator, like every other
+    // vacancy-context mutation.
+    await this.ownedVacancies.requireOwned(
+      userId,
+      organizationId,
+      application.vacancyId,
     );
 
     const rejecting = status === ApplicationStatus.REJECTED;
@@ -226,8 +191,12 @@ export class ApplicationsService {
         vacancyId: application.vacancyId,
         applicationId: id,
         candidateId: application.candidate.id,
-        candidateAccountId: application.candidate.candidateAccountId,
+        // Guaranteed by the applicant scope this application was read under.
+        candidateAccountId: application.candidate.candidateAccountId!,
         deletedConversationId: deletedConversationIds[0] ?? null,
+        // Consumers gate on the genuine transition: a REJECTED → REJECTED
+        // re-save purges nothing new and must not re-notify the candidate.
+        previousStatus: application.status,
       });
     }
     return updated;
@@ -249,24 +218,24 @@ export class ApplicationsService {
    * candidateAccountId) unique key — so a double-click, a retry or two racing
    * requests all converge on exactly one conversation.
    *
-   * Manual/external candidates (no platform CandidateAccount) are inviteable
-   * — the pipeline still transitions — but no conversation is fabricated and
-   * no account is invented: the response reports chatAvailable=false with
-   * NO_CANDIDATE_ACCOUNT so the frontend can say exactly why.
+   * Every applicant reachable here owns the CandidateAccount they applied
+   * with, so the conversation is always created — there is no accountless
+   * candidate left in the recruiter workflow to special-case.
    */
   async inviteToInterview(
     organizationId: string,
+    userId: string,
     id: string,
   ): Promise<InviteToInterviewResult> {
     const application = this.tenant.assertFound(
       await this.prisma.application.findFirst({
         where: {
           id,
-          vacancy: this.tenant.scope(organizationId),
-          candidate: this.tenant.scope(organizationId),
+          ...this.applicantScope(organizationId),
         },
         select: {
           id: true,
+          status: true,
           vacancy: { select: { id: true, status: true } },
           candidate: { select: { id: true, candidateAccountId: true } },
         },
@@ -274,6 +243,9 @@ export class ApplicationsService {
       'Application',
     );
     const { vacancy, candidate } = application;
+    // Only the vacancy's creator may invite to interview (and thereby unlock
+    // a conversation) on it.
+    await this.ownedVacancies.requireOwned(userId, organizationId, vacancy.id);
 
     if (
       vacancy.status === VacancyStatus.CLOSED ||
@@ -295,14 +267,13 @@ export class ApplicationsService {
           },
         });
 
-        const created = candidate.candidateAccountId
-          ? await this.chat.createForInvitationTx(tx, {
-              organizationId,
-              vacancyId: vacancy.id,
-              candidateId: candidate.id,
-              candidateAccountId: candidate.candidateAccountId,
-            })
-          : null;
+        // Guaranteed by the applicant scope this application was read under.
+        const created = await this.chat.createForInvitationTx(tx, {
+          organizationId,
+          vacancyId: vacancy.id,
+          candidateId: candidate.id,
+          candidateAccountId: candidate.candidateAccountId!,
+        });
 
         return { updated: updatedApplication, conversation: created };
       },
@@ -313,18 +284,15 @@ export class ApplicationsService {
       vacancyId: vacancy.id,
       applicationId: id,
       candidateId: candidate.id,
-      candidateAccountId: candidate.candidateAccountId,
-      conversationId: conversation?.id ?? null,
+      candidateAccountId: candidate.candidateAccountId!,
+      conversationId: conversation.id,
+      actorUserId: userId,
+      // A re-invite is idempotent (INTERVIEW → INTERVIEW); consumers use this
+      // to notify only on the genuine transition.
+      previousStatus: application.status,
     });
 
-    return {
-      application: updated,
-      conversation,
-      chatAvailable: conversation !== null,
-      ...(conversation
-        ? {}
-        : { chatUnavailableReason: 'NO_CANDIDATE_ACCOUNT' as const }),
-    };
+    return { application: updated, conversation };
   }
 
   /**
@@ -341,17 +309,21 @@ export class ApplicationsService {
    * An application that never reached interview simply has nothing to purge —
    * that is the normal case, not an error.
    */
-  async remove(organizationId: string, id: string) {
+  async remove(organizationId: string, userId: string, id: string) {
     const application = this.tenant.assertFound(
       await this.prisma.application.findFirst({
         where: {
           id,
-          vacancy: this.tenant.scope(organizationId),
-          candidate: this.tenant.scope(organizationId),
+          ...this.applicantScope(organizationId),
         },
         select: { id: true, vacancyId: true, candidateId: true },
       }),
       'Application',
+    );
+    await this.ownedVacancies.requireOwned(
+      userId,
+      organizationId,
+      application.vacancyId,
     );
 
     // One transaction: a failed purge rolls the deletion back, so neither
@@ -377,5 +349,22 @@ export class ApplicationsService {
       });
     }
     return { id, deleted: true };
+  }
+
+  /**
+   * The two filters every single-application lookup runs under: tenancy
+   * through BOTH parents, and a genuine applicant association. Composed here
+   * so no route can accidentally reach a historical recruiter-made row — such
+   * an id simply is not found, exactly like a foreign one.
+   */
+  private applicantScope(organizationId: string): Prisma.ApplicationWhereInput {
+    return {
+      vacancy: this.tenant.scope(organizationId),
+      candidate: {
+        ...this.tenant.scope(organizationId),
+        ...APPLICANT_APPLICATION_SCOPE.candidate,
+      },
+      source: APPLICANT_APPLICATION_SCOPE.source,
+    };
   }
 }

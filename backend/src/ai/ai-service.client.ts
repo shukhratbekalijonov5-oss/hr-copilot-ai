@@ -102,6 +102,18 @@ export function isSupportedLocale(value: string): value is SupportedLocale {
   return (SUPPORTED_LOCALES as readonly string[]).includes(value);
 }
 
+/**
+ * The selected vacancy's grounding context for generation. Candidate-visible
+ * fields only (title + requirement texts) — never recruiter-private notes.
+ * Passing it makes summaries/answers vacancy-contextual ("how does this
+ * evidence relate to THIS vacancy") instead of generic.
+ */
+export interface AiVacancyContext {
+  vacancyId: string;
+  title: string;
+  requirements: { text: string; required: boolean }[];
+}
+
 /** A verified pointer back to the passage supporting a claim. */
 export interface AiCitation {
   chunkId: string;
@@ -379,6 +391,8 @@ export class AiServiceClient {
     query: string;
     candidateId?: string | null;
     vacancyId?: string | null;
+    /** Selected-vacancy grounding for the generated answer. */
+    vacancy?: AiVacancyContext | null;
     locale: SupportedLocale;
     limit?: number;
   }): Promise<AiRagResult> {
@@ -388,16 +402,23 @@ export class AiServiceClient {
       query: input.query,
       candidateId: input.candidateId ?? null,
       vacancyId: input.vacancyId ?? null,
+      vacancy: input.vacancy ?? null,
       locale: input.locale,
       limit: input.limit ?? 8,
     });
   }
 
-  /** Summarises what a candidate's documents state. No quality judgement. */
+  /**
+   * Summarises what a candidate's documents state. No quality judgement.
+   * With `vacancy` set, the summary is grounded in that vacancy's
+   * requirements — "what does the evidence say as it relates to THIS role"
+   * — instead of a generic profile summary.
+   */
   async summariseCandidate(input: {
     organizationId: string;
     candidateId: string;
     locale: SupportedLocale;
+    vacancy?: AiVacancyContext | null;
     limit?: number;
   }): Promise<AiCandidateSummaryResult> {
     this.assertEnabled('summarise a candidate');
@@ -407,6 +428,7 @@ export class AiServiceClient {
         organizationId: input.organizationId,
         candidateId: input.candidateId,
         locale: input.locale,
+        vacancy: input.vacancy ?? null,
         limit: input.limit ?? 12,
       },
     );

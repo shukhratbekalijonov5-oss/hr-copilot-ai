@@ -54,9 +54,13 @@ enum Locale {
   uz
 }
 
-/// Where an application came from. Only DIRECT (candidate applied through
-/// HR Copilot) and MANUAL_UPLOAD (recruiter created it) are produced today;
-/// the rest are reserved for future integrations and carry no behaviour yet.
+/// Where an application came from. Only DIRECT (the candidate applied through
+/// HR Copilot themselves) is produced today — it is the single supported entry
+/// path. MANUAL_UPLOAD is RETAINED FOR HISTORICAL ROWS ONLY: recruiter-created
+/// candidates and associations were removed from the product, and the value is
+/// kept rather than rewritten so old records stay truthful about their origin.
+/// The remaining members are reserved for future integrations and carry no
+/// behaviour yet.
 enum ApplicationSource {
   DIRECT
   EMAIL
@@ -160,6 +164,25 @@ enum ProcessingJobStatus {
   FAILED
 }
 
+/// Which side of the product a notification is rendered for. Decides the
+/// frontend card layout and which snapshot fields matter; the RECIPIENT is
+/// always `recipientUserId`, never derived from this.
+enum NotificationAudience {
+  HR
+  CANDIDATE
+}
+
+/// One enum across both audiences — NEW_MESSAGE renders differently for HR
+/// and CANDIDATE, it is not two types. Types are stable API values the
+/// frontend localizes on; rename only with a documented migration.
+enum NotificationType {
+  NEW_APPLICATION
+  NEW_MESSAGE
+  INTERVIEW_INVITATION
+  VACANCY_DELETED
+  APPLICATION_REJECTED
+}
+
 // ---------------------------------------------------------------------------
 // Tenancy root
 // ---------------------------------------------------------------------------
@@ -204,6 +227,7 @@ model User {
   createdVacancies Vacancy[]            @relation("VacancyCreatedBy")
   authSessions     AuthSession[]
   sentMessages     ConversationMessage[] @relation("ConversationMessageSender")
+  notifications    Notification[]        @relation("NotificationRecipient")
 
   @@map("users")
 }
@@ -406,11 +430,12 @@ model Application {
   vacancyId   String
   candidateId String
   status      ApplicationStatus @default(NEW)
-  /// How this application entered the system. DIRECT = the candidate applied
-  /// through HR Copilot themselves; MANUAL_UPLOAD = a recruiter created it.
-  /// The column default also labels pre-migration rows, all of which were
-  /// recruiter-created.
-  source      ApplicationSource @default(MANUAL_UPLOAD)
+  /// How this application entered the system. DIRECT — the candidate applied
+  /// through HR Copilot themselves — is the ONLY value new rows can carry:
+  /// recruiter-created applications were removed from the product. Historical
+  /// rows may still read MANUAL_UPLOAD; those associations are deliberately
+  /// invisible to the active recruiter workflow (see applicantAssociation()).
+  source      ApplicationSource @default(DIRECT)
   /// Snapshot of the resume actually submitted with this application (an
   /// org-scoped copy). Replacing the profile resume later must never change
   /// what an old application shows.
@@ -610,6 +635,60 @@ model ConversationMessage {
 
   @@index([conversationId, createdAt])
   @@map("conversation_messages")
+}
+
+/// One persisted notification — PostgreSQL is the source of truth; the
+/// websocket is only a delivery optimization, so an offline recipient sees
+/// everything on next login.
+///
+/// Design rules:
+///  - `recipientUserId` is ALWAYS derived server-side from trusted
+///    relationships (vacancy.createdById, candidateAccount.userId) — no API
+///    accepts a recipient id.
+///  - Every related-entity reference (vacancyId, candidateId, applicationId,
+///    conversationId, messageId, actorUserId) is a PLAIN column,
+///    deliberately without a foreign key: notifications must SURVIVE the
+///    deletion of what they describe (a VACANCY_DELETED notification outlives
+///    the vacancy by definition). The `*Snapshot` fields carry the display
+///    names/titles captured at creation time for exactly that reason.
+///  - Content is STRUCTURED (type + ids + snapshots + preview), never a
+///    pre-rendered sentence: the frontend renders it in the viewer's locale
+///    (en/ko/ru/uz).
+///  - `organizationId` is set only for HR-audience rows (scoped to the active
+///    workspace on read); CANDIDATE rows are personal data and carry null,
+///    like everything else CandidateAccount-owned.
+model Notification {
+  id              String               @id @default(uuid())
+  audience        NotificationAudience
+  type            NotificationType
+  recipientUserId String
+  organizationId  String?
+
+  vacancyId      String?
+  candidateId    String?
+  applicationId  String?
+  conversationId String?
+  messageId      String?
+  actorUserId    String?
+
+  vacancyTitleSnapshot  String?
+  candidateNameSnapshot String?
+  actorNameSnapshot     String?
+  /// First ~120 chars of a chat message, plain text. Never HTML.
+  messagePreview        String?
+
+  metadata Json?
+
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  recipient User @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+
+  @@index([recipientUserId, isRead, createdAt])
+  @@index([recipientUserId, createdAt])
+  @@index([vacancyId])
+  @@map("notifications")
 }
 
 model ProcessingJob {

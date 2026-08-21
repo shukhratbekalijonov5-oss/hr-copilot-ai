@@ -42,9 +42,9 @@ export default async function DashboardPage() {
       icon: PlusIcon,
     },
     {
-      href: "/candidates/new",
-      label: d.dashboard.quickAddCandidate,
-      description: d.dashboard.quickAddCandidateHint,
+      href: "/candidates",
+      label: d.dashboard.quickReviewApplicants,
+      description: d.dashboard.quickReviewApplicantsHint,
       icon: UsersIcon,
     },
   ];
@@ -218,14 +218,6 @@ export default async function DashboardPage() {
               icon={<UsersIcon className="size-5" />}
               title={d.dashboard.noCandidates}
               description={d.dashboard.noCandidatesHint}
-              action={
-                <Link
-                  href="/candidates/new"
-                  className={buttonStyles("primary", "sm")}
-                >
-                  {d.candidates.add}
-                </Link>
-              }
             />
           ) : (
             <ul className="divide-y divide-[var(--line)]">

@@ -10,9 +10,9 @@ import { MAX_PERSONAL_DOCUMENTS } from '../src/documents/document-policy';
  * Document ownership & upload policy (e2e, real database + Redis).
  *
  * Proves over real HTTP:
- *  - HR may upload ONLY for a manually added candidate of its own org:
- *    generic (candidate-less) uploads are gone, cross-tenant ids are 404,
- *    application-derived candidates are 403 HR_DOCUMENT_UPLOAD_NOT_ALLOWED.
+ *  - HR cannot upload a candidate document AT ALL: the recruiter upload route
+ *    was removed from the API, so a hand-crafted request reaches nothing —
+ *    whatever candidate it names, and whatever role the caller holds.
  *  - A CandidateAccount holds at most 3 personal files — including under
  *    CONCURRENT uploads (real Postgres row lock) — with a stable 409 code on
  *    the 4th, and deletion (bytes + row) frees the slot again.
@@ -39,13 +39,11 @@ describe('Document ownership & upload policy (e2e)', () => {
   const PASSWORD = 'CorrectHorseBattery1!';
 
   let ownerToken: string;
-  let rivalToken: string;
   let seekerToken: string;
   let otherSeekerToken: string;
-  let manualCandidateId: string;
-  let rivalCandidateId: string;
   let linkedCandidateId: string;
   let seekerAccountId: string;
+  let orgSideDocumentId: string;
 
   const PDF = Buffer.from(
     '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n' +
@@ -96,7 +94,9 @@ describe('Document ownership & upload policy (e2e)', () => {
       email: rivalEmail,
       password: PASSWORD,
     });
-    rivalToken = rival.body.accessToken;
+    // The rival organization exists so tenant isolation stays exercisable by
+    // the fixtures below; its token is not needed now that HR upload is gone.
+    void rival;
 
     const seeker = await request(http).post('/auth/register/candidate').send({
       fullName: 'Docs Seeker',
@@ -118,21 +118,8 @@ describe('Document ownership & upload policy (e2e)', () => {
     });
     seekerAccountId = seekerAccount.id;
 
-    // A manual candidate in each organization.
-    const manual = await request(http)
-      .post('/candidates')
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ fullName: 'Manually Added' });
-    manualCandidateId = manual.body.id;
-
-    const rivalManual = await request(http)
-      .post('/candidates')
-      .set('Authorization', `Bearer ${rivalToken}`)
-      .send({ fullName: 'Rival Candidate' });
-    rivalCandidateId = rivalManual.body.id;
-
     // An application-derived candidate in the owner org: linked to the
-    // seeker's platform account (as the apply flow would create it).
+    // seeker's platform account (the ONLY shape the apply flow produces).
     const ownerOrg = await prisma.organization.findUniqueOrThrow({
       where: { slug: orgSlug },
       select: { id: true },
@@ -147,6 +134,22 @@ describe('Document ownership & upload policy (e2e)', () => {
       select: { id: true },
     });
     linkedCandidateId = linked.id;
+
+    // An ORG-side document row, created directly: the product's only writer of
+    // these is the apply flow's snapshot copy, and this fixture exists purely
+    // to prove the candidate delete endpoint cannot touch org-owned files.
+    const orgDoc = await prisma.document.create({
+      data: {
+        organizationId: ownerOrg.id,
+        candidateId: linked.id,
+        originalFileName: 'org-side-snapshot.pdf',
+        storageKey: `org/${ownerOrg.id}/documents/e2e-${run}.pdf`,
+        mimeType: 'application/pdf',
+        fileSize: PDF.byteLength,
+      },
+      select: { id: true },
+    });
+    orgSideDocumentId = orgDoc.id;
   });
 
   afterAll(async () => {
@@ -171,56 +174,8 @@ describe('Document ownership & upload policy (e2e)', () => {
     await app.close();
   });
 
-  describe('HR upload policy', () => {
-    it('uploads to the org’s OWN manual candidate', async () => {
-      const res = await request(http)
-        .post('/documents')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .field('candidateId', manualCandidateId)
-        .attach('file', PDF, {
-          filename: 'manual-resume.pdf',
-          contentType: 'application/pdf',
-        });
-
-      expect(res.status).toBe(201);
-      const doc = await prisma.document.findUniqueOrThrow({
-        where: { id: res.body.id },
-        select: {
-          organizationId: true,
-          candidateId: true,
-          candidateAccountId: true,
-        },
-      });
-      expect(doc.candidateId).toBe(manualCandidateId);
-      expect(doc.candidateAccountId).toBeNull();
-    });
-
-    it('refuses a generic upload with no candidate (the old paths are gone)', async () => {
-      const res = await request(http)
-        .post('/documents')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .attach('file', PDF, {
-          filename: 'generic.pdf',
-          contentType: 'application/pdf',
-        });
-
-      expect(res.status).toBe(400);
-    });
-
-    it('404s another organization’s candidate (no existence leak)', async () => {
-      const res = await request(http)
-        .post('/documents')
-        .set('Authorization', `Bearer ${ownerToken}`)
-        .field('candidateId', rivalCandidateId)
-        .attach('file', PDF, {
-          filename: 'cross-tenant.pdf',
-          contentType: 'application/pdf',
-        });
-
-      expect(res.status).toBe(404);
-    });
-
-    it('403s an application-derived candidate with a stable code', async () => {
+  describe('HR document upload is removed, not merely hidden', () => {
+    it('POST /documents does not exist for any HR role', async () => {
       const res = await request(http)
         .post('/documents')
         .set('Authorization', `Bearer ${ownerToken}`)
@@ -230,26 +185,43 @@ describe('Document ownership & upload policy (e2e)', () => {
           contentType: 'application/pdf',
         });
 
-      expect(res.status).toBe(403);
-      expect(res.body.code).toBe('HR_DOCUMENT_UPLOAD_NOT_ALLOWED');
-      // Nothing landed in the seeker's personal collection.
-      const personal = await prisma.document.count({
-        where: { candidateAccountId: seekerAccountId },
-      });
-      expect(personal).toBe(0);
+      // 404: the route is gone from the API, not refused by a policy branch.
+      expect(res.status).toBe(404);
+      // Nothing was written anywhere — not to the org (only the pre-made
+      // snapshot fixture exists), not to the person.
+      expect(
+        await prisma.document.count({
+          where: { candidateId: linkedCandidateId },
+        }),
+      ).toBe(1);
+      expect(
+        await prisma.document.count({
+          where: { candidateAccountId: seekerAccountId },
+        }),
+      ).toBe(0);
     });
 
-    it('a CANDIDATE account cannot use the HR upload endpoint at all', async () => {
-      const res = await request(http)
+    it('a candidate-less upload has nowhere to land either', async () => {
+      await request(http)
+        .post('/documents')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .attach('file', PDF, {
+          filename: 'generic.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(404);
+    });
+
+    it('a CANDIDATE account cannot reach it either — it is not there', async () => {
+      await request(http)
         .post('/documents')
         .set('Authorization', `Bearer ${seekerToken}`)
-        .field('candidateId', manualCandidateId)
+        .field('candidateId', linkedCandidateId)
         .attach('file', PDF, {
           filename: 'wrong-door.pdf',
           contentType: 'application/pdf',
-        });
-
-      expect(res.status).toBe(403);
+        })
+        .expect(404);
     });
   });
 
@@ -296,14 +268,13 @@ describe('Document ownership & upload policy (e2e)', () => {
     });
 
     it('the candidate delete endpoint cannot touch an org-side copy', async () => {
-      const orgDoc = await prisma.document.findFirstOrThrow({
-        where: { candidateId: manualCandidateId },
-        select: { id: true },
-      });
       await request(http)
-        .delete(`/candidate-account/me/documents/${orgDoc.id}`)
+        .delete(`/candidate-account/me/documents/${orgSideDocumentId}`)
         .set('Authorization', `Bearer ${seekerToken}`)
         .expect(404);
+      expect(
+        await prisma.document.findUnique({ where: { id: orgSideDocumentId } }),
+      ).not.toBeNull();
     });
 
     it('deleting file B removes its bytes and row; A and C survive', async () => {

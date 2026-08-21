@@ -53,23 +53,9 @@ export async function getDocumentDownloadUrl(
   return apiFetch<DownloadUrlResponse>(`/documents/${id}/download-url`);
 }
 
-/**
- * Uploads one file. The API takes a single `file` per request, so a multi-file
- * selection in the UI becomes N requests — see the upload route handler.
+/*
+ * There is deliberately no upload function here: `POST /documents` was removed
+ * from the API. Organization documents are written only by the apply flow's
+ * snapshot of the resume a candidate submitted; the sole upload surface in the
+ * product is the candidate's own `/candidate-account/me/documents`.
  */
-export async function uploadDocument(
-  file: File,
-  options: { candidateId?: string; type?: DocumentType } = {},
-): Promise<CandidateDocument> {
-  const formData = new FormData();
-  formData.append("file", file);
-  if (options.candidateId) formData.append("candidateId", options.candidateId);
-  formData.append("type", options.type ?? "RESUME");
-
-  return toDocument(
-    await apiFetch<DocumentResponse>("/documents", {
-      method: "POST",
-      formData,
-    }),
-  );
-}

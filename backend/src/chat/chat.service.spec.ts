@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import { AccountType, ConversationParty } from '../generated/prisma/enums';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { MembershipService } from '../common/membership/membership.service';
@@ -52,6 +53,7 @@ describe('ChatService', () => {
       new TenantService(),
       memberships as unknown as MembershipService,
       events as unknown as DomainEventsService,
+      new OwnedVacancyService(prisma as unknown as PrismaService),
     );
   });
 
@@ -157,26 +159,42 @@ describe('ChatService', () => {
       prisma.conversation.findMany.mockResolvedValue([]);
       prisma.conversation.count.mockResolvedValue(0);
 
-      await service.listForOrganization(ORG_A, {
+      await service.listForOrganization(ORG_A, 'hr-1', {
         page: 1,
         limit: 20,
         skip: 0,
       });
 
-      expect(
-        prisma.conversation.findMany.mock.calls[0][0].where.organizationId,
-      ).toBe(ORG_A);
+      const where = prisma.conversation.findMany.mock.calls[0][0].where;
+      expect(where.organizationId).toBe(ORG_A);
+      // ...and, unconditionally, to vacancies the caller created.
+      expect(where.vacancy).toEqual({ createdById: 'hr-1' });
     });
 
     it("404s on another organization's conversation without confirming it exists", async () => {
       prisma.conversation.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.getForOrganization(ORG_B, 'conv-1'),
+        service.getForOrganization(ORG_B, 'hr-1', 'conv-1'),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.conversation.findFirst.mock.calls[0][0].where).toEqual({
         id: 'conv-1',
         organizationId: ORG_B,
+        vacancy: { createdById: 'hr-1' },
+      });
+    });
+
+    it("a same-org colleague's conversation is an undisclosing 404 too", async () => {
+      // The creator-constrained query simply finds nothing.
+      prisma.conversation.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getForOrganization(ORG_A, 'hr-2', 'conv-of-hr-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.conversation.findFirst.mock.calls[0][0].where).toEqual({
+        id: 'conv-of-hr-1',
+        organizationId: ORG_A,
+        vacancy: { createdById: 'hr-2' },
       });
     });
   });
@@ -313,6 +331,7 @@ describe('ChatService', () => {
       });
       prisma.conversation.findUnique.mockResolvedValue({
         organizationId: ORG_A,
+        vacancy: { createdById: 'hr-1' },
       });
       memberships.findMembership.mockResolvedValue({
         id: 'm1',
@@ -325,6 +344,26 @@ describe('ChatService', () => {
       expect(memberships.findMembership).toHaveBeenCalledWith('hr-1', ORG_A);
     });
 
+    it('denies a same-org colleague who did not create the vacancy (socket parity with REST)', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'hr-2',
+        accountType: AccountType.ORGANIZATION,
+      });
+      prisma.conversation.findUnique.mockResolvedValue({
+        organizationId: ORG_A,
+        vacancy: { createdById: 'hr-1' },
+      });
+      // Even with a live membership...
+      memberships.findMembership.mockResolvedValue({
+        id: 'm2',
+        user: { accountType: AccountType.ORGANIZATION },
+      });
+
+      expect(
+        await service.resolveConversationAccess('hr-2', 'conv-1'),
+      ).toBeNull();
+    });
+
     it('denies HR of another organization (no membership row)', async () => {
       prisma.user.findUnique.mockResolvedValue({
         id: 'rival-hr',
@@ -332,6 +371,7 @@ describe('ChatService', () => {
       });
       prisma.conversation.findUnique.mockResolvedValue({
         organizationId: ORG_A,
+        vacancy: { createdById: 'rival-hr' },
       });
       memberships.findMembership.mockResolvedValue(null);
 

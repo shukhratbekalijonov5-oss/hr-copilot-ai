@@ -31,6 +31,8 @@ import { QueueModule } from './queue/queue.module';
 import { ChatModule } from './chat/chat.module';
 import { IdentityModule } from './common/identity/identity.module';
 import { EventsModule } from './common/events/events.module';
+import { VacancyAccessModule } from './common/vacancy-access/vacancy-access.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { CandidateContextGuard } from './common/guards/candidate-context.guard';
@@ -65,6 +67,8 @@ import { RolesGuard } from './common/guards/roles.guard';
     MembershipModule,
     IdentityModule,
     EventsModule,
+    VacancyAccessModule,
+    NotificationsModule,
     StorageModule,
     AiModule,
 

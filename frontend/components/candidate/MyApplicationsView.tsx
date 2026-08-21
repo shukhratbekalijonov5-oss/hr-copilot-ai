@@ -134,10 +134,6 @@ export function MyApplicationsView({
                     })}
                   </span>
                 ) : null}
-                <span className="inline-flex items-center gap-1">
-                  {d.applications.source}:{" "}
-                  {d.status.applicationSource[application.source]}
-                </span>
 
                 {WITHDRAWABLE.includes(application.status) ? (
                   <Button

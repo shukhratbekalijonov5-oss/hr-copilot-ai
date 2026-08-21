@@ -1,23 +1,41 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import {
   AiServiceClient,
   AiServiceDisabledError,
   isSupportedLocale,
+  type AiVacancyContext,
   type SupportedLocale,
 } from '../ai/ai-service.client';
 
 /**
- * Grounded AI answers, candidate summaries and interview questions.
+ * Grounded AI answers, candidate summaries and interview questions — all
+ * under the vacancy-scoped workspace rule.
  *
  * Everything here is tenant-scoped from the authenticated user, and every
  * candidate or vacancy id supplied by the client is verified against that
- * organization *before* it reaches the AI service.
+ * organization *before* it reaches the AI service. On top of that:
+ *
+ *  - a supplied vacancyId must be one of the CALLER'S OWN vacancies
+ *    (403 VACANCY_NOT_OWNED for a same-org colleague's);
+ *  - the candidate-detail surfaces (Ask-with-candidate, Summary, Interview
+ *    Questions) REQUIRE the selected vacancy, and the candidate must be
+ *    associated with it (403 CANDIDATE_NOT_IN_VACANCY);
+ *  - the selected vacancy's title/requirements are sent as generation
+ *    grounding, so switching vacancy A → B changes the actual context —
+ *    nothing is cached server-side under the wrong vacancy (no generation
+ *    cache exists; every call re-resolves and regenerates).
+ *
+ * The one deliberately vacancy-less mode is the AI Search page's org-wide
+ * grounded answer (no candidateId, no vacancyId): evidence search across the
+ * organization remains lawful without a selection.
  */
 @Injectable()
 export class AiAnswerService {
@@ -27,6 +45,7 @@ export class AiAnswerService {
     private readonly ai: AiServiceClient,
     private readonly prisma: PrismaService,
     private readonly tenant: TenantService,
+    private readonly ownedVacancies: OwnedVacancyService,
   ) {}
 
   async answer(
@@ -40,11 +59,29 @@ export class AiAnswerService {
       limit?: number;
     },
   ) {
+    // Candidate Detail "Ask" is always asked UNDER a selected vacancy.
+    if (input.candidateId && !input.vacancyId) {
+      throw new BadRequestException(
+        'vacancyId is required when asking about a candidate',
+      );
+    }
     if (input.candidateId) {
       await this.assertCandidate(organizationId, input.candidateId);
     }
+    let vacancyContext: AiVacancyContext | null = null;
     if (input.vacancyId) {
-      await this.assertVacancy(organizationId, input.vacancyId);
+      const vacancy = await this.ownedVacancies.requireOwnedWithRequirements(
+        userId,
+        organizationId,
+        input.vacancyId,
+      );
+      if (input.candidateId) {
+        await this.ownedVacancies.assertCandidateInVacancy(
+          input.vacancyId,
+          input.candidateId,
+        );
+      }
+      vacancyContext = toVacancyContext(vacancy);
     }
     const locale = await this.resolveLocale(userId, input.locale);
 
@@ -54,6 +91,7 @@ export class AiAnswerService {
         query: input.query,
         candidateId: input.candidateId ?? null,
         vacancyId: input.vacancyId ?? null,
+        vacancy: vacancyContext,
         locale,
         limit: input.limit,
       }),
@@ -87,13 +125,27 @@ export class AiAnswerService {
     return resolved;
   }
 
+  /**
+   * Vacancy-contextual candidate summary: "what does this candidate's
+   * evidence state as it relates to THIS selected vacancy". The vacancy is
+   * REQUIRED, must be the caller's own, and the candidate must be associated
+   * with it — a summary generated under vacancy A is never served under B
+   * (nothing is cached; the vacancy context is part of every generation).
+   */
   async summariseCandidate(
     organizationId: string,
     userId: string,
     candidateId: string,
+    vacancyId: string,
     locale?: SupportedLocale,
   ) {
     await this.assertCandidate(organizationId, candidateId);
+    const vacancy = await this.ownedVacancies.requireOwnedWithRequirements(
+      userId,
+      organizationId,
+      vacancyId,
+    );
+    await this.ownedVacancies.assertCandidateInVacancy(vacancyId, candidateId);
     const resolved = await this.resolveLocale(userId, locale);
 
     return this.guard('summarise candidates', () =>
@@ -101,6 +153,7 @@ export class AiAnswerService {
         organizationId,
         candidateId,
         locale: resolved,
+        vacancy: toVacancyContext(vacancy),
       }),
     );
   }
@@ -113,7 +166,12 @@ export class AiAnswerService {
     locale?: SupportedLocale,
   ) {
     await this.assertCandidate(organizationId, candidateId);
-    const vacancy = await this.assertVacancy(organizationId, vacancyId);
+    const vacancy = await this.ownedVacancies.requireOwnedWithRequirements(
+      userId,
+      organizationId,
+      vacancyId,
+    );
+    await this.ownedVacancies.assertCandidateInVacancy(vacancyId, candidateId);
     const resolvedLocale = await this.resolveLocale(userId, locale);
 
     return this.guard('generate interview questions', () =>
@@ -159,17 +217,20 @@ export class AiAnswerService {
     });
     return this.tenant.assertFound(candidate, 'Candidate');
   }
+}
 
-  private async assertVacancy(organizationId: string, vacancyId: string) {
-    const vacancy = await this.prisma.vacancy.findFirst({
-      where: { id: vacancyId, ...this.tenant.scope(organizationId) },
-      select: {
-        id: true,
-        requirements: {
-          select: { id: true, text: true, type: true, required: true },
-        },
-      },
-    });
-    return this.tenant.assertFound(vacancy, 'Vacancy');
-  }
+/** Candidate-visible grounding fields only — never recruiter-private data. */
+function toVacancyContext(vacancy: {
+  id: string;
+  title: string;
+  requirements: { text: string; required: boolean }[];
+}): AiVacancyContext {
+  return {
+    vacancyId: vacancy.id,
+    title: vacancy.title,
+    requirements: vacancy.requirements.map((r) => ({
+      text: r.text,
+      required: r.required,
+    })),
+  };
 }

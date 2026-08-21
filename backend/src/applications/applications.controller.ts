@@ -10,27 +10,26 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApplicationsService } from './applications.service';
-import { CreateApplicationDto } from './dto/create-application.dto';
 import { UpdateApplicationStatusDto } from './dto/update-application-status.dto';
 import { QueryApplicationsDto } from './dto/query-applications.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { Role } from '../generated/prisma/enums';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
+/**
+ * The recruiter's view of a hiring pipeline.
+ *
+ * There is deliberately no POST: an application is created by the candidate
+ * applying (POST /public/jobs/:slug/apply), never by a recruiter attaching
+ * somebody to their vacancy. HR reads the applications that arrived and moves
+ * them through stages.
+ */
 @OrgScoped()
 @Controller('applications')
 export class ApplicationsController {
   constructor(private readonly applicationsService: ApplicationsService) {}
-
-  @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
-  @Post()
-  create(
-    @CurrentUser('organizationId') organizationId: string,
-    @Body() dto: CreateApplicationDto,
-  ) {
-    return this.applicationsService.create(organizationId, dto);
-  }
 
   @Get()
   findAll(
@@ -51,29 +50,33 @@ export class ApplicationsController {
   /**
    * The interview invitation: moves the pipeline to INTERVIEW and unlocks
    * (or idempotently returns) the ONE conversation for this vacancy +
-   * candidate-account pair. For manual candidates without a platform account
-   * the pipeline still transitions, but the response reports
-   * chatAvailable=false / NO_CANDIDATE_ACCOUNT instead of fabricating one.
+   * candidate-account pair. Every applicant owns a platform account, so the
+   * conversation is always created.
    */
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Post(':id/invite-interview')
   inviteToInterview(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.applicationsService.inviteToInterview(organizationId, id);
+    return this.applicationsService.inviteToInterview(
+      user.organizationId!,
+      user.id,
+      id,
+    );
   }
 
   /** Manual stage change by an HR user. */
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Patch(':id/status')
   updateStatus(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateApplicationStatusDto,
   ) {
     return this.applicationsService.updateStatus(
-      organizationId,
+      user.organizationId!,
+      user.id,
       id,
       dto.status,
     );
@@ -82,9 +85,9 @@ export class ApplicationsController {
   @Roles(Role.OWNER, Role.HR_ADMIN)
   @Delete(':id')
   remove(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.applicationsService.remove(organizationId, id);
+    return this.applicationsService.remove(user.organizationId!, user.id, id);
   }
 }

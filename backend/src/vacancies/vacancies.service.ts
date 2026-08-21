@@ -1,9 +1,17 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
 import { DocumentProcessingProducer } from '../queue/document-processing.producer';
 import { ChatService } from '../chat/chat.service';
 import { DomainEventsService } from '../common/events/domain-events.service';
+import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
+import { vacancyNotOwned } from '../common/vacancy-access/vacancy-policy';
+import { APPLICANT_APPLICATION_SCOPE } from '../common/vacancy-access/applicant-scope';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import { VacancyStatus } from '../generated/prisma/enums';
 import { buildPublicSlug } from './vacancy-slug.util';
@@ -11,11 +19,19 @@ import type { Prisma } from '../generated/prisma/client';
 import type { CreateVacancyDto } from './dto/create-vacancy.dto';
 import type { UpdateVacancyDto } from './dto/update-vacancy.dto';
 import type { QueryVacanciesDto } from './dto/query-vacancies.dto';
+import type { QueryVacancyCandidatesDto } from './dto/vacancy-candidates.dto';
 import type {
   CreateJobRequirementDto,
   UpdateJobRequirementDto,
 } from './dto/job-requirement.dto';
 
+/**
+ * Vacancy CRUD under the vacancy-scoped workspace rule (see
+ * common/vacancy-access/vacancy-policy.ts): the org-wide CATALOG stays
+ * readable to every member, but every MUTATION — and every vacancy-context
+ * operation — requires the caller to be the vacancy's creator. There is no
+ * product cap on how many vacancies one HR user may create.
+ */
 @Injectable()
 export class VacanciesService {
   private readonly logger = new Logger(VacanciesService.name);
@@ -26,6 +42,7 @@ export class VacanciesService {
     private readonly producer: DocumentProcessingProducer,
     private readonly chat: ChatService,
     private readonly events: DomainEventsService,
+    private readonly ownedVacancies: OwnedVacancyService,
   ) {}
 
   /**
@@ -179,7 +196,13 @@ export class VacanciesService {
         take: query.limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          _count: { select: { applications: true, requirements: true } },
+          _count: {
+            select: {
+              // Applicants only — the same universe every other surface shows.
+              applications: { where: APPLICANT_APPLICATION_SCOPE },
+              requirements: true,
+            },
+          },
         },
       }),
       this.prisma.vacancy.count({ where }),
@@ -188,27 +211,184 @@ export class VacanciesService {
     return paginated(data, total, query.page, query.limit);
   }
 
+  /**
+   * MY VACANCIES — the selector source for the whole HR workspace. Only
+   * vacancies the caller personally created in the active organization, slim
+   * rows only (id/title/status/createdAt + counts): selectors never need the
+   * full vacancy object.
+   */
+  async findMine(
+    organizationId: string,
+    userId: string,
+    query: QueryVacanciesDto,
+  ): Promise<PaginatedResult<unknown>> {
+    const where: Prisma.VacancyWhereInput = {
+      ...this.tenant.scope(organizationId),
+      createdById: userId,
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.search
+        ? { title: { contains: query.search, mode: 'insensitive' } }
+        : {}),
+    };
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.vacancy.findMany({
+        where,
+        skip: query.skip,
+        take: query.limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          createdAt: true,
+          _count: {
+            select: {
+              // Applicants only — the same universe every other surface shows.
+              applications: { where: APPLICANT_APPLICATION_SCOPE },
+              requirements: true,
+            },
+          },
+        },
+      }),
+      this.prisma.vacancy.count({ where }),
+    ]);
+
+    return paginated(
+      data.map((v) => ({
+        id: v.id,
+        title: v.title,
+        status: v.status,
+        createdAt: v.createdAt,
+        candidateCount: v._count.applications,
+        requirementCount: v._count.requirements,
+      })),
+      total,
+      query.page,
+      query.limit,
+    );
+  }
+
+  /**
+   * The APPLICANTS of ONE selected (owned) vacancy — the source for the
+   * Candidates page, the Compare picker and Candidate Detail context.
+   *
+   * One row per application, and every row is a real application: a person
+   * with a CandidateAccount who applied to this vacancy themselves
+   * (APPLICANT_APPLICATION_SCOPE). Recruiter-created candidates and
+   * recruiter-made associations no longer exist as a feature, and the
+   * historical ones are filtered out here rather than shown with a "manual"
+   * label. Only org-side Candidate fields are exposed; CandidateAccount
+   * internals never appear.
+   */
+  async listVacancyCandidates(
+    organizationId: string,
+    userId: string,
+    vacancyId: string,
+    query: QueryVacancyCandidatesDto,
+  ): Promise<PaginatedResult<unknown>> {
+    await this.ownedVacancies.requireOwned(userId, organizationId, vacancyId);
+
+    const where: Prisma.ApplicationWhereInput = {
+      vacancyId,
+      // Applicants only, and belt-and-braces tenancy with the ownership check
+      // above — associations can only ever point at same-org candidates, but
+      // the filter keeps that invariant local and unconditional.
+      source: APPLICANT_APPLICATION_SCOPE.source,
+      candidate: {
+        ...this.tenant.scope(organizationId),
+        ...APPLICANT_APPLICATION_SCOPE.candidate,
+        ...(query.search
+          ? {
+              OR: [
+                { fullName: { contains: query.search, mode: 'insensitive' } },
+                { email: { contains: query.search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
+      ...(query.status ? { status: query.status } : {}),
+    };
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.application.findMany({
+        where,
+        skip: query.skip,
+        take: query.limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          candidate: {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phone: true,
+              location: true,
+              currentTitle: true,
+              totalExperienceYears: true,
+              _count: { select: { documents: true, evidence: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.application.count({ where }),
+    ]);
+
+    return paginated(
+      rows.map((row) => ({
+        candidate: {
+          id: row.candidate.id,
+          fullName: row.candidate.fullName,
+          email: row.candidate.email,
+          phone: row.candidate.phone,
+          location: row.candidate.location,
+          currentTitle: row.candidate.currentTitle,
+          totalExperienceYears: row.candidate.totalExperienceYears,
+          documentCount: row.candidate._count.documents,
+          evidenceCount: row.candidate._count.evidence,
+        },
+        application: {
+          id: row.id,
+          status: row.status,
+          createdAt: row.createdAt,
+        },
+      })),
+      total,
+      query.page,
+      query.limit,
+    );
+  }
+
   async findOne(organizationId: string, id: string) {
     const vacancy = await this.prisma.vacancy.findFirst({
       where: { id, ...this.tenant.scope(organizationId) },
       include: {
         requirements: { orderBy: { type: 'asc' } },
         createdBy: { select: { id: true, fullName: true, email: true } },
-        _count: { select: { applications: true } },
+        _count: {
+          select: { applications: { where: APPLICANT_APPLICATION_SCOPE } },
+        },
       },
     });
     return this.tenant.assertFound(vacancy, 'Vacancy');
   }
 
-  async update(organizationId: string, id: string, dto: UpdateVacancyDto) {
-    // The DTO can carry `status`, so a plain PATCH is also a lifecycle path —
-    // it must uphold the same close-deletes-chats invariant as /close.
-    const current = this.tenant.assertFound(
-      await this.prisma.vacancy.findFirst({
-        where: { id, ...this.tenant.scope(organizationId) },
-        select: { id: true, status: true },
-      }),
-      'Vacancy',
+  async update(
+    organizationId: string,
+    userId: string,
+    id: string,
+    dto: UpdateVacancyDto,
+  ) {
+    // Creator-only mutation; the DTO can carry `status`, so a plain PATCH is
+    // also a lifecycle path — it must uphold the same close-deletes-chats
+    // invariant as /close.
+    const current = await this.ownedVacancies.requireOwned(
+      userId,
+      organizationId,
+      id,
     );
 
     const vacancy = await this.applyStatusChange(
@@ -223,14 +403,17 @@ export class VacanciesService {
     return vacancy;
   }
 
-  /** Explicit lifecycle transition; always a human action. */
-  async setStatus(organizationId: string, id: string, status: VacancyStatus) {
-    const vacancy = this.tenant.assertFound(
-      await this.prisma.vacancy.findFirst({
-        where: { id, ...this.tenant.scope(organizationId) },
-        select: { id: true, status: true },
-      }),
-      'Vacancy',
+  /** Explicit lifecycle transition; always a human action, creator-only. */
+  async setStatus(
+    organizationId: string,
+    userId: string,
+    id: string,
+    status: VacancyStatus,
+  ) {
+    const vacancy = await this.ownedVacancies.requireOwned(
+      userId,
+      organizationId,
+      id,
     );
 
     if (vacancy.status === status) return this.findOne(organizationId, id);
@@ -249,25 +432,127 @@ export class VacanciesService {
     return updated;
   }
 
-  async remove(organizationId: string, id: string) {
-    await this.assertVacancyInOrg(organizationId, id);
-    // Conversations/messages die with the vacancy via FK cascade; collect the
-    // ids first so connected chat clients can be evicted from dead rooms.
-    const conversations = await this.prisma.conversation.findMany({
-      where: { vacancyId: id },
-      select: { id: true },
+  async remove(organizationId: string, userId: string, id: string) {
+    const result = await this.removeOwned(organizationId, userId, [id]);
+    return { id: result.deletedIds[0], deleted: true };
+  }
+
+  /**
+   * Bulk delete of an EXPLICIT selection of the caller's own vacancies.
+   *
+   * All-or-nothing by design: the batch is validated up front (every id must
+   * exist in the active organization — else 404, tenant nondisclosure — and
+   * every one must have been created by the caller — else 403
+   * VACANCY_NOT_OWNED) and nothing is deleted unless everything passes. A
+   * mixed own/foreign selection therefore deletes NOTHING.
+   *
+   * There is deliberately no "delete everything I own" mode — the client
+   * sends the ids it showed the user and got confirmed.
+   */
+  async bulkRemove(organizationId: string, userId: string, ids: string[]) {
+    const unique = [...new Set(ids)];
+    const result = await this.removeOwned(organizationId, userId, unique);
+    return {
+      deletedIds: result.deletedIds,
+      deletedCount: result.deletedIds.length,
+    };
+  }
+
+  /**
+   * Shared deletion core (single + bulk). DELETE differs from CLOSE: close is
+   * a reversible-in-spirit lifecycle stage that keeps the record; delete
+   * removes the vacancy row and everything hanging off it. Both share one
+   * invariant: no conversation survives. The purge runs through the SAME
+   * ChatService helper the close path uses, inside the SAME transaction as
+   * the row deletions, so "vacancy gone but chat alive" is unrepresentable —
+   * the FK cascade would also remove the rows, but the established purge
+   * service stays the single owner of that lifecycle.
+   */
+  private async removeOwned(
+    organizationId: string,
+    userId: string,
+    ids: string[],
+  ): Promise<{ deletedIds: string[] }> {
+    const found = await this.prisma.vacancy.findMany({
+      where: { id: { in: ids }, ...this.tenant.scope(organizationId) },
+      select: {
+        id: true,
+        createdById: true,
+        // Captured BEFORE deletion: the title and the applicant set must
+        // outlive the rows so candidates can still be told WHAT was deleted.
+        title: true,
+        applications: {
+          where: APPLICANT_APPLICATION_SCOPE,
+          select: {
+            candidate: {
+              select: {
+                id: true,
+                candidateAccount: { select: { userId: true } },
+              },
+            },
+          },
+        },
+      },
     });
-    await this.prisma.vacancy.delete({ where: { id } });
-    if (conversations.length > 0) {
+    if (found.length !== ids.length) {
+      // At least one id is unknown or belongs to another organization.
+      throw new NotFoundException('Vacancy not found');
+    }
+    if (found.some((v) => v.createdById !== userId)) {
+      throw vacancyNotOwned();
+    }
+
+    const deletedConversationsByVacancy = new Map<string, string[]>();
+    await this.prisma.$transaction(async (tx) => {
+      for (const vacancyId of ids) {
+        const conversationIds = await this.chat.purgeVacancyConversationsTx(
+          tx,
+          vacancyId,
+        );
+        if (conversationIds.length > 0) {
+          deletedConversationsByVacancy.set(vacancyId, conversationIds);
+        }
+      }
+      await tx.vacancy.deleteMany({ where: { id: { in: ids } } });
+    });
+
+    // After commit: evict connected chat clients and reconcile the job index.
+    for (const [vacancyId, conversationIds] of deletedConversationsByVacancy) {
       this.events.publish('chat.conversations.deleted', {
-        vacancyId: id,
+        vacancyId,
         reason: 'VACANCY_CLOSED',
         vacancyStatus: null,
-        conversationIds: conversations.map((c) => c.id),
+        conversationIds,
       });
     }
-    await this.queueIndexSync(id);
-    return { id, deleted: true };
+    // One event per deleted vacancy, only now that the transaction committed
+    // (a rolled-back delete publishes nothing). Recipients are this vacancy's
+    // applicants, each of whom owns the account they applied with.
+    for (const vacancy of found) {
+      this.events.publish('vacancy.deleted', {
+        organizationId,
+        vacancyId: vacancy.id,
+        vacancyTitle: vacancy.title,
+        actorUserId: userId,
+        recipients: vacancy.applications.flatMap((a) =>
+          a.candidate.candidateAccount
+            ? [
+                {
+                  userId: a.candidate.candidateAccount.userId,
+                  candidateId: a.candidate.id,
+                },
+              ]
+            : [],
+        ),
+      });
+    }
+    for (const vacancyId of ids) {
+      await this.queueIndexSync(vacancyId);
+    }
+    this.logger.log(
+      `Deleted ${ids.length} vacanc${ids.length === 1 ? 'y' : 'ies'} for user ${userId}`,
+    );
+    return { deletedIds: ids };
   }
 
   // -- Job requirements ----------------------------------------------------
@@ -276,10 +561,12 @@ export class VacanciesService {
 
   async addRequirement(
     organizationId: string,
+    userId: string,
     vacancyId: string,
     dto: CreateJobRequirementDto,
   ) {
-    await this.assertVacancyInOrg(organizationId, vacancyId);
+    // Requirements are part of editing the vacancy — creator-only.
+    await this.ownedVacancies.requireOwned(userId, organizationId, vacancyId);
     const requirement = await this.prisma.jobRequirement.create({
       data: { ...dto, vacancyId },
     });
@@ -294,10 +581,12 @@ export class VacanciesService {
 
   async updateRequirement(
     organizationId: string,
+    userId: string,
     vacancyId: string,
     requirementId: string,
     dto: UpdateJobRequirementDto,
   ) {
+    await this.ownedVacancies.requireOwned(userId, organizationId, vacancyId);
     await this.assertRequirementInOrg(organizationId, vacancyId, requirementId);
     const requirement = await this.prisma.jobRequirement.update({
       where: { id: requirementId },
@@ -309,9 +598,11 @@ export class VacanciesService {
 
   async removeRequirement(
     organizationId: string,
+    userId: string,
     vacancyId: string,
     requirementId: string,
   ) {
+    await this.ownedVacancies.requireOwned(userId, organizationId, vacancyId);
     await this.assertRequirementInOrg(organizationId, vacancyId, requirementId);
     await this.prisma.jobRequirement.delete({ where: { id: requirementId } });
     await this.queueIndexSync(vacancyId);

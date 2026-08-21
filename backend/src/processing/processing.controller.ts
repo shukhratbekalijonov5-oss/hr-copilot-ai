@@ -1,15 +1,21 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsEnum, IsOptional, IsUUID } from 'class-validator';
 import { ProcessingService } from './processing.service';
 import { PaginationQueryDto } from '../common/dto/pagination.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { OrgScoped } from '../common/decorators/org-scoped.decorator';
 import { ProcessingJobStatus } from '../generated/prisma/enums';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 class QueryProcessingJobsDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(ProcessingJobStatus)
   status?: ProcessingJobStatus;
+
+  /** Filter to candidates of ONE of the caller's own vacancies. */
+  @IsOptional()
+  @IsUUID()
+  vacancyId?: string;
 }
 
 @OrgScoped()
@@ -19,14 +25,16 @@ export class ProcessingController {
 
   @Get()
   findAll(
-    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: QueryProcessingJobsDto,
   ) {
     return this.processingService.findAll(
-      organizationId,
+      user.organizationId!,
+      user.id,
       query.page,
       query.limit,
       query.status,
+      query.vacancyId,
     );
   }
 

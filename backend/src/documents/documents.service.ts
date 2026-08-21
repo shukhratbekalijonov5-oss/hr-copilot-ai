@@ -1,12 +1,9 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
 import { StorageService } from '../storage/storage.service';
@@ -14,19 +11,21 @@ import { ProcessingService } from '../processing/processing.service';
 import { DocumentProcessingProducer } from '../queue/document-processing.producer';
 import { AiServiceClient } from '../ai/ai-service.client';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
-import { DocumentStatus, DocumentType } from '../generated/prisma/enums';
-import { validateUploadedFile, type ValidatableFile } from './file-validation';
-import {
-  DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES,
-  hrUploadNotAllowed,
-} from './document-policy';
-import type { UploadDocumentDto } from './dto/upload-document.dto';
+import { DocumentStatus } from '../generated/prisma/enums';
 import type { QueryDocumentsDto } from './dto/query-documents.dto';
 
+/**
+ * Organization documents — read, serve, requeue and delete.
+ *
+ * NOTHING here creates a document. Organization documents are written in
+ * exactly one place: PublicJobsService.apply, which snapshots the resume the
+ * candidate submitted into the vacancy's organization. Recruiter upload was
+ * removed from the product, so a recruiter can only ever read files a person
+ * chose to send them.
+ */
 @Injectable()
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
-  private readonly maxFileSizeBytes: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -35,137 +34,7 @@ export class DocumentsService {
     private readonly processing: ProcessingService,
     private readonly producer: DocumentProcessingProducer,
     private readonly ai: AiServiceClient,
-    configService: ConfigService,
-  ) {
-    this.maxFileSizeBytes = configService.get<number>(
-      'storage.maxFileSizeBytes',
-      DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES,
-    );
-  }
-
-  /**
-   * Upload flow, in order:
-   *   1. validate MIME/extension/magic number
-   *   2. validate size
-   *   3. create the Document row
-   *   4. upload the bytes to storage
-   *   5. enqueue the BullMQ job
-   *   6. return immediately
-   *
-   * No parsing or embedding happens on this request thread.
-   */
-  async upload(
-    organizationId: string,
-    file: ValidatableFile | undefined,
-    dto: UploadDocumentDto,
-  ) {
-    // 1 + 2
-    const validated = validateUploadedFile(file, this.maxFileSizeBytes);
-
-    // Defence in depth behind the (required) DTO field: there is no generic
-    // organization upload, from ANY caller.
-    if (!dto.candidateId) {
-      throw new BadRequestException(
-        'A candidateId is required: documents are always uploaded for a specific candidate',
-      );
-    }
-
-    // HR upload policy (see document-policy.ts): the target must be a
-    // manually added candidate of the CALLER's organization. Cross-tenant (or
-    // unknown) ids stay 404 per the tenant-disclosure convention; a candidate
-    // who applied through the platform themselves (candidateAccountId set) is
-    // visible to the caller, so refusing them is an honest 403 — HR must not
-    // graft files onto an identity whose evidence comes from the person's own
-    // application snapshots.
-    const candidate = await this.prisma.candidate.findFirst({
-      where: { id: dto.candidateId, ...this.tenant.scope(organizationId) },
-      select: { id: true, candidateAccountId: true },
-    });
-    this.tenant.assertFound(candidate, 'Candidate');
-    if (candidate!.candidateAccountId !== null) {
-      throw hrUploadNotAllowed(
-        'Documents can only be uploaded for manually added candidates. ' +
-          'This candidate applied through the platform and manages their own documents.',
-      );
-    }
-
-    const documentId = randomUUID();
-    const storageKey = StorageService.buildKey(
-      organizationId,
-      documentId,
-      validated.originalname,
-    );
-
-    // 3
-    const document = await this.prisma.document.create({
-      data: {
-        id: documentId,
-        organizationId,
-        candidateId: dto.candidateId ?? null,
-        type: dto.type ?? DocumentType.RESUME,
-        originalFileName: validated.originalname.slice(0, 255),
-        storageKey,
-        mimeType: validated.mimetype,
-        fileSize: validated.size,
-      },
-    });
-
-    // 4 — if this fails, drop the row so no Document points at missing bytes.
-    try {
-      await this.storage.upload({
-        key: storageKey,
-        body: validated.buffer,
-        contentType: validated.mimetype,
-        originalFileName: validated.originalname,
-      });
-    } catch (error) {
-      await this.prisma.document.delete({ where: { id: document.id } });
-      this.logger.error(
-        `Storage upload failed for document ${document.id}: ${(error as Error).message}`,
-      );
-      throw error;
-    }
-
-    // 5 — the processing job row is the durable record; the BullMQ id is
-    // attached once the queue accepts it.
-    const processingJob = await this.processing.createJob(
-      organizationId,
-      document.id,
-    );
-
-    let bullmqJobId: string | null = null;
-    try {
-      bullmqJobId = await this.producer.enqueueDocument({
-        documentId: document.id,
-        organizationId,
-        candidateId: document.candidateId,
-      });
-      await this.processing.markQueued(processingJob.id, bullmqJobId);
-    } catch (error) {
-      // Redis being unavailable must not lose the upload — the file and rows
-      // are already durable and the job can be retried.
-      await this.processing.markFailed(
-        document.id,
-        `Failed to enqueue processing job: ${(error as Error).message}`,
-      );
-      this.logger.error(
-        `Enqueue failed for document ${document.id}: ${(error as Error).message}`,
-      );
-    }
-
-    // 6
-    return {
-      id: document.id,
-      type: document.type,
-      originalFileName: document.originalFileName,
-      mimeType: document.mimeType,
-      fileSize: document.fileSize,
-      status: document.status,
-      candidateId: document.candidateId,
-      processingJobId: processingJob.id,
-      createdAt: document.createdAt,
-    };
-  }
+  ) {}
 
   async findAll(
     organizationId: string,

@@ -29,6 +29,12 @@ export class EvidenceSearchDto {
   @IsOptional() @IsUUID() candidateId?: string;
   @IsOptional() @IsUUID() documentId?: string;
 
+  /**
+   * Selected-vacancy context: must be one of the CALLER'S OWN vacancies.
+   * Restricts results to candidates associated with that vacancy.
+   */
+  @IsOptional() @IsUUID() vacancyId?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
