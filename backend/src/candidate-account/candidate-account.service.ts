@@ -15,7 +15,21 @@ import { DocumentProcessingProducer } from '../queue/document-processing.produce
 import {
   AiServiceClient,
   type AiCandidateProfile,
+  type JobMatchLabel,
+  type SupportedLocale,
 } from '../ai/ai-service.client';
+import { JobMatchRankingService } from './job-match-ranking.service';
+import { CandidateEvidenceLifecycleService } from '../candidate-evidence/candidate-evidence.service';
+import { NO_CANDIDATE_EVIDENCE } from '../candidate-evidence/evidence-policy';
+
+/**
+ * Default matches per page.
+ *
+ * A page size, NOT a result cap: `total` always reports the full ranked count
+ * and the client pages to the end. Twenty fills a first screen without making
+ * the browser render a hundred heavy cards at once.
+ */
+const DEFAULT_MATCH_PAGE = 20;
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import {
   ApplicationSource,
@@ -62,6 +76,8 @@ export class CandidateAccountService {
     private readonly producer: DocumentProcessingProducer,
     private readonly ai: AiServiceClient,
     private readonly accountTypes: AccountTypeService,
+    private readonly evidence: CandidateEvidenceLifecycleService,
+    private readonly ranking: JobMatchRankingService,
     configService: ConfigService,
   ) {
     this.maxFileSizeBytes = configService.get<number>(
@@ -98,12 +114,22 @@ export class CandidateAccountService {
   }
 
   async updateMine(userId: string, dto: UpsertCandidateAccountDto) {
-    await this.requireAccount(userId);
-    return this.prisma.candidateAccount.update({
+    const account = await this.requireAccount(userId);
+    const updated = await this.prisma.candidateAccount.update({
       where: { userId },
       data: toAccountData(dto),
       select: ACCOUNT_SELECT,
     });
+
+    // The profile feeds the capability profile that ranking is built on —
+    // headline, skills and experience all shape it — so an edit makes the
+    // stored ranking describe a candidate who has since changed.
+    //
+    // Deliberately NOT an `evidenceRevision` bump: that counter means "the
+    // files and links moved", and overloading it would make a headline edit
+    // read as a change to someone's evidence.
+    await this.ranking.invalidate(account.id);
+    return updated;
   }
 
   /**
@@ -205,7 +231,12 @@ export class CandidateAccountService {
         });
         await tx.candidateAccount.update({
           where: { id: account.id },
-          data: { resumeDocumentId: documentId },
+          data: {
+            resumeDocumentId: documentId,
+            // Adding a file changes what the AI can see, so any Job Match
+            // generated before this upload is no longer current.
+            evidenceRevision: { increment: 1 },
+          },
         });
         if (previous) {
           await tx.document.delete({ where: { id: previous.id } });
@@ -215,6 +246,17 @@ export class CandidateAccountService {
       // Do not leave an unreferenced object behind if the rows failed.
       await this.storage.delete(storageKey).catch(() => undefined);
       throw error;
+    }
+
+    if (previous) {
+      // A REPLACED resume is a deleted source: the organization copies made
+      // from it describe a file the candidate no longer stands behind, so they
+      // go the same way a plain delete would send them. Old applications keep
+      // their row, their status and their history — only the withdrawn
+      // evidence disappears.
+      await this.evidence.cascadeDerivedCopyRemoval(account.id, {
+        fileId: previous.id,
+      });
     }
 
     if (previous) {
@@ -251,6 +293,39 @@ export class CandidateAccountService {
       originalFileName: validated.originalname.slice(0, 255),
       mimeType: validated.mimetype,
       fileSize: validated.size,
+    };
+  }
+
+  /**
+   * The caller's evidence state — the numbers every evidence-gated surface
+   * needs, plus the revision they are at.
+   *
+   * `canRunJobMatch` is the SAME condition the backend enforces in
+   * `jobMatches`, resolved in one place so the button and the endpoint can
+   * never disagree about whether matching is possible.
+   */
+  async getEvidenceState(userId: string) {
+    const account = await this.prisma.candidateAccount.findUnique({
+      where: { userId },
+      select: { id: true, evidenceRevision: true },
+    });
+    if (!account) {
+      return {
+        hasAccount: false,
+        files: 0,
+        links: 0,
+        total: 0,
+        evidenceRevision: 0,
+        canRunJobMatch: false,
+      };
+    }
+
+    const counts = await this.evidence.activeSourceCounts(account.id);
+    return {
+      hasAccount: true,
+      ...counts,
+      evidenceRevision: account.evidenceRevision,
+      canRunJobMatch: counts.total > 0,
     };
   }
 
@@ -297,27 +372,28 @@ export class CandidateAccountService {
   }
 
   /**
-   * Permanently deletes ONE of the caller's own personal documents: the
-   * stored bytes, the Document row and its candidate-collection vectors.
+   * Permanently deletes ONE of the caller's own personal documents, and
+   * everything downstream of it.
    *
    * Guarantees, in order:
    *  1. Bytes first. If the storage delete fails nothing else has changed and
    *     the whole call errors — success is never reported while the private
    *     file bytes provably remain. The delete is idempotent, so retrying is
    *     always safe.
-   *  2. Rows next, atomically. If the deleted file was the primary resume the
-   *     pointer moves to the newest remaining personal document (apply keeps
-   *     working from the survivors).
-   *  3. Vectors last, via the queue job that owns candidate-index eviction
-   *     (BullMQ retries with backoff). If enqueueing fails the eviction runs
-   *     inline as a fallback so Job Match cannot keep retrieving a deleted
-   *     file. The processor additionally re-checks existence after indexing,
-   *     so a worker finishing AFTER this delete cannot resurrect vectors.
+   *  2. The FULL cascade, in one transaction: this row, every organization
+   *     copy derived from it (`sourceCandidateDocumentId`), the citations and
+   *     requirement mappings built on those copies, and the account's evidence
+   *     revision. If the deleted file was the primary resume the pointer moves
+   *     to the newest remaining personal document, so applying keeps working
+   *     from the survivors.
+   *  3. Vectors and organization bytes last, idempotently. The processor
+   *     re-checks existence after indexing, so a worker finishing AFTER this
+   *     delete cannot resurrect anything.
    *
-   * Scope: only this document. The account, profile, applications, saved
-   * jobs, other personal documents and every org-side snapshot copy are
-   * untouched — an organization's copy of an application resume is that
-   * organization's record, not the candidate's to delete.
+   * What survives: the account, the profile, the applications themselves with
+   * their status, chat and history, saved jobs, and every OTHER source. What
+   * does not: this file, anywhere in HR Copilot, including in the analysis a
+   * recruiter was reading — a candidate's evidence is theirs to withdraw.
    */
   async deletePersonalDocument(userId: string, documentId: string) {
     const account = await this.requireAccount(userId);
@@ -336,44 +412,11 @@ export class CandidateAccountService {
     // 1 — bytes. A failure here aborts the delete with nothing changed.
     await this.storage.delete(document.storageKey);
 
-    // 2 — rows. The FK from CandidateAccount.resumeDocumentId is SetNull, so
-    // the pointer never dangles even before the explicit repoint below.
-    await this.prisma.$transaction(async (tx) => {
-      await tx.document.delete({ where: { id: document.id } });
-      if (account.resumeDocumentId === document.id) {
-        const newest = await tx.document.findFirst({
-          where: { candidateAccountId: account.id },
-          orderBy: { createdAt: 'desc' },
-          select: { id: true },
-        });
-        await tx.candidateAccount.update({
-          where: { id: account.id },
-          data: { resumeDocumentId: newest?.id ?? null },
-        });
-      }
+    // 2 & 3 — rows, derived copies, derived AI artifacts, then vectors.
+    await this.evidence.cascadePersonalFileDeletion(account.id, document.id, {
+      repointResumeTo:
+        account.resumeDocumentId === document.id ? 'newest' : undefined,
     });
-
-    // 3 — vectors. The queue job is the established owner of candidate-index
-    // eviction; the inline call is only the fallback when Redis is down.
-    try {
-      await this.producer.enqueuePersonalResumeIndexDeletion({
-        documentId: document.id,
-        candidateAccountId: account.id,
-      });
-    } catch (queueError) {
-      this.logger.warn(
-        `Eviction enqueue failed for personal document ${document.id}; evicting inline: ${(queueError as Error).message}`,
-      );
-      try {
-        await this.ai.deletePersonalResume(account.id, document.id);
-      } catch (aiError) {
-        // Bytes and rows are gone; only stale vectors may remain. Surfaced
-        // loudly — Job Match verification would also catch this.
-        this.logger.error(
-          `Personal document ${document.id} deleted but its vectors could not be evicted: ${(aiError as Error).message}`,
-        );
-      }
-    }
 
     return { id: document.id, deleted: true };
   }
@@ -548,33 +591,83 @@ export class CandidateAccountService {
     const locale = dto.locale ?? user.preferredLocale;
 
     const profile = buildAiProfile(account);
-    const hasProfileSignal =
-      profile.skills.length > 0 ||
-      profile.experience.length > 0 ||
-      Boolean(profile.headline) ||
-      Boolean(profile.summary);
-    // ANY personal document counts as signal, not just the primary pointer —
-    // the candidate index covers all of the account's (up to 3) files.
-    const personalDocuments = await this.prisma.document.count({
-      where: { candidateAccountId: account.id },
-    });
-    if (personalDocuments === 0 && !hasProfileSignal) {
-      throw new UnprocessableEntityException(
-        'Add profile details or upload a resume before matching jobs',
-      );
+
+    // THE EVIDENCE GATE. Job Match is an evidence-grounded feature: it reports
+    // what a candidate's files and links actually demonstrate against a
+    // vacancy's requirements. With nothing submitted there is nothing to
+    // ground it in, and matching on a headline and a skills list would be
+    // exactly the invented analysis this product refuses to produce.
+    //
+    // Files and links count equally and independently — one portfolio link and
+    // no resume is a perfectly good basis for matching. (Applying is a
+    // separate rule with its own resume requirement; the two are deliberately
+    // not the same gate.)
+    const counts = await this.evidence.activeSourceCounts(account.id);
+    if (counts.total === 0) {
+      throw new UnprocessableEntityException({
+        statusCode: 422,
+        error: 'Unprocessable Entity',
+        message:
+          'Add a resume or a professional link before matching jobs — ' +
+          'matching is grounded in your evidence, not your profile text.',
+        code: NO_CANDIDATE_EVIDENCE,
+      });
     }
 
-    const result = await this.ai.candidateJobMatches({
-      candidateAccountId: account.id,
-      profile,
-      locale,
-      limit: dto.limit,
-    });
+    const generatedFromRevision = account.evidenceRevision;
+    const allowedSourceIds = await this.evidence.activePersonalSourceIds(
+      account.id,
+    );
 
-    // The index is a retrieval accelerator, never the authority: only
-    // vacancies that are STILL open in the database are returned, and only
-    // through their public identifiers.
-    const vacancyIds = result.matches.map((m) => m.vacancyId);
+    const page = Math.max(1, dto.page ?? 1);
+    const pageSize = Math.min(50, Math.max(1, dto.limit ?? DEFAULT_MATCH_PAGE));
+
+    // Reuse the stored ranking when it still describes the current inputs.
+    // Paging must NEVER recompute: a fresh ranking between page 1 and page 2
+    // could move a vacancy across the boundary and show it twice or not at all.
+    const fingerprint = await this.ranking.vacancyFingerprint();
+    let run = dto.refresh
+      ? null
+      : await this.ranking.currentRun(
+          account.id,
+          generatedFromRevision,
+          fingerprint,
+        );
+
+    let computed: Awaited<
+      ReturnType<JobMatchRankingService['computeRun']>
+    > | null = null;
+    if (!run) {
+      computed = await this.ranking.computeRun({
+        candidateAccountId: account.id,
+        profile,
+        locale,
+        evidenceRevision: generatedFromRevision,
+        allowedSourceIds,
+        explainLimit: pageSize,
+      });
+      run = await this.ranking.currentRun(
+        account.id,
+        generatedFromRevision,
+        computed.fingerprint,
+      );
+    }
+    if (!run) {
+      // The ranking was computed but immediately invalidated by a concurrent
+      // evidence change. Reported as an empty page rather than a stale one.
+      return this.emptyMatchPage(locale, generatedFromRevision, page, pageSize);
+    }
+
+    const entries = await this.ranking.page(
+      run.id,
+      (page - 1) * pageSize,
+      pageSize,
+    );
+
+    // Public-facing vacancy fields, plus this candidate's own relationship to
+    // each job. Only vacancies STILL open in the database are shown: a ranking
+    // can outlive a vacancy being closed, and the database is the authority.
+    const vacancyIds = entries.map((entry) => entry.vacancyId);
     const [vacancies, savedJobs, applications] = await Promise.all([
       this.prisma.vacancy.findMany({
         where: { id: { in: vacancyIds }, status: 'OPEN' },
@@ -601,18 +694,29 @@ export class CandidateAccountService {
           source: ApplicationSource.DIRECT,
           candidate: { candidateAccountId: account.id },
         },
+        // Newest first: a vacancy can hold several attempts, and the CURRENT
+        // one is the newest.
+        orderBy: { createdAt: 'desc' },
         select: { vacancyId: true, status: true },
       }),
     ]);
     const vacancyById = new Map(vacancies.map((v) => [v.id, v]));
     const saved = new Set(savedJobs.map((s) => s.vacancyId));
-    const applicationByVacancy = new Map(
-      applications.map((a) => [a.vacancyId, a.status]),
-    );
+    const applicationByVacancy = new Map<string, ApplicationStatus>();
+    for (const application of applications) {
+      if (!applicationByVacancy.has(application.vacancyId)) {
+        applicationByVacancy.set(application.vacancyId, application.status);
+      }
+    }
 
-    const matches = result.matches.flatMap((match) => {
-      const vacancy = vacancyById.get(match.vacancyId);
-      if (!vacancy) return []; // closed/deleted since indexing — dropped
+    // Prose for THIS page, written once and remembered per locale. Paging to
+    // results 41-60 costs one small generation call, not a re-ranking.
+    const { prose: explained, pending: explanationsPending } =
+      await this.ranking.explainPage(entries, locale);
+
+    const matches = entries.flatMap((entry) => {
+      const vacancy = vacancyById.get(entry.vacancyId);
+      if (!vacancy) return []; // closed since the ranking ran
       return [
         {
           vacancy: {
@@ -623,23 +727,73 @@ export class CandidateAccountService {
             employmentType: vacancy.employmentType,
             status: vacancy.status,
           },
-          match: match.match,
-          explanation: match.explanation,
-          supportedRequirements: match.supportedRequirements,
-          unsupportedRequirements: match.unsupportedRequirements,
-          unclearRequirements: match.unclearRequirements,
-          evidence: match.evidence,
-          saved: saved.has(match.vacancyId),
-          applicationState: applicationByVacancy.get(match.vacancyId) ?? null,
+          rank: entry.rank,
+          score: entry.score,
+          match: entry.tier as JobMatchLabel,
+          signals: entry.signals as Record<string, number>,
+          matchedSkills: entry.matchedSkills,
+          missingSkills: entry.missingSkills,
+          explanation: explained.get(entry.vacancyId) ?? null,
+          supportedRequirements: entry.supportedRequirements as unknown[],
+          unsupportedRequirements: entry.unsupportedRequirements as unknown[],
+          unclearRequirements: entry.unclearRequirements as unknown[],
+          evidence: entry.evidence as unknown[],
+          saved: saved.has(entry.vacancyId),
+          applicationState: applicationByVacancy.get(entry.vacancyId) ?? null,
         },
       ];
     });
 
+    // Re-read AFTER computing. A deletion that landed while this was running
+    // means the ranking describes evidence that no longer exists, so it is
+    // reported stale rather than published as the current analysis.
+    const currentRevision = await this.evidence.revision(account.id);
+    const total = run.totalRanked;
+
     return {
       matches,
-      locale: result.locale,
-      generated: result.generated,
+      locale,
+      generated: matches.some((m) => m.explanation !== null),
+      // True while prose for this page is still being written. Distinct from
+      // `generated: false`, which means generation is not available at all.
+      explanationsPending,
+      generatedAt: run.generatedAt.toISOString(),
+      evidenceRevision: generatedFromRevision,
+      stale: currentRevision !== generatedFromRevision,
+      page,
+      limit: pageSize,
+      // The FULL ranked count, so a client knows how far it can scroll. It is
+      // deliberately not the length of this page.
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      hasMore: page * pageSize < total,
+      totalEligible: run.totalEligible,
+      capability: run.capability ?? {},
+    };
+  }
+
+  /** A well-formed empty page, for the rare recompute-then-invalidated race. */
+  private emptyMatchPage(
+    locale: SupportedLocale,
+    evidenceRevision: number,
+    page: number,
+    limit: number,
+  ) {
+    return {
+      matches: [],
+      locale,
+      generated: false,
       generatedAt: new Date().toISOString(),
+      evidenceRevision,
+      stale: true,
+      explanationsPending: false,
+      page,
+      limit,
+      total: 0,
+      totalPages: 1,
+      hasMore: false,
+      totalEligible: 0,
+      capability: {},
     };
   }
 

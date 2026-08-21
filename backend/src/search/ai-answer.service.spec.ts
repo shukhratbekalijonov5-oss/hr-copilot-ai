@@ -17,6 +17,7 @@ describe('AiAnswerService', () => {
   let ai: any;
   let prisma: any;
   let service: AiAnswerService;
+  let evidence: ReturnType<typeof evidenceLifecycleMock>;
 
   beforeEach(() => {
     ai = {
@@ -78,12 +79,19 @@ describe('AiAnswerService', () => {
         // association is what every candidate-in-vacancy AI path requires).
         findFirst: jest.fn().mockResolvedValue({ id: 'assoc-1' }),
       },
+      // The org-wide Ask has no candidate to scope by, so it checks the
+      // citations it got back against the sources that still exist. By default
+      // the cited source DOES still exist — the ordinary case.
+      document: { findMany: jest.fn().mockResolvedValue([{ id: 'd1' }]) },
+      applicationLinkSource: { findMany: jest.fn().mockResolvedValue([]) },
     };
+    evidence = evidenceLifecycleMock();
     service = new AiAnswerService(
       ai,
       prisma,
       new TenantService(),
       new OwnedVacancyService(prisma),
+      evidence as never,
     );
   });
 
@@ -306,4 +314,109 @@ describe('AiAnswerService', () => {
       });
     });
   });
+
+  describe('withdrawn evidence can never be cited', () => {
+    it('sends the surviving source ids when asking about ONE candidate', async () => {
+      evidence.activeApplicationSourceIds.mockResolvedValue(['d1', 'src-9']);
+
+      await service.answer(ORG_A, USER, {
+        query: 'Kubernetes?',
+        candidateId: CAND,
+        vacancyId: VAC,
+      });
+
+      expect(ai.answerQuestion.mock.calls[0][0].allowedSourceIds).toEqual([
+        'd1',
+        'src-9',
+      ]);
+    });
+
+    it('sends NO allowlist for the organization-wide question', async () => {
+      // There is no candidate to scope by, and an allowlist of every source an
+      // organization owns would be an unbounded filter that degrades silently.
+      await service.answer(ORG_A, USER, { query: 'Who knows Kubernetes?' });
+
+      expect(ai.answerQuestion.mock.calls[0][0].allowedSourceIds).toBeNull();
+    });
+
+    it('drops an organization-wide citation whose source no longer exists', async () => {
+      // Nothing resolves: the cited source was withdrawn between indexing and
+      // this question.
+      prisma.document.findMany.mockResolvedValue([]);
+
+      const result = await service.answer(ORG_A, USER, {
+        query: 'Who knows Kubernetes?',
+      });
+
+      expect(result.citations).toEqual([]);
+      // With no surviving citation the answer cannot be reported as grounded.
+      expect(result.status).toBe('INSUFFICIENT_EVIDENCE');
+    });
+
+    it('keeps a surviving citation and flags the answer for review', async () => {
+      ai.answerQuestion.mockResolvedValue({
+        answer: 'Two candidates describe Kubernetes work.',
+        status: 'GROUNDED',
+        citations: [
+          {
+            chunkId: 'c1',
+            documentId: 'd1',
+            fileName: 'cv.pdf',
+            pageNumber: 1,
+            section: null,
+            text: 'k8s',
+          },
+          {
+            chunkId: 'c2',
+            documentId: 'gone',
+            fileName: 'old.pdf',
+            pageNumber: 1,
+            section: null,
+            text: 'k8s',
+          },
+        ],
+        locale: 'en',
+        rejectedCitations: [],
+        evidenceConsidered: 2,
+        durationMs: 1,
+        model: 'test',
+      });
+      prisma.document.findMany.mockResolvedValue([{ id: 'd1' }]);
+
+      const result = await service.answer(ORG_A, USER, {
+        query: 'Who knows Kubernetes?',
+      });
+
+      expect(
+        result.citations.map((c: { documentId: string }) => c.documentId),
+      ).toEqual(['d1']);
+      // The prose may have been shaped by the withdrawn passage, so it is not
+      // presented as fully grounded.
+      expect(result.status).toBe('NEEDS_HUMAN_REVIEW');
+    });
+
+    it('leaves a clean organization-wide answer untouched', async () => {
+      prisma.document.findMany.mockResolvedValue([{ id: 'd1' }]);
+
+      const result = await service.answer(ORG_A, USER, {
+        query: 'Who knows Kubernetes?',
+      });
+
+      expect(result.status).toBe('GROUNDED');
+      expect(result.citations).toHaveLength(1);
+    });
+  });
+});
+
+const evidenceLifecycleMock = () => ({
+  activeApplicationSourceIds: jest.fn().mockResolvedValue(['doc-1', 'src-1']),
+  activePersonalSourceIds: jest.fn().mockResolvedValue([]),
+  activeSourceCounts: jest
+    .fn()
+    .mockResolvedValue({ files: 1, links: 1, total: 2 }),
+  revision: jest.fn().mockResolvedValue(0),
+  bumpRevision: jest.fn().mockResolvedValue(undefined),
+  cascadePersonalFileDeletion: jest.fn().mockResolvedValue(undefined),
+  cascadePersonalLinkDeletion: jest.fn().mockResolvedValue(undefined),
+  cascadeDerivedCopyRemoval: jest.fn().mockResolvedValue(undefined),
 });

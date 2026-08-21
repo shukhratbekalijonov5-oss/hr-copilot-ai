@@ -67,6 +67,7 @@ describe('EvidenceMapService', () => {
   let prisma: any;
   let ai: any;
   let service: EvidenceMapService;
+  let evidence: ReturnType<typeof evidenceLifecycleMock>;
   let createMany: jest.Mock;
   let deleteMany: jest.Mock;
   let upsert: jest.Mock;
@@ -111,15 +112,22 @@ describe('EvidenceMapService', () => {
           document: {
             findMany: jest.fn().mockResolvedValue([{ id: 'doc-1' }]),
           },
+          // A citation names a SOURCE, which may be a submitted link; both
+          // tables are consulted to find out which kind an id is.
+          applicationLinkSource: {
+            findMany: jest.fn().mockResolvedValue([]),
+          },
         }),
       ),
     };
     ai = { mapEvidence: jest.fn().mockResolvedValue(aiMapping()) };
+    evidence = evidenceLifecycleMock();
     service = new EvidenceMapService(
       prisma,
       new TenantService(),
       ai,
       new OwnedVacancyService(prisma),
+      evidence as never,
     );
   });
 
@@ -190,18 +198,50 @@ describe('EvidenceMapService', () => {
       expect(createMany.mock.calls[0][0].data[0].organizationId).toBe(ORG_A);
     });
 
-    it('skips evidence whose document no longer exists in this organization', async () => {
+    it('skips evidence whose source no longer exists in this organization', async () => {
       prisma.$transaction = jest.fn((fn: any) =>
         fn({
           requirementEvidenceMap: { upsert },
           candidateEvidence: { deleteMany, createMany },
           document: { findMany: jest.fn().mockResolvedValue([]) },
+          applicationLinkSource: { findMany: jest.fn().mockResolvedValue([]) },
         }),
       );
 
       await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(createMany.mock.calls[0][0].data).toHaveLength(0);
+    });
+
+    it('stores a citation from a submitted LINK against linkSourceId', async () => {
+      // The AI service uses one key space for both source kinds, so the id in
+      // a citation may name either. Storing a link id in `documentId` would
+      // violate a real foreign key; dropping it (the earlier behaviour) meant
+      // JD Evidence reported EVIDENCE_FOUND with nothing to show for it.
+      prisma.$transaction = jest.fn((fn: any) =>
+        fn({
+          requirementEvidenceMap: { upsert },
+          candidateEvidence: { deleteMany, createMany },
+          document: { findMany: jest.fn().mockResolvedValue([]) },
+          applicationLinkSource: {
+            findMany: jest.fn().mockResolvedValue([{ id: 'doc-1' }]),
+          },
+        }),
+      );
+
+      await service.run(ORG_A, HR_A, CAND, VAC);
+
+      const stored = createMany.mock.calls[0][0].data[0];
+      expect(stored.linkSourceId).toBe('doc-1');
+      expect(stored.documentId).toBeNull();
+    });
+
+    it('stores a citation from a FILE against documentId', async () => {
+      await service.run(ORG_A, HR_A, CAND, VAC);
+
+      const stored = createMany.mock.calls[0][0].data[0];
+      expect(stored.documentId).toBe('doc-1');
+      expect(stored.linkSourceId).toBeNull();
     });
   });
 
@@ -362,4 +402,23 @@ describe('EvidenceMapService', () => {
       });
     });
   });
+});
+
+/**
+ * The lifecycle service as a collaborator. `activeApplicationSourceIds` is the
+ * surviving-source allowlist every candidate-scoped AI call must carry — these
+ * tests check it is SENT, not what it contains (that is the lifecycle
+ * service's own spec).
+ */
+const evidenceLifecycleMock = () => ({
+  activeApplicationSourceIds: jest.fn().mockResolvedValue(['doc-1', 'src-1']),
+  activePersonalSourceIds: jest.fn().mockResolvedValue([]),
+  activeSourceCounts: jest
+    .fn()
+    .mockResolvedValue({ files: 1, links: 1, total: 2 }),
+  revision: jest.fn().mockResolvedValue(0),
+  bumpRevision: jest.fn().mockResolvedValue(undefined),
+  cascadePersonalFileDeletion: jest.fn().mockResolvedValue(undefined),
+  cascadePersonalLinkDeletion: jest.fn().mockResolvedValue(undefined),
+  cascadeDerivedCopyRemoval: jest.fn().mockResolvedValue(undefined),
 });

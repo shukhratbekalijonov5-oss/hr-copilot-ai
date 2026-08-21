@@ -7,6 +7,7 @@ import {
   updateCandidateAccountAction,
 } from "@/app/(candidate)/actions";
 import { PersonalResumeCard } from "@/components/candidate/PersonalResumeCard";
+import { ProfessionalLinksCard } from "@/components/candidate/ProfessionalLinksCard";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -25,6 +26,7 @@ import type {
   CandidateAccount,
   CandidateEducation,
   CandidateExperience,
+  CandidateLinkCollection,
   PersonalDocumentCollection,
   ProfileVisibility,
 } from "@/lib/types";
@@ -40,9 +42,11 @@ import type {
 export function CandidateProfileWorkspace({
   account,
   documents,
+  links,
 }: {
   account: CandidateAccount | null;
   documents: PersonalDocumentCollection;
+  links: CandidateLinkCollection;
 }) {
   const { d, f } = useI18n();
   const router = useRouter();
@@ -94,15 +98,31 @@ export function CandidateProfileWorkspace({
     );
   }
 
-  return <ProfileForm account={account} documents={documents} labelFor={f} />;
+  return (
+    <div className="flex flex-col gap-4">
+      {/*
+        Evidence sits OUTSIDE the profile form, and must stay outside it.
+
+        Files and links are their own mutations with their own endpoints; the
+        profile form is a single "Save changes" submit. Nesting them meant the
+        link URL field was a control of the profile form, so pressing Enter —
+        the natural gesture for a URL box — submitted the PROFILE instead of
+        adding the link. The typed address stayed on screen, nothing was saved,
+        and the link "disappeared" on the next reload. Two independent
+        mutations, two independent forms.
+      */}
+      <PersonalResumeCard resume={account.resume} collection={documents} />
+      <ProfessionalLinksCard collection={links} />
+
+      <ProfileForm account={account} labelFor={f} />
+    </div>
+  );
 }
 
 function ProfileForm({
   account,
-  documents,
 }: {
   account: CandidateAccount;
-  documents: PersonalDocumentCollection;
   labelFor: (template: string, values?: Record<string, string | number>) => string;
 }) {
   const { d, f } = useI18n();
@@ -188,8 +208,6 @@ function ProfileForm({
           {error}
         </p>
       ) : null}
-
-      <PersonalResumeCard resume={account.resume} collection={documents} />
 
       <Card>
         <CardHeader

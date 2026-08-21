@@ -9,10 +9,11 @@ import type {
   CandidateAccount,
   CandidateAccountInput,
   CandidateActionReason,
+  CandidateEvidenceState,
+  CandidateLink,
+  CandidateLinkInput,
   JobMatchResult,
   MyApplication,
-  PersonalDocument,
-  PersonalResume,
 } from "@/lib/types";
 
 /**
@@ -67,38 +68,24 @@ export async function updateCandidateAccountAction(
   return result;
 }
 
-/**
- * Replaces the personal resume.
+/*
+ * FILE UPLOADS ARE NOT SERVER ACTIONS, AND MUST NOT BECOME ONE AGAIN.
  *
- * The file goes to the candidate account's private namespace and is not indexed
- * for any organization. Applications already sent keep the snapshot taken when
- * they were submitted.
+ * A Server Action's arguments are serialised into a single POST body that Next
+ * caps at 1 MB (`serverActions.bodySizeLimit`). Putting a resume in one meant
+ * every upload over that size died with "Body exceeded 1 MB limit" before any
+ * of our code ran — against a product limit of 50 MB per file.
+ *
+ * Uploads now post multipart to `app/api/candidate-account/documents/route.ts`,
+ * which streams the body through to the API without buffering or re-encoding
+ * it. Everything else on this page — the profile form, links, deletes — is
+ * still a Server Action, because none of them carry bytes.
+ *
+ * The legacy `uploadPersonalResumeAction` (the `me/resume` replace flow) was
+ * removed here rather than left behind: no screen called it, and it had the
+ * same 1 MB ceiling waiting for whoever wired it up next. `api.uploadPersonalResume`
+ * remains, so that flow can be restored through the route handler if needed.
  */
-export async function uploadPersonalResumeAction(
-  formData: FormData,
-): Promise<CandidateResult<PersonalResume>> {
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { ok: false, reason: "error" };
-  }
-
-  const result = await run(() => api.uploadPersonalResume(file));
-  if (result.ok) revalidatePath("/my-profile");
-  return result;
-}
-
-export async function uploadPersonalDocumentAction(
-  formData: FormData,
-): Promise<CandidateResult<PersonalDocument>> {
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { ok: false, reason: "error" };
-  }
-
-  const result = await run(() => api.uploadPersonalDocument(file));
-  if (result.ok) revalidatePath("/my-profile");
-  return result;
-}
 
 export async function getPersonalDocumentUrlAction(
   id: string,
@@ -121,36 +108,73 @@ export async function getPersonalResumeUrlAction(): Promise<
 }
 
 /* -------------------------------------------------------------------------- */
+/* Professional links                                                          */
+/*                                                                             */
+/* The other half of personal evidence. Same privacy story as a personal file:  */
+/* the link belongs to the account, no organization can read it, and applying   */
+/* is what creates the frozen copy a recruiter eventually sees.                 */
+/* -------------------------------------------------------------------------- */
+
+export async function addCandidateLinkAction(
+  input: CandidateLinkInput,
+): Promise<CandidateResult<CandidateLink>> {
+  const result = await run(() => api.createCandidateLink(input));
+  if (result.ok) revalidatePath("/my-profile");
+  return result;
+}
+
+export async function updateCandidateLinkAction(
+  id: string,
+  input: CandidateLinkInput,
+): Promise<CandidateResult<CandidateLink>> {
+  const result = await run(() => api.updateCandidateLink(id, input));
+  if (result.ok) revalidatePath("/my-profile");
+  return result;
+}
+
+/**
+ * Removes a link and its personal index entries.
+ *
+ * Applications already submitted keep their own copy of what was sent — this
+ * never rewrites an organization's record.
+ */
+export async function deleteCandidateLinkAction(
+  id: string,
+): Promise<CandidateResult<{ id: string }>> {
+  const result = await run(() => api.deleteCandidateLink(id));
+  if (result.ok) revalidatePath("/my-profile");
+  return result;
+}
+
+/** Retry a transient failure, or refresh a page that has changed. */
+export async function reprocessCandidateLinkAction(
+  id: string,
+): Promise<CandidateResult<CandidateLink>> {
+  const result = await run(() => api.reprocessCandidateLink(id));
+  if (result.ok) revalidatePath("/my-profile");
+  return result;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Jobs, applications and bookmarks                                            */
 /* -------------------------------------------------------------------------- */
 
-export interface JobMatchReadiness {
-  hasAccount: boolean;
-  hasResume: boolean;
-  hasProfileSignal: boolean;
-}
-
-export async function getJobMatchReadinessAction(): Promise<
-  CandidateResult<JobMatchReadiness>
+/**
+ * The caller's current evidence state.
+ *
+ * Read from the backend rather than derived from the profile object, because
+ * the backend owns the rule: matching runs when a candidate has at least one
+ * file or one professional link, and `canRunJobMatch` is that same condition
+ * — so the button and the endpoint can never disagree.
+ *
+ * `evidenceRevision` is what makes a displayed result checkable: a rendered
+ * analysis carries the revision it was computed from, and a mismatch means the
+ * screen is showing conclusions drawn from evidence that no longer exists.
+ */
+export async function getCandidateEvidenceStateAction(): Promise<
+  CandidateResult<CandidateEvidenceState>
 > {
-  const result = await run(() => api.getCandidateAccount());
-  if (!result.ok) return result;
-
-  const account = result.data;
-  return {
-    ok: true,
-    data: {
-      hasAccount: account !== null,
-      hasResume: Boolean(account?.resume),
-      hasProfileSignal: Boolean(
-        account &&
-          (account.skills.length > 0 ||
-            account.experience.length > 0 ||
-            account.headline ||
-            account.summary),
-      ),
-    },
-  };
+  return run(() => api.getCandidateEvidenceState());
 }
 
 /**
@@ -223,16 +247,32 @@ export type JobMatchActionResult =
   | { ok: false; reason: JobMatchFailure };
 
 /**
- * Runs the caller's own job matching. Explicitly user-initiated — this is a
- * slow call that ends in one Gemini generation, so it never runs as a render
- * side effect. The locale is read server-side from the same cookie the UI
- * renders from, so the explanation language cannot drift from the screen's.
+ * Runs the caller's own job matching, or fetches the next page of a ranking
+ * that already exists.
+ *
+ * Explicitly user-initiated — the first call ranks every eligible vacancy and
+ * ends in a Gemini call, so it never runs as a render side effect. Later pages
+ * are slices of that stored ranking: `page` alone must NOT recompute, or the
+ * list would reshuffle under the reader's scroll. `refresh` is the only thing
+ * that re-ranks, and it is the candidate's explicit choice.
+ *
+ * The locale is read server-side from the same cookie the UI renders from, so
+ * the explanation language cannot drift from the screen's.
  */
-export async function runJobMatchesAction(): Promise<JobMatchActionResult> {
+export async function runJobMatchesAction(
+  input: { page?: number; refresh?: boolean } = {},
+): Promise<JobMatchActionResult> {
   const locale = await getLocale();
 
   try {
-    return { ok: true, data: await api.getJobMatches({ locale }) };
+    return {
+      ok: true,
+      data: await api.getJobMatches({
+        locale,
+        page: input.page,
+        refresh: input.refresh,
+      }),
+    };
   } catch (error) {
     if (!(error instanceof ApiError)) return { ok: false, reason: "error" };
     if (error.kind === "network") return { ok: false, reason: "network" };

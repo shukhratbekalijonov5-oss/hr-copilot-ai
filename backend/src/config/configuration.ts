@@ -55,6 +55,15 @@ export interface AppConfiguration {
     internalToken: string;
     timeoutMs: number;
   };
+  webIngestion: {
+    /**
+     * Whether a JS-only page may be rendered in a headless browser as a last
+     * resort. Off by default: it needs an optional ~300 MB dependency and it
+     * executes third-party JavaScript. Everything else about candidate link
+     * ingestion works without it.
+     */
+    renderEnabled: boolean;
+  };
   throttle: {
     ttlMs: number;
     limit: number;
@@ -108,6 +117,9 @@ export default (): AppConfiguration => ({
     // Embedding a long resume is slower than a typical HTTP call; the queue
     // worker is the caller, so a generous ceiling is fine.
     timeoutMs: toInt(process.env.AI_SERVICE_TIMEOUT_MS, 120_000),
+  },
+  webIngestion: {
+    renderEnabled: process.env.WEB_RENDER_ENABLED === 'true',
   },
   throttle: {
     ttlMs: toInt(process.env.THROTTLE_TTL_MS, 60_000),

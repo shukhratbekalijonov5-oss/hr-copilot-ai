@@ -30,8 +30,13 @@ from app.mapping import generate_interview_questions, map_requirements
 from app.models.schemas import (
     CandidateSummaryRequest,
     DeleteCandidateResumeRequest,
+    IndexCandidateWebSourceRequest,
+    IndexWebSourceRequest,
+    IndexWebSourceResponse,
     JobMatchRequest,
     JobMatchResponse,
+    MatchExplanationsRequest,
+    MatchExplanationsResponse,
     ProcessCandidateResumeResponse,
     VacancyDeleteRequest,
     VacancyDeleteResponse,
@@ -54,8 +59,11 @@ from app.models.schemas import (
     SearchResponse,
 )
 from app.candidate import index_vacancy, match_jobs, process_candidate_resume
+from app.candidate.job_match import explain_matches
 from app.retrieval import (
     answer_question,
+    index_application_web_source,
+    index_candidate_web_source,
     process_document,
     rerank_hits,
     search_evidence,
@@ -133,6 +141,30 @@ async def process_document_endpoint(
     )
 
 
+@router.post("/web-sources/index", response_model=IndexWebSourceResponse)
+async def index_web_source_endpoint(
+    payload: IndexWebSourceRequest,
+    settings=Depends(get_current_settings),
+    embedder=Depends(get_embedder),
+    store=Depends(get_store),
+) -> IndexWebSourceResponse:
+    """Indexes one application's LINK SNAPSHOT into the tenant collection.
+
+    Takes already-fetched, already-bounded text — never a URL to go and get.
+    Every outbound request for candidate-supplied destinations happens in the
+    backend, behind its SSRF policy; this service performs no such egress, and
+    that split is deliberate rather than incidental.
+
+    Chunks land beside this candidate's file chunks under the same
+    organizationId/candidateId keys, which is what makes recruiter search, JD
+    evidence, summaries, Ask, interview questions and Compare retrieve files
+    and links together with no per-feature work. Idempotent per sourceId.
+    """
+    return index_application_web_source(
+        payload, settings=settings, embedder=embedder, store=store
+    )
+
+
 @router.post("/search", response_model=SearchResponse)
 async def search_endpoint(
     payload: SearchRequest,
@@ -154,6 +186,7 @@ async def search_endpoint(
         embedder=embedder,
         store=store,
         reranker=reranker,
+        allowed_source_ids=payload.allowedSourceIds,
     )
 
 
@@ -255,6 +288,7 @@ async def rag_endpoint(
         reranker=reranker,
         generator=generator,
         vacancy=payload.vacancy,
+        allowed_source_ids=payload.allowedSourceIds,
     )
 
 
@@ -278,6 +312,7 @@ async def candidate_summary_endpoint(
         store=store,
         reranker=None,
         generator=generator,
+        allowed_source_ids=payload.allowedSourceIds,
     )
 
 
@@ -307,6 +342,7 @@ async def evidence_map_endpoint(
         embedder=embedder,
         store=store,
         reranker=reranker,
+        allowed_source_ids=payload.allowedSourceIds,
     )
 
 
@@ -331,6 +367,7 @@ async def interview_questions_endpoint(
         store=store,
         reranker=reranker,
         generator=generator,
+        allowed_source_ids=payload.allowedSourceIds,
     )
 
 
@@ -369,6 +406,27 @@ async def process_candidate_resume_endpoint(
         settings=settings,
         embedder=embedder,
         store=store,
+    )
+
+
+@router.post(
+    "/candidate/web-sources/index", response_model=IndexWebSourceResponse
+)
+async def index_candidate_web_source_endpoint(
+    payload: IndexCandidateWebSourceRequest,
+    settings=Depends(get_current_settings),
+    embedder=Depends(get_embedder),
+    store=Depends(get_candidate_store),
+) -> IndexWebSourceResponse:
+    """Indexes one PERSONAL professional link into the candidate collection.
+
+    Beside the account's own resumes, in the same physically separate
+    collection, so the candidate's Job Match retrieves their files and links
+    together. Carries no organizationId: a personal link chunk cannot satisfy a
+    tenant filter because the key does not exist on it.
+    """
+    return index_candidate_web_source(
+        payload, settings=settings, embedder=embedder, store=store
     )
 
 
@@ -415,6 +473,30 @@ async def delete_vacancy_endpoint(
         extra={"vacancyId": payload.vacancyId, "stage": "vacancy_delete"},
     )
     return VacancyDeleteResponse(vacancyId=payload.vacancyId, deleted=True)
+
+
+@router.post(
+    "/candidate/match-explanations", response_model=MatchExplanationsResponse
+)
+async def match_explanations_endpoint(
+    payload: MatchExplanationsRequest,
+    generator=Depends(get_generator),
+) -> MatchExplanationsResponse:
+    """Prose for ONE PAGE of a ranking the backend already holds.
+
+    Touches no vector store and re-ranks nothing: the caller sends the facts its
+    ranking produced, and gets sentences back. This is what makes paging to
+    results 21-40 cheap.
+    """
+    started = time.perf_counter()
+    explanations, generated = explain_matches(
+        items=payload.items, locale=payload.locale, generator=generator
+    )
+    return MatchExplanationsResponse(
+        explanations=explanations,
+        generated=generated,
+        durationMs=int((time.perf_counter() - started) * 1000),
+    )
 
 
 @router.post("/candidate/job-matches", response_model=JobMatchResponse)

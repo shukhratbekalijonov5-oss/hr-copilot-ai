@@ -183,7 +183,7 @@ request) — an ORGANIZATION account gets `403 AUTH_ACCOUNT_TYPE_MISMATCH`.
 | `POST /candidate-account` | Mostly vestigial: registration already creates the profile. `409` if it exists, `403` for ORGANIZATION accounts. |
 | `GET /candidate-account/me` | `404` until created. Includes `resumeDocument` (id, originalFileName, mimeType, fileSize, createdAt) or `null`. |
 | `PATCH /candidate-account/me` | Partial update, same fields as create. |
-| `POST /candidate-account/me/resume` | multipart `file` (PDF/DOCX ≤50MB). LEGACY replace flow: swaps the current PRIMARY resume (old bytes/row/vectors removed); old applications keep their submitted snapshot. New UI should use `me/documents` below. |
+| `POST /candidate-account/me/resume` | multipart `file` (PDF/DOCX ≤50MB). LEGACY replace flow: swaps the current PRIMARY resume (old bytes/row/vectors removed). The REPLACED file's submitted copies are withdrawn from the organizations that received them — a replaced file is a deleted source. New UI should use `me/documents` below. |
 | `GET /candidate-account/me/resume` | `{ url, originalFileName }` (short-lived signed URL for the primary). `404` when none. |
 
 ### 6b. Personal document collection (NEW — max 3 files, 50 MB each)
@@ -198,9 +198,25 @@ personal files, not just the primary.
 | Route | Notes |
 |---|---|
 | `GET /candidate-account/me/documents` | `{ data: [{id, originalFileName, mimeType, fileSize, status, createdAt}], limit: 3, remaining, primaryDocumentId }`, newest first. |
-| `POST /candidate-account/me/documents` | multipart `file`. Adds a file; at the cap → `409` code `PERSONAL_DOCUMENT_LIMIT_REACHED`. Concurrency-safe: two racing uploads can never end at 4 files. |
+| `POST /candidate-account/me/documents` | multipart `file`. Adds a file; at the cap → `409` code `PERSONAL_DOCUMENT_LIMIT_REACHED`. Concurrency-safe: two racing uploads can never end at 4 files. **The 50 MB per-file limit is enforced HERE and only here** — Multer's `limits.fileSize`, then `validateUploadedFile` (size, MIME, extension, magic number). Anything in front of this is a courtesy, not a control. |
 | `GET /candidate-account/me/documents/:id/download-url` | `{ url, originalFileName }` (short-lived signed URL). Foreign/org ids: `404`. |
-| `DELETE /candidate-account/me/documents/:id` | PERMANENT: removes the stored bytes, the row and the candidate-index vectors (Job Match stops using the file). If the primary was deleted the pointer moves to the newest survivor. Foreign ids and org-side snapshot copies are `404` — an organization's copy of an application resume is that organization's record. |
+| `DELETE /candidate-account/me/documents/:id` | PERMANENT and CASCADING: the stored bytes, the row, the candidate-index vectors, **every organization copy derived from it** (`Document.sourceCandidateDocumentId`), those copies' vectors and bytes, their citations, and the requirement verdicts built on them. The applications themselves survive with no current evidence. If the primary was deleted the pointer moves to the newest survivor. Foreign ids and org-side copies are `404`. |
+| `GET /candidate-account/me/evidence` | `{ hasAccount, files, links, total, evidenceRevision, canRunJobMatch }`. The evidence gate's input: `canRunJobMatch` is `total > 0`, the same condition `POST me/job-matches` enforces. |
+
+**How the browser reaches it.** The Next frontend posts multipart to its own
+Route Handler (`app/api/candidate-account/documents/route.ts`), which streams
+the body straight through to this endpoint. It is deliberately NOT a Server
+Action: an action's arguments are serialised into one POST body capped at 1 MB
+(`serverActions.bodySizeLimit`), so every upload above that died with
+"Body exceeded 1 MB limit" against a 50 MB product limit. Raising that limit was
+rejected — it is global, so it would let every action on every screen accept
+50 MB bodies, and the file would still be encoded into an action payload and
+buffered in the Next process.
+
+The route relays at most `MAX_UPLOAD_REQUEST_BYTES` (50 MB + 2 MB, because a
+multipart envelope wraps the file) and rejects a larger `content-length` with
+the same `FILE_TOO_LARGE` code, so the UI localizes it identically. That ceiling
+bounds what the Next process will relay; it does not replace the rule above.
 
 Upload/limit error codes (localize on `code`, like the AUTH_* codes):
 
@@ -294,10 +310,29 @@ recognizes the device in `GET /auth/sessions`, and call `DELETE
 
 `POST /candidate-account/me/job-matches` — authenticated candidate, **no
 organization required or used**. Body (both optional):
-`{ "locale": "en|ko|ru|uz", "limit": 1..10 }` — locale defaults to the user's
-`preferredLocale`, limit to 5. `422` when the account has neither a resume nor
-any profile content. Latency is generation-bound (~15–30s) — show a progress
-state, don't set short client timeouts.
+`{ "locale": "en|ko|ru|uz", "page": 1.., "limit": 1..50, "refresh": bool }` —
+locale defaults to the user's `preferredLocale`, page to 1, limit to 20.
+
+**Every eligible vacancy is ranked, and the response is a PAGE of that
+ranking.** `total` is the full ranked count (153 in the dev dataset, not 5), so
+a client pages to the end. `page`/`limit` are transport: page 3 returns results
+41–60 of the same list, never a fresh search with a different order.
+
+`refresh: true` re-ranks — the candidate's explicit "Refresh matches". Ordinary
+paging must NOT set it, or the list reshuffles under the reader. A stored
+ranking is reused until the candidate's evidence, their profile, or the vacancy
+catalogue changes.
+
+Latency: the first (ranking) call is ~2–15s plus one generation call for page 1.
+Later pages are served in ~2.5s and fill their prose in the background — see
+`explanationsPending`. Full design in `job-match-ranking.md`.
+
+**Evidence gate.** `422` with `code: "NO_CANDIDATE_EVIDENCE"` when the account
+has **0 files and 0 links**. Matching is evidence-grounded, so a profile
+headline and a skills list are not a substitute — no Gemini call is made.
+Files and links count equally and independently: one professional link is
+enough. This is deliberately NOT the same rule as applying, which still
+requires a resume.
 
 ```json
 {
@@ -313,9 +348,38 @@ state, don't set short client timeouts.
     "saved": false,
     "applicationState": "NEW" | … | null
   }],
-  "locale": "uz", "generated": true, "generatedAt": "…"
+  "locale": "uz", "generated": true, "generatedAt": "…",
+  "evidenceRevision": 7,
+  "stale": false,
+  "explanationsPending": false,
+  "page": 1, "limit": 20,
+  "total": 153, "totalPages": 8, "hasMore": true,
+  "totalEligible": 153,
+  "capability": { "skills": […], "roleFamilies": […], "evidenceSources": {…} }
 }
 ```
+
+Each match also carries `rank` (1-based, stable for one ranking), `score`
+(0–100), `signals` (the per-signal breakdown), `matchedSkills` and
+`missingSkills`.
+
+`score` **orders the list and nothing else** — it is not a probability of being
+hired and not a percentage of the role the candidate can do. `match`
+(STRONG/PARTIAL/WEAK) is derived from it, so the two cannot disagree.
+
+`explanationsPending: true` means prose for this page is still being written in
+the background — distinct from `generated: false`, which means generation is
+unavailable. A card must not say "unavailable" about text that is merely not
+here yet.
+
+`capability` reports which of the candidate's sources actually contributed, so
+a report can state honestly what was used instead of assuming.
+
+`evidenceRevision` is the revision this analysis was computed FROM.
+`stale: true` means the candidate's evidence changed while it was being
+generated. Clients must also compare `evidenceRevision` against
+`GET me/evidence` before presenting a stored result as current — the ordinary
+case is a deletion made after the result was rendered.
 
 Semantics the UI must respect:
 

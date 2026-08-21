@@ -105,6 +105,8 @@ describe('CandidateAccountService', () => {
   let ai: ReturnType<typeof createAiMock>;
   let accountTypes: ReturnType<typeof createAccountTypesMock>;
   let service: CandidateAccountService;
+  let evidence: ReturnType<typeof evidenceLifecycleMock>;
+  let ranking: ReturnType<typeof rankingMock>;
 
   beforeEach(() => {
     prisma = createPrismaMock();
@@ -112,12 +114,16 @@ describe('CandidateAccountService', () => {
     producer = createProducerMock();
     ai = createAiMock();
     accountTypes = createAccountTypesMock();
+    evidence = evidenceLifecycleMock();
+    ranking = rankingMock();
     service = new CandidateAccountService(
       prisma as never,
       storage,
       producer as never,
       ai as never,
       accountTypes as never,
+      evidence as never,
+      ranking as never,
       configService,
     );
   });
@@ -271,45 +277,52 @@ describe('CandidateAccountService', () => {
       experience: [{ title: 'Backend Engineer', company: 'Acme' }],
       education: [],
     };
-    const aiResult = {
-      matches: [
-        {
-          vacancyId: 'vac-open',
-          organizationId: 'org-1',
-          title: 'Platform Engineer',
-          match: 'STRONG',
-          explanation: 'x',
-          supportedRequirements: [
-            { text: 'Docker', required: true, reason: '' },
-          ],
-          unsupportedRequirements: [],
-          unclearRequirements: [],
-          evidence: [
-            {
-              fileName: 'resume.pdf',
-              pageNumber: 1,
-              section: 'skills',
-              text: 'Docker',
-            },
-          ],
+    /** Two ranked entries, as the STORED ranking holds them. */
+    const rankedEntries = [
+      {
+        id: 'entry-1',
+        vacancyId: 'vac-open',
+        rank: 1,
+        score: 81,
+        tier: 'STRONG',
+        signals: {
+          semantic: 0.8,
+          required: 1,
+          preferred: 0.5,
+          skills: 0.7,
+          roleFamily: 1,
         },
-        {
-          vacancyId: 'vac-closed-since',
-          organizationId: 'org-2',
-          title: 'Old Role',
-          match: 'PARTIAL',
-          explanation: null,
-          supportedRequirements: [],
-          unsupportedRequirements: [],
-          unclearRequirements: [],
-          evidence: [],
-        },
-      ],
-      locale: 'uz',
-      vacanciesConsidered: 7,
-      generated: true,
-      durationMs: 1200,
-    };
+        matchedSkills: ['docker'],
+        missingSkills: [],
+        supportedRequirements: [{ text: 'Docker', required: true, reason: '' }],
+        unsupportedRequirements: [],
+        unclearRequirements: [],
+        evidence: [
+          {
+            fileName: 'resume.pdf',
+            pageNumber: 1,
+            section: 'skills',
+            text: 'Docker',
+          },
+        ],
+        explanations: { uz: 'x' },
+      },
+      {
+        id: 'entry-2',
+        vacancyId: 'vac-closed-since',
+        rank: 2,
+        score: 44,
+        tier: 'PARTIAL',
+        signals: {},
+        matchedSkills: [],
+        missingSkills: [],
+        supportedRequirements: [],
+        unsupportedRequirements: [],
+        unclearRequirements: [],
+        evidence: [],
+        explanations: null,
+      },
+    ];
 
     beforeEach(() => {
       prisma.candidateAccount.findUnique.mockResolvedValue(account);
@@ -331,18 +344,96 @@ describe('CandidateAccountService', () => {
       prisma.application.findMany.mockResolvedValue([
         { vacancyId: 'vac-open', status: 'NEW' },
       ]);
-      ai.candidateJobMatches.mockResolvedValue(aiResult);
+      ranking.page.mockResolvedValue(rankedEntries);
+      ranking.explainPage.mockResolvedValue({
+        prose: new Map([['vac-open', 'x']]),
+        pending: false,
+      });
     });
 
     it('matches purely by the OWN candidate account — no organization anywhere', async () => {
+      // No stored run yet, so this exercises the compute path.
+      ranking.currentRun.mockResolvedValueOnce(null);
+
       await service.jobMatches(ME, {});
 
-      const call = ai.candidateJobMatches.mock.calls[0][0];
+      const call = ranking.computeRun.mock.calls[0][0];
       expect(call.candidateAccountId).toBe(MY_ACCOUNT);
       expect(JSON.stringify(call)).not.toContain('organizationId');
       expect(call.profile.skills).toEqual(['Docker', 'PostgreSQL']);
       // Locale defaults to the user's preferredLocale.
       expect(call.locale).toBe('uz');
+    });
+
+    it('REUSES the stored ranking when nothing changed — paging must not re-rank', async () => {
+      // Recomputing per page is what would let a vacancy cross a page boundary
+      // and appear twice, or vanish between page 1 and page 2.
+      await service.jobMatches(ME, { page: 2 });
+
+      expect(ranking.computeRun).not.toHaveBeenCalled();
+      expect(ranking.page).toHaveBeenCalledWith('run-1', 20, 20);
+    });
+
+    it('recomputes when the candidate evidence has moved on', async () => {
+      ranking.currentRun.mockResolvedValueOnce(null);
+
+      await service.jobMatches(ME, {});
+
+      expect(ranking.computeRun).toHaveBeenCalledTimes(1);
+    });
+
+    it('recomputes on an explicit refresh, even with a current snapshot', async () => {
+      await service.jobMatches(ME, { refresh: true });
+
+      expect(ranking.computeRun).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the FULL ranked total, not the size of the page', async () => {
+      // The number that used to be a top-5. A client needs the real total to
+      // know how far it can scroll.
+      ranking.currentRun.mockResolvedValue({
+        id: 'run-1',
+        evidenceRevision: 0,
+        vacancyFingerprint: '12:2026-08-21T00:00:00.000Z',
+        totalRanked: 57,
+        totalEligible: 60,
+        capability: {},
+        generatedAt: new Date('2026-08-21T00:00:00.000Z'),
+      });
+
+      const result = await service.jobMatches(ME, { limit: 20 });
+
+      expect(result.total).toBe(57);
+      expect(result.totalPages).toBe(3);
+      expect(result.hasMore).toBe(true);
+      expect(result.totalEligible).toBe(60);
+    });
+
+    it('the last page reports no more', async () => {
+      ranking.currentRun.mockResolvedValue({
+        id: 'run-1',
+        evidenceRevision: 0,
+        vacancyFingerprint: '12:2026-08-21T00:00:00.000Z',
+        totalRanked: 57,
+        totalEligible: 60,
+        capability: {},
+        generatedAt: new Date('2026-08-21T00:00:00.000Z'),
+      });
+
+      const result = await service.jobMatches(ME, { page: 3, limit: 20 });
+
+      expect(result.hasMore).toBe(false);
+      expect(ranking.page).toHaveBeenCalledWith('run-1', 40, 20);
+    });
+
+    it('carries the score, rank and signals through to the client', async () => {
+      const [match] = (await service.jobMatches(ME, {})).matches;
+
+      expect(match.rank).toBe(1);
+      expect(match.score).toBe(81);
+      expect(match.match).toBe('STRONG');
+      expect(match.signals.semantic).toBe(0.8);
+      expect(match.matchedSkills).toEqual(['docker']);
     });
 
     it('re-verifies vacancies against the DB and exposes public slugs, not UUIDs', async () => {
@@ -369,25 +460,82 @@ describe('CandidateAccountService', () => {
       expect(JSON.stringify(prisma.savedJob.create.mock.calls)).toBe('[]');
     });
 
-    it('requires SOME candidate signal (profile or resume)', async () => {
-      prisma.candidateAccount.findUnique.mockResolvedValue({
-        ...account,
-        resumeDocumentId: null,
-        headline: null,
-        summary: null,
-        skills: [],
-        experience: [],
+    it('refuses to match with NO evidence, however full the profile is', async () => {
+      // The rule the product now enforces: matching reports what a person's
+      // files and links demonstrate. A rich headline and a long skills list
+      // are not evidence, and generating an analysis from them would be the
+      // invented output this product exists to avoid.
+      evidence.activeSourceCounts.mockResolvedValue({
+        files: 0,
+        links: 0,
+        total: 0,
       });
 
       await expect(service.jobMatches(ME, {})).rejects.toMatchObject({
         status: 422,
+        response: { code: 'NO_CANDIDATE_EVIDENCE' },
       });
-      expect(ai.candidateJobMatches).not.toHaveBeenCalled();
+      expect(ranking.computeRun).not.toHaveBeenCalled();
+    });
+
+    it('matches on LINKS ALONE — a portfolio is evidence', async () => {
+      // Applying still requires a resume. Matching does not, and conflating
+      // the two would lock a designer with a portfolio out of job search.
+      evidence.activeSourceCounts.mockResolvedValue({
+        files: 0,
+        links: 2,
+        total: 2,
+      });
+
+      await expect(service.jobMatches(ME, {})).resolves.toBeDefined();
+      expect(ranking.page).toHaveBeenCalled();
+    });
+
+    it('sends the surviving source ids so deleted evidence cannot be read', async () => {
+      ranking.currentRun.mockResolvedValueOnce(null);
+      evidence.activePersonalSourceIds.mockResolvedValue(['doc-1', 'link-1']);
+
+      await service.jobMatches(ME, {});
+
+      expect(ranking.computeRun.mock.calls[0][0].allowedSourceIds).toEqual([
+        'doc-1',
+        'link-1',
+      ]);
+    });
+
+    it('reports a result as stale when evidence changed while it was running', async () => {
+      // A ~20s generation can outlive the evidence it describes. Publishing it
+      // as the current analysis would show a candidate conclusions drawn from
+      // a file they deleted mid-run.
+      prisma.candidateAccount.findUnique.mockResolvedValue({
+        ...account,
+        evidenceRevision: 7,
+      });
+      evidence.revision.mockResolvedValue(8);
+
+      await expect(service.jobMatches(ME, {})).resolves.toMatchObject({
+        evidenceRevision: 7,
+        stale: true,
+      });
+    });
+
+    it('is not stale when nothing changed', async () => {
+      prisma.candidateAccount.findUnique.mockResolvedValue({
+        ...account,
+        evidenceRevision: 7,
+      });
+      evidence.revision.mockResolvedValue(7);
+
+      await expect(service.jobMatches(ME, {})).resolves.toMatchObject({
+        stale: false,
+      });
     });
 
     it('an explicit locale wins over the preferred one', async () => {
       await service.jobMatches(ME, { locale: 'ko' });
-      expect(ai.candidateJobMatches.mock.calls[0][0].locale).toBe('ko');
+      // The ranking is locale-independent; the locale selects which stored
+      // translation of the prose is served for this page.
+      expect(ranking.explainPage.mock.calls[0][1]).toBe('ko');
     });
   });
 
@@ -556,18 +704,30 @@ describe('CandidateAccountService', () => {
       });
     });
 
-    it('removes bytes, row and queues vector eviction', async () => {
+    it('removes the bytes first, then runs the full cascade', async () => {
       const result = await service.deletePersonalDocument(ME, 'doc-b');
 
+      // Bytes first: success is never reported while the private file remains.
       expect(storage.delete).toHaveBeenCalledWith(OWNED.storageKey);
-      expect(prisma.document.delete).toHaveBeenCalledWith({
-        where: { id: 'doc-b' },
-      });
-      expect(producer.enqueuePersonalResumeIndexDeletion).toHaveBeenCalledWith({
-        documentId: 'doc-b',
-        candidateAccountId: MY_ACCOUNT,
-      });
+      // Everything downstream — the row, the organization copies made from it,
+      // their citations and mappings, the vectors — belongs to one owner.
+      expect(evidence.cascadePersonalFileDeletion).toHaveBeenCalledWith(
+        MY_ACCOUNT,
+        'doc-b',
+        { repointResumeTo: undefined },
+      );
       expect(result).toEqual({ id: 'doc-b', deleted: true });
+    });
+
+    it('withdraws the file from the organizations it was submitted to', async () => {
+      // The product rule that changed: a deleted file stops existing for
+      // recruiters too, not just for the candidate. The service must not
+      // delete the row itself — doing so outside the cascade's transaction
+      // would strand the derived copies.
+      await service.deletePersonalDocument(ME, 'doc-b');
+
+      expect(evidence.cascadePersonalFileDeletion).toHaveBeenCalledTimes(1);
+      expect(prisma.document.delete).not.toHaveBeenCalled();
     });
 
     it('404s a foreign or org-side document — indistinguishable from missing', async () => {
@@ -577,7 +737,7 @@ describe('CandidateAccountService', () => {
         service.deletePersonalDocument(ME, 'someone-elses-doc'),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(storage.delete).not.toHaveBeenCalled();
-      expect(prisma.document.delete).not.toHaveBeenCalled();
+      expect(evidence.cascadePersonalFileDeletion).not.toHaveBeenCalled();
     });
 
     it('aborts with nothing changed when the storage delete fails', async () => {
@@ -586,39 +746,27 @@ describe('CandidateAccountService', () => {
       await expect(service.deletePersonalDocument(ME, 'doc-b')).rejects.toThrow(
         'r2 unreachable',
       );
-      // Success is never reported while the bytes provably remain.
-      expect(prisma.document.delete).not.toHaveBeenCalled();
-      expect(
-        producer.enqueuePersonalResumeIndexDeletion,
-      ).not.toHaveBeenCalled();
+      // Success is never reported while the bytes provably remain — and the
+      // cascade that would remove an organization's copy never starts.
+      expect(evidence.cascadePersonalFileDeletion).not.toHaveBeenCalled();
     });
 
-    it('repoints the primary resume to the newest survivor', async () => {
+    it('asks for the primary pointer to be repointed when it deleted it', async () => {
       prisma.candidateAccount.findUnique.mockResolvedValue({
         id: MY_ACCOUNT,
         resumeDocumentId: 'doc-b', // deleting the current primary
       });
-      prisma.document.findFirst
-        .mockResolvedValueOnce(OWNED) // ownership lookup
-        .mockResolvedValueOnce({ id: 'doc-a' }); // newest remaining
 
       await service.deletePersonalDocument(ME, 'doc-b');
 
-      expect(prisma.candidateAccount.update).toHaveBeenCalledWith({
-        where: { id: MY_ACCOUNT },
-        data: { resumeDocumentId: 'doc-a' },
-      });
-    });
-
-    it('falls back to inline vector eviction when the queue is down', async () => {
-      producer.enqueuePersonalResumeIndexDeletion.mockRejectedValue(
-        new Error('redis down'),
+      // The repoint happens inside the cascade's transaction, together with
+      // the row deletion, so no window exists where the account points at a
+      // document that is already gone.
+      expect(evidence.cascadePersonalFileDeletion).toHaveBeenCalledWith(
+        MY_ACCOUNT,
+        'doc-b',
+        { repointResumeTo: 'newest' },
       );
-
-      await expect(
-        service.deletePersonalDocument(ME, 'doc-b'),
-      ).resolves.toEqual({ id: 'doc-b', deleted: true });
-      expect(ai.deletePersonalResume).toHaveBeenCalledWith(MY_ACCOUNT, 'doc-b');
     });
   });
 
@@ -660,4 +808,60 @@ describe('CandidateAccountService', () => {
       });
     });
   });
+});
+
+/**
+ * The lifecycle service as a collaborator. `activeApplicationSourceIds` is the
+ * surviving-source allowlist every candidate-scoped AI call must carry — these
+ * tests check it is SENT, not what it contains (that is the lifecycle
+ * service's own spec).
+ */
+const evidenceLifecycleMock = () => ({
+  activeApplicationSourceIds: jest.fn().mockResolvedValue(['doc-1', 'src-1']),
+  activePersonalSourceIds: jest.fn().mockResolvedValue([]),
+  activeSourceCounts: jest
+    .fn()
+    .mockResolvedValue({ files: 1, links: 1, total: 2 }),
+  revision: jest.fn().mockResolvedValue(0),
+  bumpRevision: jest.fn().mockResolvedValue(undefined),
+  cascadePersonalFileDeletion: jest.fn().mockResolvedValue(undefined),
+  cascadePersonalLinkDeletion: jest.fn().mockResolvedValue(undefined),
+  cascadeDerivedCopyRemoval: jest.fn().mockResolvedValue(undefined),
+});
+
+/**
+ * The ranking service as a collaborator.
+ *
+ * By default it reports a CURRENT stored run, so paging tests exercise the
+ * "reuse the snapshot" path — recomputing per page is the behaviour that would
+ * make pagination unstable, so it must be the explicit case, not the default.
+ */
+const rankingMock = () => ({
+  vacancyFingerprint: jest
+    .fn()
+    .mockResolvedValue('12:2026-08-21T00:00:00.000Z'),
+  eligibleVacancyIds: jest.fn().mockResolvedValue(['vac-open', 'vac-closed']),
+  currentRun: jest.fn().mockResolvedValue({
+    id: 'run-1',
+    evidenceRevision: 0,
+    vacancyFingerprint: '12:2026-08-21T00:00:00.000Z',
+    totalRanked: 2,
+    totalEligible: 2,
+    capability: { skills: ['react'] },
+    generatedAt: new Date('2026-08-21T00:00:00.000Z'),
+  }),
+  computeRun: jest.fn().mockResolvedValue({
+    runId: 'run-1',
+    totalRanked: 2,
+    totalEligible: 2,
+    indexedConsidered: 2,
+    capability: {},
+    generated: true,
+    fingerprint: '12:2026-08-21T00:00:00.000Z',
+  }),
+  page: jest.fn().mockResolvedValue([]),
+  explainPage: jest
+    .fn()
+    .mockResolvedValue({ prose: new Map(), pending: false }),
+  invalidate: jest.fn().mockResolvedValue(undefined),
 });

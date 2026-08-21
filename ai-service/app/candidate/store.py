@@ -29,7 +29,18 @@ from qdrant_client.http import models as qmodels
 
 from app.common.errors import VectorStoreUnavailableError
 from app.common.logging import get_logger
-from app.vectorstore.qdrant_store import SearchHit, _is_missing_collection, _match
+from app.vectorstore.qdrant_store import (
+    SearchHit,
+    _is_missing_collection,
+    _match,
+    _match_any,
+)
+
+#: Vacancy ids per scroll filter. Keeps one request's filter bounded however
+#: many vacancies an organization has open.
+_SCROLL_ID_BATCH = 256
+#: Points per scroll page.
+_SCROLL_PAGE = 512
 
 logger = get_logger(__name__)
 
@@ -202,39 +213,71 @@ class CandidateResumeStore(_BaseStore):
         candidate_account_id: str,
         query_vector: list[float],
         limit: int,
+        allowed_source_ids: list[str] | None = None,
     ) -> list[SearchHit]:
         """The ONLY read path — and it requires the owning candidate account.
 
         Mirrors QdrantStore.search's mandatory-tenant invariant: there is no
         way to query personal resumes without saying whose they are.
+
+        The account key stops one candidate reading another's evidence. It does
+        NOT stop a candidate's own DELETED evidence coming back, because a
+        deleted source's chunks still carry their owner's account id until the
+        eviction lands. ``allowed_source_ids`` is what closes that: an empty
+        list means "this account currently has no evidence" and returns
+        nothing, which is the whole point and not an edge case to skip.
         """
         if not candidate_account_id:
             raise ValueError("candidate_account_id is required for every search")
-        return self._query(
-            query_vector, [_match("candidateAccountId", candidate_account_id)], limit
-        )
+        if allowed_source_ids is not None and len(allowed_source_ids) == 0:
+            return []
+
+        must = [_match("candidateAccountId", candidate_account_id)]
+        if allowed_source_ids:
+            must.append(_match_any("documentId", allowed_source_ids))
+        return self._query(query_vector, must, limit)
 
     def list_chunks(
-        self, candidate_account_id: str, limit: int = 12
+        self,
+        candidate_account_id: str,
+        limit: int = 12,
+        allowed_source_ids: list[str] | None = None,
+        with_vectors: bool = False,
     ) -> list[dict[str, Any]]:
-        """First chunks of the candidate's own documents (for representation)."""
+        """First chunks of the candidate's own documents (for representation).
+
+        Same authorization as ``search``: this text becomes the candidate's
+        search representation, so a deleted portfolio leaking in here would
+        steer every vacancy match with evidence that no longer exists.
+        """
         if not candidate_account_id:
             raise ValueError("candidate_account_id is required")
+        if allowed_source_ids is not None and len(allowed_source_ids) == 0:
+            return []
+
+        must = [_match("candidateAccountId", candidate_account_id)]
+        if allowed_source_ids:
+            must.append(_match_any("documentId", allowed_source_ids))
         try:
             points, _ = self._client.scroll(
                 collection_name=self._collection,
-                scroll_filter=qmodels.Filter(
-                    must=[_match("candidateAccountId", candidate_account_id)]
-                ),
+                scroll_filter=qmodels.Filter(must=must),
                 limit=limit,
                 with_payload=True,
-                with_vectors=False,
+                with_vectors=with_vectors,
             )
         except Exception as exc:
             if _is_missing_collection(exc):
                 return []
             raise VectorStoreUnavailableError(f"Qdrant scroll failed: {exc}") from exc
-        return [dict(p.payload or {}) for p in points]
+        if not with_vectors:
+            return [dict(p.payload or {}) for p in points]
+        # Vectors come back alongside the payload so a caller ranking hundreds
+        # of vacancies can score every requirement against the candidate's
+        # evidence IN PROCESS, instead of issuing one Qdrant search per
+        # requirement. With ~50 chunks that is a rounding error of memory and
+        # the difference between seconds and minutes.
+        return [{**dict(p.payload or {}), "_vector": p.vector} for p in points]
 
     def count_for_account(self, candidate_account_id: str) -> int:
         try:
@@ -295,3 +338,62 @@ class VacancyStore(_BaseStore):
     ) -> list[SearchHit]:
         """Vector search across OPEN vacancies only."""
         return self._query(query_vector, [_match("status", "OPEN")], limit)
+
+    def fetch_vacancies(
+        self, vacancy_ids: list[str], *, with_vectors: bool = True
+    ) -> list[dict]:
+        """Every indexed chunk of the NAMED vacancies, with their vectors.
+
+        A scroll, not a search, and that difference is the point. A top-K
+        search answers "which vacancies look closest?" and silently decides the
+        universe; this answers "give me exactly these", so the caller — the
+        backend, which owns eligibility — decides what is in scope and every
+        one of them gets scored.
+
+        Vectors come back too, so similarity for all of them is computed once
+        in-process instead of issuing one query per candidate probe.
+
+        An id with no points is simply absent from the result: the index lags
+        behind the database (a cascade-deleted vacancy leaves points behind,
+        and a newly created one is indexed asynchronously), and neither case is
+        an error here. The caller reconciles.
+        """
+        if not vacancy_ids:
+            return []
+
+        collected: list[dict] = []
+        # Chunked so a large eligible set cannot build one enormous filter.
+        for start in range(0, len(vacancy_ids), _SCROLL_ID_BATCH):
+            batch = vacancy_ids[start : start + _SCROLL_ID_BATCH]
+            offset = None
+            while True:
+                try:
+                    points, offset = self._client.scroll(
+                        collection_name=self._collection,
+                        scroll_filter=qmodels.Filter(
+                            must=[
+                                _match_any("vacancyId", batch),
+                                _match("status", "OPEN"),
+                            ]
+                        ),
+                        limit=_SCROLL_PAGE,
+                        offset=offset,
+                        with_payload=True,
+                        with_vectors=with_vectors,
+                    )
+                except Exception as exc:
+                    if _is_missing_collection(exc):
+                        return collected
+                    raise VectorStoreUnavailableError(
+                        f"Qdrant scroll failed: {exc}"
+                    ) from exc
+
+                for point in points:
+                    entry = dict(point.payload or {})
+                    if with_vectors:
+                        entry["_vector"] = point.vector
+                    collected.append(entry)
+
+                if offset is None:
+                    break
+        return collected

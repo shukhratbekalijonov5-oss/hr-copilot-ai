@@ -13,6 +13,16 @@ const backendResponse: JobMatchesResponse = {
   locale: "ko",
   generated: true,
   generatedAt: "2026-08-20T00:00:00.000Z",
+  evidenceRevision: 0,
+  stale: false,
+  explanationsPending: false,
+  page: 1,
+  limit: 20,
+  total: 0,
+  totalPages: 1,
+  hasMore: false,
+  totalEligible: 0,
+  capability: {},
 };
 
 describe("getJobMatches", () => {

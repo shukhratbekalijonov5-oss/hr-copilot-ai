@@ -6,6 +6,7 @@ import { DocumentProcessingProducer } from './document-processing.producer';
 import { DocumentProcessingProcessor } from './document-processing.processor';
 import { ProcessingModule } from '../processing/processing.module';
 import { AiModule } from '../ai/ai.module';
+import { WebIngestionModule } from '../web-ingestion/web-ingestion.module';
 
 @Module({
   imports: [
@@ -34,6 +35,10 @@ import { AiModule } from '../ai/ai.module';
     }),
     ProcessingModule,
     AiModule,
+    // The worker owns candidate-link fetching: a URL fetch is slow, fails, and
+    // must retry with backoff — exactly what a queue is for, and exactly what
+    // must never happen inside a request transaction.
+    WebIngestionModule,
   ],
   providers: [DocumentProcessingProducer, DocumentProcessingProcessor],
   exports: [DocumentProcessingProducer, BullModule],

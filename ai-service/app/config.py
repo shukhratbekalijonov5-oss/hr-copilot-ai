@@ -60,9 +60,18 @@ class Settings(BaseSettings):
     qdrant_vacancy_collection: str = "vacancy_chunks"
 
     # --- Candidate job matching --------------------------------------------
-    # How many vacancy chunks the first-stage vector search considers before
-    # grouping into vacancies and reranking.
-    match_vacancy_pool: int = Field(default=32, ge=4, le=200)
+    #
+    # Ranking covers EVERY vacancy the backend declares eligible. These bound
+    # the work, they do not choose the results — the day one of them silently
+    # decided which jobs a candidate could see was the bug this design fixes.
+    #
+    # Hard ceiling on vacancies ranked in one run. Sized well above a realistic
+    # open-vacancy count so it never binds in practice; if it ever does, the
+    # pipeline logs a warning rather than quietly returning a prefix.
+    match_max_vacancies: int = Field(default=2000, ge=1, le=20000)
+    # Only used when no eligible set is supplied (standalone/diagnostic calls).
+    # The backend always supplies one, so this is not the production path.
+    match_vacancy_pool: int = Field(default=400, ge=4, le=5000)
     # Per-vacancy cap on requirements compared in depth; a JD with 40 bullet
     # points does not get 40 retrieval rounds.
     match_max_requirements: int = Field(default=12, ge=1, le=30)
@@ -164,6 +173,24 @@ class Settings(BaseSettings):
     # Sections shorter than this are kept whole rather than split, so a compact
     # skills list is not fragmented into meaningless pieces.
     chunk_min_split_chars: int = Field(default=350, ge=100, le=8000)
+
+    # --- Web (URL) evidence sources ----------------------------------------
+    #
+    # A candidate may submit up to 3 professional links alongside up to 3
+    # files. Two caps keep one verbose website from dominating their evidence:
+    #
+    #  * `web_source_max_chunks` bounds INGESTION — how much of one site is
+    #    ever embedded. 80 chunks at the 400-char target is ~32k characters,
+    #    comfortably more than a real portfolio and far short of a site dump.
+    #  * `retrieval_max_per_source` bounds RETRIEVAL — how many passages one
+    #    source may contribute to a single answer before others get a turn.
+    #    Applied as a re-order with backfill, so results never get shorter (see
+    #    retrieval.search.cap_per_source). It is NOT source-type aware: a URL
+    #    is not preferred for being new, nor a file for being familiar.
+    #
+    # 0 disables the retrieval cap entirely.
+    web_source_max_chunks: int = Field(default=80, ge=1, le=1000)
+    retrieval_max_per_source: int = Field(default=4, ge=0, le=50)
 
     # --- Uploads ----------------------------------------------------------
     max_file_size_bytes: int = Field(default=50 * 1024 * 1024, ge=1)

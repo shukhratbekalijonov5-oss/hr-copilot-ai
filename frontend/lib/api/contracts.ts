@@ -13,8 +13,11 @@ import type {
   DocumentStatus,
   DocumentType,
   EvidenceMappingStatus,
+  EvidenceSourceType,
   EvidenceType,
   InterviewQuestionKind,
+  LinkFailureCode,
+  LinkStatus,
   NotificationAudience,
   NotificationType,
   ProcessingJobStatus,
@@ -229,7 +232,27 @@ export interface DocumentResponse {
   status: DocumentStatus;
   pageCount?: number | null;
   candidateId?: string | null;
+  /** The application this org-scoped copy was submitted with, when known. */
+  applicationId?: string | null;
   processingJobId?: string | null;
+  createdAt: string;
+}
+
+/**
+ * One professional link submitted with an application, as the recruiter API
+ * returns it. Deliberately carries no extracted text: a recruiter reads that
+ * through grounded answers and citations, not as a dump of somebody's website.
+ */
+export interface CandidateLinkSourceResponse {
+  id: string;
+  url: string;
+  title: string | null;
+  detectedType: string | null;
+  status: DocumentStatus;
+  charCount: number | null;
+  pagesFetched: number | null;
+  fetchedAt: string;
+  applicationId?: string | null;
   createdAt: string;
 }
 
@@ -264,6 +287,8 @@ export interface CandidateResponse {
   createdAt: string;
   updatedAt: string;
   documents?: DocumentResponse[];
+  /** Submitted professional links. Absent on list endpoints. */
+  linkSources?: CandidateLinkSourceResponse[];
   applications?: ApplicationResponse[];
 }
 
@@ -363,11 +388,16 @@ export interface ProcessingProgressEvent {
 export interface EvidenceSearchHitResponse {
   candidateId: string | null;
   candidateName: string | null;
+  /** The SOURCE key: a document id for a file, a link-source id for a link. */
   documentId: string;
   fileName: string | null;
   section: string | null;
   pageNumber: number | null;
   text: string;
+  /** Absent on chunks indexed before URL evidence existed — those are files. */
+  sourceType?: EvidenceSourceType;
+  sourceTitle?: string | null;
+  sourceUrl?: string | null;
   /**
    * How well the passage matches the query. The backend is explicit that this
    * is not a candidate score, a hiring score, or a probability of success — so
@@ -400,6 +430,10 @@ export interface AiCitationResponse {
   pageNumber: number | null;
   section: string | null;
   text: string;
+  /** Absent on citations from chunks indexed before URL evidence existed. */
+  sourceType?: EvidenceSourceType;
+  sourceTitle?: string | null;
+  sourceUrl?: string | null;
 }
 
 /** POST /api/ai/answer */
@@ -453,12 +487,16 @@ export interface AiInterviewQuestionsResponse {
  */
 export interface EvidenceMapEvidenceResponse {
   id: string;
+  /** The SOURCE id: a document id for a file, a link-source id for a link. */
   documentId: string;
   fileName: string;
   pageNumber: number | null;
   section: string | null;
   text: string;
   sourceChunkId: string | null;
+  /** Absent on rows stored before URL evidence existed — those are files. */
+  sourceType?: EvidenceSourceType;
+  sourceUrl?: string | null;
 }
 
 export interface EvidenceMapRequirementResponse {
@@ -520,6 +558,27 @@ export interface CandidateResumeResponse {
   fileSize: number | null;
   status?: DocumentStatus;
   createdAt: string;
+}
+
+/** GET /candidate-account/me/links */
+export interface CandidateLinkResponse {
+  id: string;
+  url: string;
+  title: string | null;
+  detectedType: string | null;
+  status: LinkStatus;
+  failureCode: LinkFailureCode | null;
+  charCount: number | null;
+  pagesFetched: number | null;
+  lastFetchedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CandidateLinksResponse {
+  data: CandidateLinkResponse[];
+  limit: number;
+  remaining: number;
 }
 
 export interface CandidatePersonalDocumentsResponse {
@@ -629,6 +688,9 @@ export interface MatchEvidenceResponse {
   pageNumber: number | null;
   section: string | null;
   text: string;
+  /** Absent on evidence from chunks indexed before URL sources existed. */
+  sourceType?: EvidenceSourceType;
+  sourceUrl?: string | null;
 }
 
 /**
@@ -647,6 +709,14 @@ export interface JobMatchResponse {
     status: VacancyStatus;
   };
   match: JobMatchStrengthResponse;
+  /** 1-based position in the FULL ranked list. Stable for one ranking. */
+  rank: number;
+  /** 0-100. Orders the list; never a probability of being hired. */
+  score: number;
+  /** Per-signal breakdown (semantic/required/preferred/skills/roleFamily). */
+  signals: Record<string, number>;
+  matchedSkills: string[];
+  missingSkills: string[];
   /** Null when generation was unavailable; the deterministic data remains. */
   explanation: string | null;
   supportedRequirements: MatchRequirementResponse[];
@@ -663,6 +733,44 @@ export interface JobMatchesResponse {
   /** False when the Gemini explanation step was skipped or failed. */
   generated: boolean;
   generatedAt: string;
+  /** The evidence revision this analysis was computed from. */
+  evidenceRevision: number;
+  /**
+   * Prose for this page is still being written in the background.
+   *
+   * Distinct from `generated: false`, which means generation is unavailable —
+   * a card must not say "unavailable" about text that is simply not here yet.
+   */
+  explanationsPending: boolean;
+  /** 1-based page of the ranked list this response carries. */
+  page: number;
+  /** Page size. Bounds the PAGE, never the ranking. */
+  limit: number;
+  /** The FULL ranked count — how far a client can scroll. */
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+  /** How many vacancies the candidate was eligible for. */
+  totalEligible: number;
+  /** Skills, role families and sources the ranking actually used. */
+  capability: Record<string, unknown>;
+  /**
+   * True when the candidate's evidence changed WHILE this was being generated
+   * — a ~20s call can outlive the files it describes. A stale result is never
+   * presented as the current analysis.
+   */
+  stale: boolean;
+}
+
+/** GET /candidate-account/me/evidence — the evidence gate's input. */
+export interface CandidateEvidenceStateResponse {
+  hasAccount: boolean;
+  files: number;
+  links: number;
+  total: number;
+  evidenceRevision: number;
+  /** The backend's own answer, so the button and the endpoint agree. */
+  canRunJobMatch: boolean;
 }
 
 /* -------------------------------------------------------------------------- */

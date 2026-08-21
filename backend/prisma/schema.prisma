@@ -6,10 +6,10 @@
 // it does not enforce it by itself.
 
 generator client {
-  provider     = "prisma-client"
-  output       = "../src/generated/prisma"
-  runtime      = "nodejs"
-  moduleFormat = "cjs"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  runtime             = "nodejs"
+  moduleFormat        = "cjs"
   importFileExtension = ""
 }
 
@@ -148,6 +148,48 @@ enum ProcessingJobType {
   PROCESS_DOCUMENT
 }
 
+// The evidence SOURCE TYPE (FILE | URL) is deliberately NOT a database enum:
+// no column stores it. It is derived from which table a row lives in
+// (documents vs application_link_sources / candidate_links), and it exists as
+// a wire-level union in src/common/evidence/evidence-source.ts and in the AI
+// service's chunk payloads, where citations actually need it. Adding a stored
+// column would let the two disagree.
+
+/// Lifecycle of one candidate-submitted professional link.
+///
+/// Mirrors DocumentStatus in spirit (a source is only usable by the AI once it
+/// reaches COMPLETED) but names the stages that actually exist for a URL:
+/// there is a network fetch, and it is the slow, failure-prone part.
+enum LinkStatus {
+  PENDING
+  FETCHING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+/// Why a link could not be turned into evidence. A stable, machine-readable
+/// contract the frontend localizes on (en/ko/ru/uz) — the accompanying
+/// `failureMessage` is a developer-facing detail, never rendered raw.
+///
+/// The split that matters is PERMANENT vs TRANSIENT: a private-network target
+/// or an unsupported protocol can never succeed and must not be retried, while
+/// a timeout or a 502 legitimately can (see linkFailureIsRetryable).
+enum LinkFailureCode {
+  INVALID_URL
+  UNSUPPORTED_PROTOCOL
+  PRIVATE_NETWORK_URL
+  FETCH_TIMEOUT
+  TOO_MANY_REDIRECTS
+  CONTENT_TOO_LARGE
+  UNSUPPORTED_CONTENT_TYPE
+  ACCESS_DENIED
+  NO_MEANINGFUL_CONTENT
+  RENDER_FAILED
+  UPSTREAM_ERROR
+  INDEXING_FAILED
+}
+
 /// Which side of an interview conversation sent a message. Stored per message
 /// (rather than derived) so the transcript stays renderable even as org
 /// memberships change.
@@ -202,6 +244,7 @@ model Organization {
   processingJobs ProcessingJob[]
   evidenceMaps   RequirementEvidenceMap[]
   conversations  Conversation[]
+  linkSources    ApplicationLinkSource[]
 
   @@map("organizations")
 }
@@ -224,7 +267,7 @@ model User {
 
   memberships      OrganizationMember[]
   candidateAccount CandidateAccount?
-  createdVacancies Vacancy[]            @relation("VacancyCreatedBy")
+  createdVacancies Vacancy[]             @relation("VacancyCreatedBy")
   authSessions     AuthSession[]
   sentMessages     ConversationMessage[] @relation("ConversationMessageSender")
   notifications    Notification[]        @relation("NotificationRecipient")
@@ -305,20 +348,92 @@ model CandidateAccount {
   education         Json?
   resumeDocumentId  String?           @unique
   profileVisibility ProfileVisibility @default(PRIVATE)
+  /// Monotonic counter over the account's EVIDENCE SET — bumped when a file or
+  /// link is added, deleted, re-pointed at a different URL, or re-fetched with
+  /// changed content. Never bumped by profile edits: a new headline does not
+  /// make a generated match stale, a deleted portfolio does.
+  ///
+  /// It is what lets a generated Job Match say which evidence it was computed
+  /// from, so a result from before a deletion can be recognised as stale
+  /// instead of being presented as current.
+  evidenceRevision  Int               @default(0)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// The CURRENT profile resume. Applications snapshot the document that was
   /// actually submitted (Application.submittedDocumentId), so replacing this
   /// never rewrites history.
-  resumeDocument    Document?   @relation("CandidateAccountResume", fields: [resumeDocumentId], references: [id], onDelete: SetNull)
-  personalDocuments Document[]  @relation("PersonalDocuments")
+  resumeDocument    Document?       @relation("CandidateAccountResume", fields: [resumeDocumentId], references: [id], onDelete: SetNull)
+  personalDocuments Document[]      @relation("PersonalDocuments")
+  /// The OTHER half of personal evidence. Files and links are independent
+  /// source kinds with independent limits (3 each), never one pooled budget.
+  personalLinks     CandidateLink[]
   candidates        Candidate[]
   savedJobs         SavedJob[]
   conversations     Conversation[]
+  /// The candidate's current ranked job-match snapshot, if one has been run.
+  jobMatchRun       CandidateJobMatchRun?
 
   @@map("candidate_accounts")
+}
+
+/// One professional link a job seeker offers as evidence about themselves —
+/// a portfolio, a public repository, a project page.
+///
+/// This is PERSONAL evidence, exactly like a personal Document: it belongs to
+/// the account, carries no organizationId, and is indexed only into the
+/// physically separate candidate-side Qdrant collection. A recruiter can never
+/// read it. Organizations only ever see ApplicationLinkSource — the frozen copy
+/// made at apply time.
+///
+/// `normalizedUrl` is the identity used for duplicate detection (scheme and
+/// host lowercased, default port and tracking noise dropped, trailing slash on
+/// a bare path removed). It is deliberately NOT aggressive: a path or query
+/// that genuinely selects different content stays part of the identity.
+///
+/// `sections` is the normalized extracted content — the ONLY thing persisted
+/// from the fetch. Raw HTML, images and assets are not stored: they have no
+/// product value and would turn a 3-link profile into an unbounded web cache.
+/// It is kept (rather than re-fetched) because apply must freeze the exact
+/// content the AI saw, and because the page may later change or disappear.
+model CandidateLink {
+  id                 String           @id @default(uuid())
+  candidateAccountId String
+  /// Exactly what the candidate typed, after trimming. Shown back to them.
+  url                String
+  /// Canonical form. Unique per account — the duplicate guard.
+  normalizedUrl      String
+  /// Display label: the candidate's own, else the page's <title>/og:title.
+  /// NEVER treated as proof of identity or ownership (see docs).
+  title              String?
+  /// Soft classification for display only ("GITHUB", "WEBSITE", ...). Never a
+  /// scoring input and never a security boundary.
+  detectedType       String?
+  status             LinkStatus       @default(PENDING)
+  failureCode        LinkFailureCode?
+  /// Developer-facing detail. The UI localizes on `failureCode` instead.
+  failureMessage     String?
+  /// Hash of the normalized extracted text. Lets a re-fetch skip re-embedding
+  /// unchanged content. NEVER used as an authorization or ownership check.
+  contentHash        String?
+  /// Normalized extracted content: [{ name, heading, text }]. Bounded at
+  /// extraction time; see WEB_INGESTION_LIMITS.
+  sections           Json?
+  charCount          Int?
+  pagesFetched       Int?
+  /// "STATIC" or "RENDERED" — which ingestion path produced the content.
+  fetchMode          String?
+  lastFetchedAt      DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  candidateAccount CandidateAccount @relation(fields: [candidateAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateAccountId, normalizedUrl])
+  @@index([candidateAccountId])
+  @@index([candidateAccountId, status])
+  @@map("candidate_links")
 }
 
 /// A vacancy bookmarked by a job seeker. Personal data — never visible to the
@@ -360,11 +475,11 @@ model Vacancy {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy    User                @relation("VacancyCreatedBy", fields: [createdById], references: [id])
-  requirements JobRequirement[]
-  applications Application[]
-  evidence     CandidateEvidence[]
+  organization  Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy     User                     @relation("VacancyCreatedBy", fields: [createdById], references: [id])
+  requirements  JobRequirement[]
+  applications  Application[]
+  evidence      CandidateEvidence[]
   evidenceMaps  RequirementEvidenceMap[]
   savedBy       SavedJob[]
   conversations Conversation[]
@@ -411,13 +526,14 @@ model Candidate {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  candidateAccount CandidateAccount? @relation(fields: [candidateAccountId], references: [id], onDelete: SetNull)
-  applications  Application[]
-  documents     Document[]
-  evidence      CandidateEvidence[]
-  evidenceMaps  RequirementEvidenceMap[]
-  conversations Conversation[]
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidateAccount CandidateAccount?        @relation(fields: [candidateAccountId], references: [id], onDelete: SetNull)
+  applications     Application[]
+  documents        Document[]
+  linkSources      ApplicationLinkSource[]
+  evidence         CandidateEvidence[]
+  evidenceMaps     RequirementEvidenceMap[]
+  conversations    Conversation[]
 
   @@unique([organizationId, candidateAccountId])
   @@index([organizationId])
@@ -426,28 +542,51 @@ model Candidate {
 }
 
 model Application {
-  id          String            @id @default(uuid())
-  vacancyId   String
-  candidateId String
-  status      ApplicationStatus @default(NEW)
+  id                  String            @id @default(uuid())
+  vacancyId           String
+  candidateId         String
+  status              ApplicationStatus @default(NEW)
   /// How this application entered the system. DIRECT — the candidate applied
   /// through HR Copilot themselves — is the ONLY value new rows can carry:
   /// recruiter-created applications were removed from the product. Historical
   /// rows may still read MANUAL_UPLOAD; those associations are deliberately
   /// invisible to the active recruiter workflow (see applicantAssociation()).
-  source      ApplicationSource @default(DIRECT)
-  /// Snapshot of the resume actually submitted with this application (an
-  /// org-scoped copy). Replacing the profile resume later must never change
-  /// what an old application shows.
+  source              ApplicationSource @default(DIRECT)
+  /// The PRIMARY submitted resume — an org-scoped copy, and the one the
+  /// candidate-facing "you applied with X" line names. Every other file the
+  /// candidate submitted with this application is reachable through
+  /// `evidenceDocuments`; this pointer exists because one file has to be the
+  /// resume. Replacing the profile resume later never changes what an old
+  /// application shows.
   submittedDocumentId String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
-  vacancy           Vacancy   @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
-  candidate         Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  submittedDocument Document? @relation("ApplicationSubmittedDocument", fields: [submittedDocumentId], references: [id], onDelete: SetNull)
+  vacancy           Vacancy                 @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  candidate         Candidate               @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  submittedDocument Document?               @relation("ApplicationSubmittedDocument", fields: [submittedDocumentId], references: [id], onDelete: SetNull)
+  /// EVERY org-scoped file copy submitted with this application (≤ 3).
+  evidenceDocuments Document[]              @relation("ApplicationEvidenceDocuments")
+  /// EVERY link snapshot submitted with this application (≤ 3).
+  linkSources       ApplicationLinkSource[]
 
-  @@unique([vacancyId, candidateId])
+  /// Re-application after rejection.
+  ///
+  /// There is deliberately NO plain `@@unique([vacancyId, candidateId])`:
+  /// REJECTED ends one attempt, it does not ban the person from the role
+  /// forever, so a candidate + vacancy pair may hold several rows — one per
+  /// attempt — and the rejected ones stay exactly as they were.
+  ///
+  /// Duplicate protection is NOT dropped, only narrowed: a PARTIAL unique
+  /// index (see migration `20260822_allow_reapply_after_rejection`) enforces
+  /// at most one NON-REJECTED application per pair, in the database, so two
+  /// concurrent submits still cannot both win. REJECTED rows are excluded
+  /// from that index and therefore never occupy the slot; every other status,
+  /// WITHDRAWN included, still blocks — this change is about rejection only.
+  ///
+  /// Prisma cannot express a partial unique index, so it is created in raw
+  /// SQL and this index keeps the pair lookups fast.
+  @@index([vacancyId, candidateId])
   @@index([vacancyId])
   @@index([candidateId])
   @@index([source])
@@ -471,6 +610,23 @@ model Document {
   organizationId     String?
   candidateId        String?
   candidateAccountId String?
+  /// For an ORG-scoped snapshot: the application this copy was submitted with.
+  /// Provenance only — HR retrieval stays candidate-scoped — but it is what
+  /// makes "these are the files this person sent to THIS vacancy" auditable.
+  /// Null on personal documents and on historical snapshots taken before
+  /// multi-file submission existed.
+  applicationId      String?
+  /// LINEAGE: the candidate's PERSONAL document this org-scoped copy was made
+  /// from. The file counterpart of `ApplicationLinkSource.sourceLinkId`, and
+  /// deliberately a plain column with NO foreign key for the same reason: the
+  /// candidate must be able to delete their own file, and a cascade would make
+  /// that deletion an implicit, invisible write into an organization's table.
+  /// The cleanup is explicit instead (CandidateEvidenceLifecycleService), which
+  /// is what lets it also evict vectors and invalidate derived AI artifacts.
+  ///
+  /// Null on personal documents themselves and on snapshots copied before this
+  /// column existed — those cannot be traced back, and are never guessed at.
+  sourceCandidateDocumentId String?
   type               DocumentType   @default(RESUME)
   originalFileName   String
   storageKey         String         @unique
@@ -481,11 +637,15 @@ model Document {
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
-  organization     Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  candidate        Candidate?        @relation(fields: [candidateId], references: [id], onDelete: SetNull)
-  candidateAccount CandidateAccount? @relation("PersonalDocuments", fields: [candidateAccountId], references: [id], onDelete: Cascade)
-  resumeOf         CandidateAccount? @relation("CandidateAccountResume")
-  submittedWith    Application[]     @relation("ApplicationSubmittedDocument")
+  organization     Organization?       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate        Candidate?          @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  candidateAccount CandidateAccount?   @relation("PersonalDocuments", fields: [candidateAccountId], references: [id], onDelete: Cascade)
+  resumeOf         CandidateAccount?   @relation("CandidateAccountResume")
+  submittedWith    Application[]       @relation("ApplicationSubmittedDocument")
+  /// SetNull, not Cascade: an organization's copy of a submitted file is that
+  /// organization's record. Deleting the application row must not destroy the
+  /// evidence a recruiter already reviewed.
+  application      Application?        @relation("ApplicationEvidenceDocuments", fields: [applicationId], references: [id], onDelete: SetNull)
   evidence         CandidateEvidence[]
   processingJobs   ProcessingJob[]
 
@@ -493,38 +653,122 @@ model Document {
   @@index([organizationId, status])
   @@index([candidateId])
   @@index([candidateAccountId])
+  @@index([applicationId])
+  /// The reverse lookup the cascade runs on every personal-file deletion:
+  /// "which organization copies came from this file?"
+  @@index([sourceCandidateDocumentId])
   @@map("documents")
 }
 
-/// Evidence is written by the (future) AI service via the backend — never
-/// invented by backend business logic. Each row points back at the exact
-/// document/page it was extracted from so a human can verify it.
-model CandidateEvidence {
-  id             String       @id @default(uuid())
+/// The URL half of an application's evidence snapshot — the exact counterpart
+/// of the org-scoped Document copy, for links.
+///
+/// Why a separate table rather than a Document row (see docs/evidence-sources):
+/// a URL has no bytes, no MIME type, no page count and no storage key, and
+/// forcing it into those columns would mean writing values that are not true.
+/// What it does have — the submitted URL, the fetched content, a content hash
+/// and a fetch timestamp — has no home on Document.
+///
+/// IMMUTABILITY IS THE POINT. This row owns its own copy of the content:
+/// `sourceLinkId` is a plain column with NO foreign key, so the candidate
+/// deleting, editing or refreshing their personal link cannot alter, cascade
+/// into, or invalidate what an organization already received. An old
+/// application keeps citing what was actually submitted, forever, even after
+/// the original page changes or goes offline.
+model ApplicationLinkSource {
+  id             String  @id @default(uuid())
   organizationId String
   candidateId    String
-  vacancyId      String?
-  requirementId  String?
-  documentId     String
-  pageNumber     Int?
-  section        String?
-  text           String
-  evidenceType   EvidenceType @default(OTHER)
+  applicationId  String
+  /// LINEAGE: the CandidateLink this was copied from. Deliberately no FK — the
+  /// personal link may be deleted at any time and must not cascade into an
+  /// organization's table implicitly. Deletion is handled explicitly by
+  /// CandidateEvidenceLifecycleService, which also evicts the vectors and
+  /// invalidates the derived AI artifacts a plain cascade knows nothing about.
+  sourceLinkId   String?
+
+  url           String
+  normalizedUrl String
+  title         String?
+  detectedType  String?
+
+  /// The normalized content ACTUALLY USED by the AI, frozen at submit time:
+  /// [{ name, heading, text }]. Never re-fetched — HR opening a candidate must
+  /// not trigger an outbound request, and the live page is no longer relevant
+  /// to what was submitted.
+  sections     Json
+  contentHash  String?
+  charCount    Int      @default(0)
+  pagesFetched Int      @default(1)
+  fetchMode    String   @default("STATIC")
+  /// When the submitted content was fetched from the web (not when it was
+  /// submitted) — the two differ and both matter for an audit.
+  fetchedAt    DateTime
+
+  /// Indexing lifecycle of THIS org-scoped copy. Reuses DocumentStatus so the
+  /// recruiter UI renders one status vocabulary for both source kinds.
+  status       DocumentStatus @default(UPLOADED)
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate    Candidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  application  Application         @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  evidence     CandidateEvidence[]
+
+  @@unique([applicationId, normalizedUrl])
+  @@index([organizationId])
+  @@index([organizationId, candidateId])
+  @@index([applicationId])
+  /// The reverse lookup the cascade runs on every personal-link deletion.
+  @@index([sourceLinkId])
+  @@map("application_link_sources")
+}
+
+/// Evidence is written by the AI service via the backend — never invented by
+/// backend business logic. Each row points back at the exact source passage it
+/// came from, so a human can go and check it.
+///
+/// SOURCE-AGNOSTIC: a row cites EITHER a submitted file (`documentId`) OR a
+/// submitted professional link (`linkSourceId`) — never both, never neither.
+/// Postgres cannot express that exclusivity across two nullable FKs
+/// declaratively, so it is enforced at the single write site (see
+/// EvidenceMapService.persistMappings) and guarded by tests.
+///
+/// Both are real foreign keys with ON DELETE CASCADE: a citation must never
+/// outlive the source it points at, or a recruiter follows it to nothing.
+model CandidateEvidence {
+  id               String       @id @default(uuid())
+  organizationId   String
+  candidateId      String
+  vacancyId        String?
+  requirementId    String?
+  /// Set when the passage came from a submitted FILE. Null for link evidence.
+  documentId       String?
+  /// Set when the passage came from a submitted LINK. Null for file evidence.
+  linkSourceId     String?
+  pageNumber       Int?
+  section          String?
+  text             String
+  evidenceType     EvidenceType @default(OTHER)
   /// Stable id of the Qdrant chunk this row was promoted from. Lets a stored
   /// evidence row be traced back to the exact indexed passage, and lets a
   /// re-run recognise the same passage.
-  sourceChunkId  String?
+  sourceChunkId    String?
   /// Set when this row was created by a requirement mapping. Plain search
   /// results are NOT persisted here — only requirement-linked evidence is.
   requirementMapId String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   candidate      Candidate               @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   vacancy        Vacancy?                @relation(fields: [vacancyId], references: [id], onDelete: SetNull)
   requirement    JobRequirement?         @relation(fields: [requirementId], references: [id], onDelete: SetNull)
-  document       Document                @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document       Document?               @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  linkSource     ApplicationLinkSource?  @relation(fields: [linkSourceId], references: [id], onDelete: Cascade)
   requirementMap RequirementEvidenceMap? @relation(fields: [requirementMapId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
@@ -532,6 +776,7 @@ model CandidateEvidence {
   @@index([organizationId, vacancyId])
   @@index([requirementId])
   @@index([documentId])
+  @@index([linkSourceId])
   @@index([requirementMapId])
   @@index([sourceChunkId])
   @@map("candidate_evidence")
@@ -712,4 +957,77 @@ model ProcessingJob {
   @@index([documentId])
   @@index([bullmqJobId])
   @@map("processing_jobs")
+}
+
+/// One completed ranking of EVERY vacancy a candidate was eligible for.
+///
+/// Exists so pagination means "the next slice of the ranking you already have"
+/// rather than "search again and hope the order matches". Without a stored
+/// snapshot, page 2 would be a fresh computation and a vacancy could appear on
+/// both pages or on neither.
+///
+/// One row per candidate: a candidate has exactly one current ranking, and a
+/// re-run replaces it.
+model CandidateJobMatchRun {
+  id                 String   @id @default(uuid())
+  candidateAccountId String   @unique
+  /// The evidence revision this ranking was computed from. A change means the
+  /// candidate's files or links moved and the ranking describes evidence that
+  /// no longer exists.
+  evidenceRevision   Int
+  /// Fingerprint of the eligible vacancy catalogue — count plus the latest
+  /// mutation timestamp. A vacancy opened, edited or closed changes it, which
+  /// is what makes the ranking recompute without a per-vacancy event.
+  vacancyFingerprint String
+  /// How many vacancies were ranked. The total the UI pages through.
+  totalRanked        Int
+  /// How many the backend declared eligible. A gap means the AI index is
+  /// behind the database for some of them.
+  totalEligible      Int      @default(0)
+  /// What the ranking knew about the candidate (skills, role families, which
+  /// sources contributed). Kept for diagnostics and honest reporting.
+  capability         Json?
+  generatedAt        DateTime @default(now())
+
+  candidateAccount CandidateAccount         @relation(fields: [candidateAccountId], references: [id], onDelete: Cascade)
+  entries          CandidateJobMatchEntry[]
+
+  @@map("candidate_job_match_runs")
+}
+
+/// One vacancy's place in a ranking.
+model CandidateJobMatchEntry {
+  id        String @id @default(uuid())
+  runId     String
+  vacancyId String
+  /// 1-based position. Ordering is (score desc, vacancyId asc) — the tiebreak
+  /// is load-bearing, because pagination slices this list and two vacancies on
+  /// the same score must not swap places between page 1 and page 2.
+  rank      Int
+  /// 0-100. Orders the list; never a probability of being hired.
+  score     Int
+  /// STRONG | PARTIAL | WEAK, derived from `score` so the two cannot disagree.
+  tier      String
+  /// Per-signal breakdown, for diagnostics and for explaining the position.
+  signals   Json
+  matchedSkills String[] @default([])
+  missingSkills String[] @default([])
+  supportedRequirements   Json
+  unsupportedRequirements Json
+  unclearRequirements     Json
+  /// The candidate's own passages that supported this match, with provenance.
+  evidence  Json
+  /// Generated prose keyed by locale: `{ "en": "...", "ko": "..." }`.
+  ///
+  /// ONE ranking row carrying several translations, deliberately — duplicating
+  /// the whole ranking per locale would mean four snapshots that could drift
+  /// apart, when the ranking itself is locale-independent (it compares evidence
+  /// to requirements, not words to words).
+  explanations Json?
+
+  run CandidateJobMatchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, vacancyId])
+  @@index([runId, rank])
+  @@map("candidate_job_match_entries")
 }

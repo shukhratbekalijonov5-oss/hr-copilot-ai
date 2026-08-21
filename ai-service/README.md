@@ -97,7 +97,9 @@ routes are for the backend only and must never be exposed to a browser.
 | POST   | `/internal/documents/process`| multipart: parse → chunk → embed → index |
 | POST   | `/internal/search`           | semantic evidence search                 |
 | POST   | `/internal/rerank`           | reorder supplied passages                |
-| POST   | `/internal/documents/delete` | remove a document's vectors              |
+| POST   | `/internal/documents/delete` | remove a document's (or web source's) vectors |
+| POST   | `/internal/web-sources/index`| index an application's link snapshot (org-scoped) |
+| POST   | `/internal/candidate/web-sources/index` | index a personal link (candidate-scoped) |
 
 ### Internal authentication
 
@@ -208,10 +210,26 @@ ranked the generic Summary chunk first. Splitting it fixed the ranking.
 ```
 organizationId  candidateId  documentId  section
 pageNumber      chunkIndex   text        fileName  documentType
+sourceType      sourceId     sourceTitle sourceUrl
 ```
 
 No signed URLs, storage keys or credentials: a leak of the vector store must
-not become a leak of the documents.
+not become a leak of the documents. `sourceUrl` is the PUBLIC page a candidate
+submitted a link to — it is meant to be shown in a citation.
+
+**Source-agnostic by design.** `documentId` is the SOURCE key for both kinds of
+evidence — a Document id for a file, an ApplicationLinkSource / CandidateLink id
+for a professional link — which is what keeps deletion, idempotent re-indexing
+and per-source filtering a single code path. `sourceType` is `FILE` or `URL`;
+absent means FILE, so chunks indexed before URL evidence existed keep working
+with no reindex. A FILE passage is located by `pageNumber`, a URL passage by
+`sourceUrl` (which may be a subpage of the submitted link).
+
+**This service performs no network egress to candidate-supplied destinations.**
+The backend fetches, bounds and normalizes a page (SSRF policy, redirect
+revalidation, size/time caps, robots.txt, optional headless rendering) and sends
+sections of text through `/internal/web-sources/index`. See
+`backend/docs/evidence-sources.md` for the full boundary.
 
 ---
 

@@ -189,20 +189,33 @@ class QdrantStore:
         limit: int,
         candidate_id: str | None = None,
         document_id: str | None = None,
+        allowed_source_ids: list[str] | None = None,
     ) -> list[SearchHit]:
         """Vector search, always constrained to one organization.
 
         ``organization_id`` is keyword-only and required: there is deliberately
         no way to call this without a tenant filter.
+
+        ``allowed_source_ids`` restricts the search to sources that CURRENTLY
+        exist — see ``AllowedSourceIds`` in the schemas. An EMPTY list is not
+        the same as ``None``: it means the candidate has no surviving evidence
+        at all, and it must return nothing rather than everything. Getting that
+        backwards would turn the deletion guarantee into its exact opposite,
+        so it is handled explicitly instead of relying on falsiness.
         """
         if not organization_id:
             raise ValueError("organization_id is required for every search")
+
+        if allowed_source_ids is not None and len(allowed_source_ids) == 0:
+            return []
 
         must: list[Any] = [_match("organizationId", organization_id)]
         if candidate_id:
             must.append(_match("candidateId", candidate_id))
         if document_id:
             must.append(_match("documentId", document_id))
+        if allowed_source_ids:
+            must.append(_match_any("documentId", allowed_source_ids))
 
         try:
             response = self._client.query_points(
@@ -267,7 +280,16 @@ def build_payload(chunk) -> dict[str, Any]:
 
     Carries exactly what a citation needs plus the tenant key. It deliberately
     does NOT contain signed URLs, storage keys or credentials — a leak of the
-    vector store must not become a leak of the documents themselves.
+    vector store must not become a leak of the documents themselves. The
+    ``sourceUrl`` of a URL chunk is the PUBLIC page a candidate submitted, not
+    an internal address, and is meant to be shown.
+
+    ``documentId`` is the source key for BOTH kinds of evidence — a Document id
+    for a file, an ApplicationLinkSource id for a link — which is what lets
+    deletion, idempotent re-indexing and per-source filtering stay a single
+    code path. ``sourceId`` is the same value under the name the rest of the
+    system uses; it is duplicated rather than renamed so chunks indexed before
+    URL evidence existed keep working untouched.
     """
     return {
         # Stable, deterministic identity for this chunk. Citations reference
@@ -282,6 +304,10 @@ def build_payload(chunk) -> dict[str, Any]:
         "text": chunk.text,
         "fileName": chunk.file_name,
         "documentType": chunk.document_type,
+        "sourceType": getattr(chunk, "source_type", "FILE"),
+        "sourceId": chunk.document_id,
+        "sourceTitle": chunk.file_name,
+        "sourceUrl": getattr(chunk, "source_url", None),
     }
 
 
@@ -292,3 +318,14 @@ def _is_missing_collection(exc: Exception) -> bool:
 
 def _match(field: str, value: str):
     return qmodels.FieldCondition(key=field, match=qmodels.MatchValue(value=value))
+
+
+def _match_any(field: str, values: list[str]):
+    """Membership condition — the source allowlist's mechanism.
+
+    Applied in Qdrant rather than after retrieval on purpose: filtering
+    afterwards would silently shrink an already-truncated result set, so a
+    deleted source could push a live passage out of the top-N and out of the
+    answer. Filtering first means the N returned are N the caller may use.
+    """
+    return qmodels.FieldCondition(key=field, match=qmodels.MatchAny(any=values))

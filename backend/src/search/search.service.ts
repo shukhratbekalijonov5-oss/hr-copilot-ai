@@ -16,9 +16,18 @@ import {
   type EvidenceSearchHit,
   type EvidenceSearchResult as AiEvidenceSearchResult,
 } from '../ai/ai-service.client';
+import type { EvidenceSourceType } from '../common/evidence/evidence-source';
 import type { EvidenceSearchDto } from './dto/evidence-search.dto';
 
-/** One passage, enriched with the candidate/document context the UI needs. */
+/**
+ * One passage, enriched with the candidate/source context the UI needs.
+ *
+ * `documentId` is the SOURCE key — a Document id for a file, an
+ * ApplicationLinkSource id for a link — so the result card can address either
+ * kind uniformly. `sourceType` tells the UI which one it is, and therefore
+ * whether "page 2" or "portfolio.example.com/projects" is the right thing to
+ * show underneath.
+ */
 export interface EvidenceResult {
   candidateId: string | null;
   candidateName: string | null;
@@ -27,6 +36,9 @@ export interface EvidenceResult {
   section: string | null;
   pageNumber: number | null;
   text: string;
+  sourceType: EvidenceSourceType;
+  sourceTitle: string | null;
+  sourceUrl: string | null;
   /**
    * How well this passage matches the query. NOT a candidate score, a hiring
    * score, or a probability of success.
@@ -120,13 +132,21 @@ export class SearchService {
       );
     }
     if (dto.documentId) {
-      this.tenant.assertFound(
-        await this.prisma.document.findFirst({
+      // A source filter may name either kind of evidence — a submitted file or
+      // a submitted link — because both occupy one key space in the index.
+      // Either way it must belong to THIS organization before it reaches the
+      // AI service, so a probing id cannot be used to test another org's data.
+      const [document, linkSource] = await Promise.all([
+        this.prisma.document.findFirst({
           where: { id: dto.documentId, ...this.tenant.scope(organizationId) },
           select: { id: true },
         }),
-        'Document',
-      );
+        this.prisma.applicationLinkSource.findFirst({
+          where: { id: dto.documentId, ...this.tenant.scope(organizationId) },
+          select: { id: true },
+        }),
+      ]);
+      this.tenant.assertFound(document ?? linkSource, 'Document');
     }
 
     const limit = dto.limit ?? 10;
@@ -154,9 +174,20 @@ export class SearchService {
     // candidate is not a current applicant of this organization (a legacy
     // recruiter-uploaded file, or a foreign id the index returned) resolves to
     // no name and is dropped rather than shown without context.
-    const names = await this.applicantNames(organizationId, result.hits);
+    //
+    // The SOURCE filter alongside it is the deletion guarantee. This search is
+    // organization-wide, so there is no small set of allowed source ids to send
+    // the index — the surviving set is resolved for the handful of sources the
+    // index actually returned instead. A term that exists only inside a file or
+    // link the candidate has withdrawn therefore stops finding them, whether or
+    // not the vectors have physically been evicted yet.
+    const [names, liveSources] = await Promise.all([
+      this.applicantNames(organizationId, result.hits),
+      this.survivingSourceIds(organizationId, result.hits),
+    ]);
     const hits = result.hits
       .filter((hit) => hit.documentId)
+      .filter((hit) => liveSources.has(hit.documentId))
       .filter((hit) => hit.candidateId !== null && names.has(hit.candidateId))
       .filter(
         (hit) =>
@@ -174,6 +205,12 @@ export class SearchService {
         section: hit.section,
         pageNumber: hit.pageNumber,
         text: hit.text,
+        // Chunks indexed before URL evidence existed carry no sourceType;
+        // they are files, and defaulting keeps them rendering correctly
+        // without a reindex.
+        sourceType: hit.sourceType ?? 'FILE',
+        sourceTitle: hit.sourceTitle ?? hit.fileName,
+        sourceUrl: hit.sourceUrl ?? null,
         relevance: {
           retrievalScore: hit.retrievalScore,
           rerankScore: hit.rerankScore,
@@ -183,6 +220,41 @@ export class SearchService {
       totalConsidered: result.totalCandidatesConsidered,
       durationMs: result.durationMs,
     };
+  }
+
+  /**
+   * Which of these hits' sources STILL EXIST in this organization.
+   *
+   * A hit's `documentId` is the source key for either kind — a submitted file
+   * or a submitted link snapshot — so both tables are consulted and the result
+   * is one set of ids. Only the ids the index actually returned are looked up,
+   * so this is a bounded query however large the organization's corpus is.
+   *
+   * This is the search-side half of the rule that deleted evidence stops
+   * existing: the vectors may outlive the row for as long as an eviction is
+   * retrying, and this makes them unusable in the meantime.
+   */
+  private async survivingSourceIds(
+    organizationId: string,
+    hits: EvidenceSearchHit[],
+  ): Promise<Set<string>> {
+    const ids = [...new Set(hits.map((h) => h.documentId).filter(Boolean))];
+    if (ids.length === 0) return new Set();
+
+    const [documents, linkSources] = await Promise.all([
+      this.prisma.document.findMany({
+        where: { id: { in: ids }, ...this.tenant.scope(organizationId) },
+        select: { id: true },
+      }),
+      this.prisma.applicationLinkSource.findMany({
+        where: { id: { in: ids }, ...this.tenant.scope(organizationId) },
+        select: { id: true },
+      }),
+    ]);
+    return new Set([
+      ...documents.map((d) => d.id),
+      ...linkSources.map((s) => s.id),
+    ]);
   }
 
   /**

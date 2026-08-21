@@ -1,5 +1,6 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DocumentProcessingProducer } from '../queue/document-processing.producer';
 import { TenantService } from '../common/tenant/tenant.service';
 import { ChatService } from '../chat/chat.service';
 import { DomainEventsService } from '../common/events/domain-events.service';
@@ -29,12 +30,15 @@ export interface InviteToInterviewResult {
  */
 @Injectable()
 export class ApplicationsService {
+  private readonly logger = new Logger(ApplicationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantService,
     private readonly chat: ChatService,
     private readonly events: DomainEventsService,
     private readonly ownedVacancies: OwnedVacancyService,
+    private readonly producer: DocumentProcessingProducer,
   ) {}
 
   async findAll(
@@ -326,6 +330,14 @@ export class ApplicationsService {
       application.vacancyId,
     );
 
+    // Link snapshots are owned by their application and cascade with it, so
+    // their ids are read BEFORE the delete — afterwards there is nothing left
+    // to tell the index which vectors to evict.
+    const linkSources = await this.prisma.applicationLinkSource.findMany({
+      where: { applicationId: id, organizationId },
+      select: { id: true },
+    });
+
     // One transaction: a failed purge rolls the deletion back, so neither
     // "application gone, chat alive" nor "chat gone, application alive" is
     // observable.
@@ -338,6 +350,24 @@ export class ApplicationsService {
         });
       await tx.application.delete({ where: { id } });
     });
+
+    // Best effort, after commit: the rows are already gone, and a failure here
+    // leaves only stale vectors — surfaced loudly rather than turning a
+    // successful delete into an error.
+    for (const source of linkSources) {
+      try {
+        await this.producer.enqueueApplicationLinkIndexDeletion({
+          linkSourceId: source.id,
+          organizationId,
+          candidateId: application.candidateId,
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Application ${id} deleted, but link source ${source.id} vectors ` +
+            `could not be evicted: ${(error as Error).message}`,
+        );
+      }
+    }
 
     // After commit, and only if a conversation actually existed.
     if (deletedConversationIds.length > 0) {

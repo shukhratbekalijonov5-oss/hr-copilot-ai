@@ -9,9 +9,9 @@ HR creates a Vacancy
         ↓
 CandidateAccount discovers it (public job board)
         ↓
-Candidate uploads their OWN resume and applies
+Candidate maintains their OWN evidence — up to 3 files and 3 links — and applies
         ↓
-Application (source = DIRECT) + org-scoped snapshot of that resume
+Application (source = DIRECT) + org-scoped snapshot of EVERY submitted source
         ↓
 The vacancy's CREATOR gets NEW_APPLICATION
         ↓
@@ -27,6 +27,7 @@ Interview invitation (unlocks the chat) or rejection
 | `POST /candidates` — recruiter creates a candidate into a vacancy | **404**, route gone |
 | `POST /applications` — recruiter attaches an existing candidate to a vacancy | **404**, route gone |
 | `POST /documents` — recruiter uploads a CV for a candidate | **404**, route gone |
+| any recruiter route that writes a candidate's professional links | never existed, and must not — see `evidence-sources.md` |
 | `Document.uploadedById` (uploading HR, for processing notifications) | column dropped |
 | `DOCUMENT_PROCESSING_COMPLETED` / `_FAILED` notifications | types dropped — no trigger can exist |
 | `chatAvailable` / `NO_CANDIDATE_ACCOUNT` on invite | gone — every applicant has an account |
@@ -71,6 +72,12 @@ Two disjoint stores, and removing HR upload does not merge them:
   into the tenant collection. This is the only evidence recruiter AI sees,
   and it exists because the candidate submitted it to that vacancy.
 
-Replacing or deleting a personal document never rewrites an application's
-history: the snapshot is a separate object under the organization's
-namespace.
+Deleting a personal document WITHDRAWS it from the organizations it was
+submitted to as well: the org-scoped copy, its vectors, its citations and the
+requirement verdicts built on them all go. The APPLICATION survives — its row,
+status, vacancy association, chat and history are untouched — so an application
+whose evidence was withdrawn simply has no current evidence. A candidate owns
+their evidence and can take it back. See `evidence-sources.md` §2 and §13.
+
+What is never rewritten is submitted CONTENT: refreshing a link or editing a
+profile does not change what a recruiter already read.

@@ -31,10 +31,11 @@ import type { JobMatch, JobMatchStrength, MatchRequirement } from "@/lib/types";
  */
 export function MatchCard({
   match,
-  generated,
+  pending,
 }: {
   match: JobMatch;
-  generated: boolean;
+  /** Prose for this page is still being written; not the same as failed. */
+  pending: boolean;
 }) {
   const { d } = useI18n();
   const { vacancy } = match;
@@ -93,12 +94,20 @@ export function MatchCard({
         <p className="rounded-lg border border-line bg-surface-muted/40 px-3 py-2.5 text-[13.5px] leading-relaxed text-ink">
           {match.explanation}
         </p>
-      ) : !generated ? (
+      ) : (
         <p className="flex items-start gap-2 rounded-lg bg-surface-muted/60 px-3 py-2 text-[12.5px] leading-relaxed text-ink-muted">
           <SparkIcon className="mt-px size-4 shrink-0" />
-          {d.jobMatch.explanationUnavailable}
+          {/*
+            "Still being written" and "unavailable" look identical on a card
+            and mean opposite things. The requirement breakdown below is
+            complete and deterministic either way — the prose is the only part
+            that waits.
+          */}
+          {pending
+            ? d.jobMatch.explanationPending
+            : d.jobMatch.explanationUnavailable}
         </p>
-      ) : null}
+      )}
 
       <RequirementBreakdown match={match} />
 

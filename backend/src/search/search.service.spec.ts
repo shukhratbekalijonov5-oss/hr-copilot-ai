@@ -43,7 +43,19 @@ describe('SearchService', () => {
           .fn()
           .mockResolvedValue([{ id: 'cand-1', fullName: 'Ji-woo Han' }]),
       },
-      document: { findFirst: jest.fn().mockResolvedValue({ id: 'doc-1' }) },
+      document: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'doc-1' }),
+        // The surviving-source lookup: by default every returned hit's source
+        // still exists, so results pass through. A test that deletes a source
+        // makes this return without it.
+        findMany: jest.fn().mockResolvedValue([{ id: 'doc-1' }]),
+      },
+      // A source filter may name a submitted FILE or a submitted LINK; both
+      // are checked against the tenant before anything leaves the backend.
+      applicationLinkSource: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       vacancy: {
         findFirst: jest.fn().mockResolvedValue({
           id: 'vac-1',
@@ -98,8 +110,9 @@ describe('SearchService', () => {
       expect(ai.searchEvidence).not.toHaveBeenCalled();
     });
 
-    it('rejects a document filter from another organization', async () => {
+    it('rejects a source filter from another organization', async () => {
       prisma.document.findFirst.mockResolvedValue(null);
+      prisma.applicationLinkSource.findFirst.mockResolvedValue(null);
 
       await expect(
         service.searchEvidence(ORG_A, 'hr-a', {
@@ -108,6 +121,26 @@ describe('SearchService', () => {
         }),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(ai.searchEvidence).not.toHaveBeenCalled();
+    });
+
+    it('accepts a filter naming a submitted LINK, not just a file', async () => {
+      // Files and link snapshots share one key space in the index, so the
+      // filter has to resolve against either — scoped to this tenant.
+      prisma.document.findFirst.mockResolvedValue(null);
+      prisma.applicationLinkSource.findFirst.mockResolvedValue({
+        id: 'link-src-1',
+      });
+
+      await expect(
+        service.searchEvidence(ORG_A, 'hr-a', {
+          query: 'kubernetes',
+          documentId: 'link-src-1',
+        }),
+      ).resolves.toBeDefined();
+      expect(
+        prisma.applicationLinkSource.findFirst.mock.calls[0][0].where
+          .organizationId,
+      ).toBe(ORG_A);
     });
 
     it('resolves candidate names scoped to the organization', async () => {

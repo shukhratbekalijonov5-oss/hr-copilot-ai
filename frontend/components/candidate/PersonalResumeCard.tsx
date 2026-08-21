@@ -6,10 +6,11 @@ import {
   deletePersonalDocumentAction,
   getPersonalDocumentUrlAction,
   getPersonalResumeUrlAction,
-  uploadPersonalDocumentAction,
 } from "@/app/(candidate)/actions";
+import { uploadPersonalDocument } from "@/lib/candidate/upload-document";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AlertIcon, FileIcon, UploadIcon } from "@/components/ui/icons";
 import { DocumentStatusBadge } from "@/components/ui/StatusBadge";
 import { useI18n } from "@/lib/i18n/context";
@@ -19,7 +20,11 @@ import {
 } from "@/lib/constants";
 import { localizedDocumentError } from "@/lib/documents/errors";
 import { formatFileSize } from "@/lib/utils";
-import type { PersonalDocumentCollection, PersonalResume } from "@/lib/types";
+import type {
+  PersonalDocument,
+  PersonalDocumentCollection,
+  PersonalResume,
+} from "@/lib/types";
 
 /**
  * The personal resume.
@@ -42,16 +47,23 @@ export function PersonalResumeCard({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [error, setError] = useState<string | null>(null);
+  // Uploading is its own state rather than a transition: the bytes go straight
+  // to a route handler over `fetch`, not through a Server Action, so there is
+  // no action for a transition to track.
+  const [uploading, setUploading] = useState(false);
   const [pending, startTransition] = useTransition();
   const [opening, startOpen] = useTransition();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Deleting a file also withdraws it from applications already submitted, so
+  // it is confirmed rather than done on a single click.
+  const [confirming, setConfirming] = useState<PersonalDocument | null>(null);
 
   const documents = collection.documents;
   const primaryDocumentId = collection.primaryDocumentId ?? resume?.id ?? null;
   const atLimit = collection.remaining <= 0;
 
   function upload(file: File | undefined) {
-    if (!file || pending) return;
+    if (!file || pending || uploading) return;
     setError(null);
 
     const extension = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
@@ -74,11 +86,13 @@ export function PersonalResumeCard({
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
+    setUploading(true);
+    void (async () => {
+      // Posted as multipart to a route handler, NOT serialised into a Server
+      // Action payload — that is what the 1 MB action body limit applied to.
+      const result = await uploadPersonalDocument(file);
+      setUploading(false);
 
-    startTransition(async () => {
-      const result = await uploadPersonalDocumentAction(formData);
       if (!result.ok) {
         setError(
           localizedDocumentError(
@@ -89,8 +103,10 @@ export function PersonalResumeCard({
         );
         return;
       }
-      router.refresh();
-    });
+      // The page reads its documents with `no-store`, so re-rendering the route
+      // is enough to show the new file.
+      startTransition(() => router.refresh());
+    })();
   }
 
   /** Signed URLs are short-lived, so one is minted at the moment of opening. */
@@ -106,7 +122,7 @@ export function PersonalResumeCard({
   }
 
   function remove(documentId: string) {
-    if (deletingId || pending) return;
+    if (deletingId || pending || uploading) return;
     setError(null);
     setDeletingId(documentId);
     startTransition(async () => {
@@ -122,6 +138,9 @@ export function PersonalResumeCard({
         );
         return;
       }
+      setConfirming(null);
+      // The list is re-read from the backend; nothing is kept locally that
+      // could disagree with what was actually saved.
       router.refresh();
     });
   }
@@ -189,7 +208,10 @@ export function PersonalResumeCard({
                   size="sm"
                   loading={deletingId === document.id}
                   disabled={pending}
-                  onClick={() => remove(document.id)}
+                  onClick={() => {
+                    setError(null);
+                    setConfirming(document);
+                  }}
                 >
                   {d.candidateProfile.deleteDocument}
                 </Button>
@@ -207,12 +229,12 @@ export function PersonalResumeCard({
             type="button"
             variant={documents.length > 0 ? "secondary" : "primary"}
             size="sm"
-            loading={pending}
-            disabled={pending || atLimit}
+            loading={uploading}
+            disabled={pending || uploading || atLimit}
             icon={<UploadIcon className="size-4" />}
             onClick={() => inputRef.current?.click()}
           >
-            {pending
+            {uploading
               ? d.candidateProfile.uploading
               : documents.length > 0
                 ? d.candidateProfile.addDocument
@@ -241,6 +263,20 @@ export function PersonalResumeCard({
             ? d.candidateProfile.documentLimitReached
             : d.candidateProfile.personalResumeNote}
         </p>
+
+        <ConfirmDialog
+          open={confirming !== null}
+          title={d.candidateProfile.confirmDeleteTitle}
+          question={f(d.candidateProfile.confirmDeleteQuestion, {
+            name: confirming?.originalFileName ?? "",
+          })}
+          consequence={d.candidateProfile.confirmDeleteConsequence}
+          confirmLabel={d.candidateProfile.deleteDocument}
+          error={error}
+          pending={pending}
+          onConfirm={() => confirming && remove(confirming.id)}
+          onCancel={() => setConfirming(null)}
+        />
       </CardBody>
     </Card>
   );

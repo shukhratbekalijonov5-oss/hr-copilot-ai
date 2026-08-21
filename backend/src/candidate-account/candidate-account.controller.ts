@@ -74,6 +74,20 @@ export class CandidateAccountController {
     return this.service.getResumeDownload(userId);
   }
 
+  /**
+   * The caller's evidence state: how many files and links they currently have,
+   * and the revision those counts are at.
+   *
+   * Cheap (two counts) and deliberately separate from the collections, because
+   * the screens that need it — the Job Match gate and its staleness check —
+   * need the numbers and not the rows. The revision is what lets a rendered
+   * match result say whether it still describes the current evidence.
+   */
+  @Get('me/evidence')
+  evidence(@CurrentUser('id') userId: string) {
+    return this.service.getEvidenceState(userId);
+  }
+
   // -- Personal document collection (max 3 files, owner-only) --------------
 
   @Get('me/documents')

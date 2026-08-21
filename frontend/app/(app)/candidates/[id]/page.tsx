@@ -94,10 +94,21 @@ export default async function CandidateDetailPage(
   const requested = selectedVacancyId(searchParams);
   const { selected, invalid } = resolveVacancySelection(eligible, requested);
 
+  /**
+   * The CURRENT attempt in the active vacancy.
+   *
+   * A candidate may hold several applications to one vacancy — a rejection
+   * ends an attempt without ending the relationship — so the newest is the
+   * live one. Taking the first match would let an old rejected attempt show
+   * as the candidate's stage.
+   */
   const activeApplication =
-    candidate.applications.find(
-      (application) => application.vacancyId === selected?.id,
-    ) ?? null;
+    candidate.applications
+      .filter((application) => application.vacancyId === selected?.id)
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )[0] ?? null;
 
   /**
    * Read for the ACTIVE vacancy only. A plain read with no LLM in the path, so

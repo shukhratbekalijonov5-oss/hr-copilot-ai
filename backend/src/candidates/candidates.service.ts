@@ -73,6 +73,19 @@ export class CandidatesService {
     return paginated(data, total, query.page, query.limit);
   }
 
+  /**
+   * One applicant, with every evidence source they submitted to THIS
+   * organization: the file copies and the link snapshots.
+   *
+   * `linkSources` is strictly READ-ONLY here and has no write counterpart
+   * anywhere in the recruiter API. A recruiter sees the links a person chose
+   * to send them, frozen as submitted — never the candidate's current personal
+   * links, which live in a different table this query cannot reach.
+   *
+   * `sections` is deliberately not selected: the extracted text is retrieval
+   * input, and a recruiter reads it through grounded answers and citations,
+   * not as a raw dump of somebody's website.
+   */
   async findOne(organizationId: string, id: string) {
     const candidate = await this.prisma.candidate.findFirst({
       where: {
@@ -96,6 +109,22 @@ export class CandidatesService {
             originalFileName: true,
             status: true,
             pageCount: true,
+            applicationId: true,
+            createdAt: true,
+          },
+        },
+        linkSources: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            url: true,
+            title: true,
+            detectedType: true,
+            status: true,
+            charCount: true,
+            pagesFetched: true,
+            fetchedAt: true,
+            applicationId: true,
             createdAt: true,
           },
         },

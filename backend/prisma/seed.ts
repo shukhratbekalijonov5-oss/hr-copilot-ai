@@ -303,18 +303,23 @@ async function main(): Promise<void> {
     });
     // Stages differ so the pipeline UI has something to show; a human moved
     // each one — nothing here was decided by the system.
-    await prisma.application.upsert({
-      where: {
-        vacancyId_candidateId: { vacancyId: vacancy.id, candidateId: candidate.id },
-      },
-      update: {},
-      create: {
-        vacancyId: vacancy.id,
-        candidateId: candidate.id,
-        status: seed.status,
-        source: ApplicationSource.DIRECT,
-      },
+    // Idempotent by hand rather than by upsert: (vacancy, candidate) is no
+    // longer a unique key — a candidate may hold several attempts once an
+    // earlier one was rejected — so there is no compound id to upsert on.
+    const existingApplication = await prisma.application.findFirst({
+      where: { vacancyId: vacancy.id, candidateId: candidate.id },
+      select: { id: true },
     });
+    if (!existingApplication) {
+      await prisma.application.create({
+        data: {
+          vacancyId: vacancy.id,
+          candidateId: candidate.id,
+          status: seed.status,
+          source: ApplicationSource.DIRECT,
+        },
+      });
+    }
     applicants.push(candidate.id);
   }
 

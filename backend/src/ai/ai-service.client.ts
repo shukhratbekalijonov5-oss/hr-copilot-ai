@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { EvidenceSourceType } from '../common/evidence/evidence-source';
 
 /**
  * Boundary to the Python FastAPI AI service.
@@ -76,6 +77,11 @@ export interface EvidenceSearchFilters {
  */
 export interface EvidenceSearchHit {
   candidateId: string | null;
+  /**
+   * Storage key of the source this passage came from — a Document id for a
+   * FILE, an ApplicationLinkSource id for a URL. One key space, so deletion
+   * and idempotent re-indexing work identically for both.
+   */
   documentId: string;
   fileName: string | null;
   section: string | null;
@@ -84,6 +90,12 @@ export interface EvidenceSearchHit {
   text: string;
   retrievalScore: number;
   rerankScore: number | null;
+  /** FILE unless stated otherwise — chunks indexed before links existed. */
+  sourceType?: EvidenceSourceType;
+  /** Human-readable source name ("Resume.pdf", "Portfolio Website"). */
+  sourceTitle?: string | null;
+  /** The page this passage came from. URL sources only. */
+  sourceUrl?: string | null;
 }
 
 export interface EvidenceSearchResult {
@@ -114,7 +126,18 @@ export interface AiVacancyContext {
   requirements: { text: string; required: boolean }[];
 }
 
-/** A verified pointer back to the passage supporting a claim. */
+/**
+ * A verified pointer back to the passage supporting a claim.
+ *
+ * Source-agnostic on purpose: `sourceType` says whether a recruiter should be
+ * shown "Resume.pdf · page 2" or "Portfolio Website · Projects ·
+ * portfolio.example.com/projects". Collapsing both into "candidate evidence"
+ * would hide where a claim actually came from, which is the one thing a
+ * citation exists to tell you.
+ *
+ * `sourceType`/`sourceUrl`/`sourceTitle` are optional so citations produced
+ * from chunks indexed before links existed still parse; absent means FILE.
+ */
 export interface AiCitation {
   chunkId: string;
   documentId: string;
@@ -122,6 +145,9 @@ export interface AiCitation {
   pageNumber: number | null;
   section: string | null;
   text: string;
+  sourceType?: EvidenceSourceType;
+  sourceTitle?: string | null;
+  sourceUrl?: string | null;
 }
 
 /**
@@ -201,6 +227,42 @@ export interface AiHealthResult {
   checks: Record<string, { status: 'up' | 'down'; error?: string | null }>;
 }
 
+// --- Web (URL) evidence sources ---------------------------------------------
+//
+// The mirror image of processDocument: the backend has ALREADY fetched,
+// bounded and normalized the page (see src/web-ingestion), so what crosses
+// this boundary is plain text sections — never a URL for the AI service to
+// fetch. The AI service performs no network egress to candidate-supplied
+// destinations, and this contract is what makes that structurally true.
+
+export interface AiEvidenceSection {
+  /** Canonical section name (summary/experience/projects/...), when known. */
+  name: string | null;
+  /** The heading as written on the page. */
+  heading: string | null;
+  text: string;
+  /** The exact page this text came from — may be a subpage of the link. */
+  url: string | null;
+}
+
+export interface IndexWebSourceInput {
+  /** Stable id of the source row. Becomes the chunk key, so re-indexing is idempotent. */
+  sourceId: string;
+  /** Human-readable source name for citations ("Portfolio Website"). */
+  title: string;
+  /** The submitted link. Shown in citations; never fetched by the AI service. */
+  url: string;
+  detectedType?: string | null;
+  sections: AiEvidenceSection[];
+}
+
+export interface IndexWebSourceResult {
+  sourceId: string;
+  chunksCreated: number;
+  vectorsIndexed: number;
+  durationMs: number;
+}
+
 // --- Candidate-side (Job Match) ---------------------------------------------
 // These contracts are keyed by candidateAccountId — the caller's OWN account,
 // derived server-side — and touch only the candidate-scoped collections.
@@ -256,14 +318,28 @@ export interface AiMatchEvidence {
   pageNumber: number | null;
   section: string | null;
   text: string;
+  /** Lets Job Match say "Portfolio Website · DevOps Project", not just a name. */
+  sourceType?: EvidenceSourceType;
+  sourceUrl?: string | null;
 }
 
 export interface AiJobMatch {
   vacancyId: string;
   organizationId: string;
   title: string;
-  /** Deterministic evidence-coverage label — never an LLM judgement. */
+  /** Categorical label, DERIVED from `score` so the two cannot disagree. */
   match: JobMatchLabel;
+  /**
+   * 0-100. Orders the ranked list and nothing else — not a probability of
+   * being hired and not a percentage of the role the person can do.
+   */
+  score: number;
+  /** 1-based position in the FULL ranked list. Stable for one run. */
+  rank: number;
+  /** Per-signal breakdown (semantic/required/preferred/skills/roleFamily). */
+  signals: Record<string, number>;
+  matchedSkills: string[];
+  missingSkills: string[];
   explanation: string | null;
   supportedRequirements: AiRequirementCheck[];
   unsupportedRequirements: AiRequirementCheck[];
@@ -272,10 +348,14 @@ export interface AiJobMatch {
 }
 
 export interface AiJobMatchResult {
+  /** EVERY eligible vacancy, ranked strongest to weakest. Not a page. */
   matches: AiJobMatch[];
   locale: SupportedLocale;
   vacanciesConsidered: number;
+  eligibleConsidered: number;
   generated: boolean;
+  /** Skills, role families and contributing sources the ranking actually saw. */
+  capability: Record<string, unknown>;
   durationMs: number;
 }
 
@@ -395,6 +475,21 @@ export class AiServiceClient {
     vacancy?: AiVacancyContext | null;
     locale: SupportedLocale;
     limit?: number;
+    /**
+     * The source ids the AI service may retrieve for this request — the files
+     * and link snapshots that CURRENTLY exist for this candidate.
+     *
+     * This is authorization, not optimisation. Physical vector cleanup can lag
+     * (a Qdrant outage, a retrying job), and without this list a passage from a
+     * source the candidate deleted an hour ago could still be retrieved and
+     * cited. With it, a stale vector is inert: the filter is derived from the
+     * database rows, which the delete already removed.
+     *
+     * `null`/omitted means "no source restriction" and is only correct where the
+     * caller has no candidate to scope by (the org-wide AI Search answer, which
+     * is filtered against surviving sources on the way back instead).
+     */
+    allowedSourceIds?: string[] | null;
   }): Promise<AiRagResult> {
     this.assertEnabled('answer a question');
     return this.request<AiRagResult>('/internal/rag', {
@@ -405,6 +500,7 @@ export class AiServiceClient {
       vacancy: input.vacancy ?? null,
       locale: input.locale,
       limit: input.limit ?? 8,
+      allowedSourceIds: input.allowedSourceIds ?? null,
     });
   }
 
@@ -420,6 +516,8 @@ export class AiServiceClient {
     locale: SupportedLocale;
     vacancy?: AiVacancyContext | null;
     limit?: number;
+    /** See answerQuestion — surviving sources only. */
+    allowedSourceIds?: string[] | null;
   }): Promise<AiCandidateSummaryResult> {
     this.assertEnabled('summarise a candidate');
     return this.request<AiCandidateSummaryResult>(
@@ -430,6 +528,7 @@ export class AiServiceClient {
         locale: input.locale,
         vacancy: input.vacancy ?? null,
         limit: input.limit ?? 12,
+        allowedSourceIds: input.allowedSourceIds ?? null,
       },
     );
   }
@@ -446,6 +545,8 @@ export class AiServiceClient {
     vacancyId: string;
     requirements: AiRequirementInput[];
     locale?: SupportedLocale;
+    /** See answerQuestion — surviving sources only. */
+    allowedSourceIds?: string[] | null;
   }): Promise<AiEvidenceMapResult> {
     this.assertEnabled('map requirement evidence');
     return this.request<AiEvidenceMapResult>('/internal/evidence-map', {
@@ -454,6 +555,7 @@ export class AiServiceClient {
       vacancyId: input.vacancyId,
       requirements: input.requirements,
       locale: input.locale ?? 'en',
+      allowedSourceIds: input.allowedSourceIds ?? null,
     });
   }
 
@@ -464,6 +566,8 @@ export class AiServiceClient {
     vacancyId: string;
     requirements: AiRequirementInput[];
     locale: SupportedLocale;
+    /** See answerQuestion — surviving sources only. */
+    allowedSourceIds?: string[] | null;
   }): Promise<AiInterviewQuestionsResult> {
     this.assertEnabled('generate interview questions');
     return this.request<AiInterviewQuestionsResult>(
@@ -474,6 +578,7 @@ export class AiServiceClient {
         vacancyId: input.vacancyId,
         requirements: input.requirements,
         locale: input.locale,
+        allowedSourceIds: input.allowedSourceIds ?? null,
       },
     );
   }
@@ -487,6 +592,50 @@ export class AiServiceClient {
     await this.request('/internal/documents/delete', {
       organizationId,
       documentId,
+    });
+  }
+
+  /**
+   * Indexes one ORG-scoped web evidence snapshot — the URL counterpart of an
+   * application's document copy. Lands in the same tenant collection as file
+   * chunks so every recruiter AI surface retrieves both without knowing the
+   * difference. Idempotent per sourceId.
+   */
+  async indexApplicationWebSource(
+    input: IndexWebSourceInput & {
+      organizationId: string;
+      candidateId: string;
+      applicationId: string;
+    },
+  ): Promise<IndexWebSourceResult> {
+    this.assertEnabled('index application web evidence');
+    return this.request<IndexWebSourceResult>('/internal/web-sources/index', {
+      organizationId: input.organizationId,
+      candidateId: input.candidateId,
+      applicationId: input.applicationId,
+      sourceId: input.sourceId,
+      title: input.title,
+      url: input.url,
+      detectedType: input.detectedType ?? null,
+      sections: input.sections,
+    });
+  }
+
+  /**
+   * Removes an application web snapshot's vectors.
+   *
+   * Shares the document deletion route because a source id and a document id
+   * occupy the same key space in the tenant collection — one eviction path,
+   * one thing to get right.
+   */
+  async deleteApplicationWebSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<void> {
+    this.assertEnabled('delete application web evidence vectors');
+    await this.request('/internal/documents/delete', {
+      organizationId,
+      documentId: sourceId,
     });
   }
 
@@ -534,6 +683,41 @@ export class AiServiceClient {
     });
   }
 
+  /**
+   * Indexes one PERSONAL professional link into the candidate-scoped
+   * collection — the same physically separate collection personal resumes live
+   * in, so Job Match retrieves files and links together and no recruiter path
+   * can reach either. There is no organizationId anywhere in this call.
+   */
+  async indexPersonalWebSource(
+    input: IndexWebSourceInput & { candidateAccountId: string },
+  ): Promise<IndexWebSourceResult> {
+    this.assertEnabled('index personal web evidence');
+    return this.request<IndexWebSourceResult>(
+      '/internal/candidate/web-sources/index',
+      {
+        candidateAccountId: input.candidateAccountId,
+        sourceId: input.sourceId,
+        title: input.title,
+        url: input.url,
+        detectedType: input.detectedType ?? null,
+        sections: input.sections,
+      },
+    );
+  }
+
+  /** Removes a personal link's vectors (owner-scoped, idempotent). */
+  async deletePersonalWebSource(
+    candidateAccountId: string,
+    sourceId: string,
+  ): Promise<void> {
+    this.assertEnabled('delete personal web evidence vectors');
+    await this.request('/internal/candidate/documents/delete', {
+      candidateAccountId,
+      documentId: sourceId,
+    });
+  }
+
   /** Indexes one vacancy's candidate-visible content. Idempotent. */
   async indexVacancy(input: VacancyIndexInput): Promise<void> {
     this.assertEnabled('index vacancy');
@@ -554,14 +738,65 @@ export class AiServiceClient {
     candidateAccountId: string;
     profile: AiCandidateProfile;
     locale: SupportedLocale;
-    limit?: number;
+    /**
+     * The vacancies this candidate may see, decided HERE from the database.
+     *
+     * The AI service ranks every one of them. It used to run a top-K vector
+     * search instead and rank whatever came back, which meant the index — not
+     * the database — decided which jobs existed, and a cascade-deleted vacancy
+     * lingering in the index could occupy a slot a real job should have had.
+     */
+    eligibleVacancyIds: string[];
+    /** Which slice of the finished ranking to spend generation on. */
+    explainOffset?: number;
+    explainLimit?: number;
+    /**
+     * The candidate's CURRENT personal source ids (files and links alike).
+     *
+     * The personal collection is keyed by candidateAccountId, which stops
+     * another account's evidence being read but not the account's OWN deleted
+     * evidence. This list is what does that, and it does not depend on the
+     * eviction having completed.
+     */
+    allowedSourceIds?: string[] | null;
   }): Promise<AiJobMatchResult> {
     this.assertEnabled('match jobs');
     return this.request<AiJobMatchResult>('/internal/candidate/job-matches', {
       candidateAccountId: input.candidateAccountId,
       profile: input.profile,
       locale: input.locale,
-      limit: input.limit ?? 5,
+      eligibleVacancyIds: input.eligibleVacancyIds,
+      explainOffset: input.explainOffset ?? 0,
+      explainLimit: input.explainLimit ?? 20,
+      allowedSourceIds: input.allowedSourceIds ?? null,
+    });
+  }
+
+  /**
+   * Prose for ONE PAGE of a ranking the backend already holds.
+   *
+   * Deliberately separate from `candidateJobMatches`: paging to results 41-60
+   * must not re-rank the whole catalogue to write a few sentences. This sends
+   * the facts the ranking already produced and gets words back — it cannot
+   * change the order or the count, which the application owns.
+   */
+  async matchExplanations(input: {
+    locale: SupportedLocale;
+    items: {
+      vacancyId: string;
+      title: string;
+      match: JobMatchLabel;
+      matchedSkills: string[];
+      missingSkills: string[];
+      supportedRequirements: AiRequirementCheck[];
+      unsupportedRequirements: AiRequirementCheck[];
+      unclearRequirements: AiRequirementCheck[];
+    }[];
+  }): Promise<{ explanations: Record<string, string>; generated: boolean }> {
+    this.assertEnabled('explain job matches');
+    return this.request('/internal/candidate/match-explanations', {
+      locale: input.locale,
+      items: input.items,
     });
   }
 

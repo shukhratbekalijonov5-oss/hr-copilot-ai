@@ -51,6 +51,7 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
     reranker,
     generator: GenerationClient,
     vacancy: VacancyContext | None = None,
+    allowed_source_ids: list[str] | None = None,
 ) -> RagResponse:
     started = time.perf_counter()
     metrics.increment(metrics.RAG_REQUESTS)
@@ -66,6 +67,7 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
         embedder=embedder,
         store=store,
         reranker=reranker,
+        allowed_source_ids=allowed_source_ids,
     )
     context = scrub_context(
         retrieval.hits, organization_id=organization_id, candidate_id=candidate_id
@@ -158,6 +160,7 @@ def summarise_candidate(
     reranker,
     generator: GenerationClient,
     vacancy: VacancyContext | None = None,
+    allowed_source_ids: list[str] | None = None,
 ) -> CandidateSummaryResponse:
     started = time.perf_counter()
 
@@ -182,6 +185,7 @@ def summarise_candidate(
         embedder=embedder,
         store=store,
         reranker=None,
+        allowed_source_ids=allowed_source_ids,
     )
     context = scrub_context(
         retrieval.hits, organization_id=organization_id, candidate_id=candidate_id

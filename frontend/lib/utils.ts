@@ -43,3 +43,29 @@ export function slugify(value: string): string {
     .slice(0, 60)
     .replace(/-+$/g, "");
 }
+
+/**
+ * A URL shortened for display.
+ *
+ * Long URLs must never be rendered at full length: a 300-character address
+ * overflows every layout it lands in, on mobile first. The scheme and `www.`
+ * carry no information for a reader, the middle of a long path does not
+ * either, and the full address stays on the anchor's href and title so nothing
+ * is actually lost.
+ */
+export function displayUrl(url: string, maxLength = 48): string {
+  let readable = url;
+  try {
+    const parsed = new URL(url);
+    const path = `${parsed.pathname}${parsed.search}`.replace(/\/$/, "");
+    readable = `${parsed.hostname.replace(/^www\./, "")}${path}`;
+  } catch {
+    readable = url.replace(/^https?:\/\/(www\.)?/, "");
+  }
+
+  if (readable.length <= maxLength) return readable;
+  // Elide the middle, keeping the host (which says whose site it is) and the
+  // tail (which says which page).
+  const head = readable.slice(0, maxLength - 12);
+  return `${head}…${readable.slice(-10)}`;
+}

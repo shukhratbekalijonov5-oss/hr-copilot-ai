@@ -33,6 +33,9 @@ function createPrismaMock() {
     },
     vacancy: { findFirst: jest.fn() },
     candidate: { findFirst: jest.fn() },
+    // Link snapshots cascade with their application; their ids are read
+    // before the delete so their vectors can still be evicted afterwards.
+    applicationLinkSource: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   };
   // Array form for list queries, callback form for the invitation transaction.
@@ -50,10 +53,14 @@ describe('ApplicationsService', () => {
     purgeCandidateVacancyConversationTx: jest.Mock;
   };
   let events: { publish: jest.Mock };
+  let producer: { enqueueApplicationLinkIndexDeletion: jest.Mock };
   let service: ApplicationsService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
+    producer = {
+      enqueueApplicationLinkIndexDeletion: jest.fn().mockResolvedValue('job-1'),
+    };
     chat = {
       createForInvitationTx: jest.fn(),
       purgeCandidateVacancyConversationTx: jest.fn().mockResolvedValue([]),
@@ -66,6 +73,7 @@ describe('ApplicationsService', () => {
       events as never,
       // The REAL ownership policy over the same prisma mock.
       new OwnedVacancyService(prisma as unknown as PrismaService),
+      producer as never,
     );
     // Default: vacancy v1 exists in the caller org and was created by HR_A.
     prisma.vacancy.findFirst.mockResolvedValue({

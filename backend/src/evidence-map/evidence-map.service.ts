@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { hostnameOf } from '../web-ingestion/url-policy';
 import { TenantService } from '../common/tenant/tenant.service';
 import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import {
@@ -15,6 +16,7 @@ import {
   type EvidenceMappingStatus,
   type SupportedLocale,
 } from '../ai/ai-service.client';
+import { CandidateEvidenceLifecycleService } from '../candidate-evidence/candidate-evidence.service';
 import { EvidenceType } from '../generated/prisma/enums';
 
 /**
@@ -45,6 +47,7 @@ export class EvidenceMapService {
     private readonly tenant: TenantService,
     private readonly ai: AiServiceClient,
     private readonly ownedVacancies: OwnedVacancyService,
+    private readonly evidence: CandidateEvidenceLifecycleService,
   ) {}
 
   /** Runs the mapping and persists the result. */
@@ -68,6 +71,14 @@ export class EvidenceMapService {
       );
     }
 
+    // Only the candidate's SURVIVING submitted sources may be mapped. A
+    // requirement must never come back EVIDENCE_FOUND on the strength of a
+    // passage from a file or link the candidate has since withdrawn.
+    const allowedSourceIds = await this.evidence.activeApplicationSourceIds(
+      organizationId,
+      candidateId,
+    );
+
     let result: AiEvidenceMapResult;
     try {
       result = await this.ai.mapEvidence({
@@ -81,6 +92,7 @@ export class EvidenceMapService {
           required: r.required,
         })),
         locale,
+        allowedSourceIds,
       });
     } catch (error) {
       if (error instanceof AiServiceDisabledError) {
@@ -161,27 +173,48 @@ export class EvidenceMapService {
 
         if (mapping.evidence.length === 0) return;
 
-        // Only evidence whose document still exists in this organization is
-        // stored — the AI service indexes independently, so a document deleted
-        // since indexing could otherwise create a dangling row.
-        const documentIds = [
+        // A citation names a SOURCE, which is either a submitted file or a
+        // submitted link — the AI service uses one key space for both. Resolve
+        // the id against each table to find out which, and store only sources
+        // that still exist in this organization: the AI service indexes
+        // independently, so a source deleted since indexing would otherwise
+        // leave a citation pointing at nothing.
+        const sourceIds = [
           ...new Set(mapping.evidence.map((e) => e.documentId)),
         ];
-        const documents = await tx.document.findMany({
-          where: { id: { in: documentIds }, organizationId },
-          select: { id: true },
-        });
-        const known = new Set(documents.map((d) => d.id));
+        const [documents, linkSources] = await Promise.all([
+          tx.document.findMany({
+            where: { id: { in: sourceIds }, organizationId },
+            select: { id: true },
+          }),
+          tx.applicationLinkSource.findMany({
+            where: { id: { in: sourceIds }, organizationId },
+            select: { id: true },
+          }),
+        ]);
+        const knownDocuments = new Set(documents.map((d) => d.id));
+        const knownLinks = new Set(linkSources.map((s) => s.id));
 
         await tx.candidateEvidence.createMany({
           data: mapping.evidence
-            .filter((citation) => known.has(citation.documentId))
+            .filter(
+              (citation) =>
+                knownDocuments.has(citation.documentId) ||
+                knownLinks.has(citation.documentId),
+            )
             .map((citation) => ({
               organizationId,
               candidateId,
               vacancyId,
               requirementId: mapping.requirementId,
-              documentId: citation.documentId,
+              // Exactly one is set — the exclusivity the schema documents but
+              // cannot express.
+              documentId: knownDocuments.has(citation.documentId)
+                ? citation.documentId
+                : null,
+              linkSourceId: knownLinks.has(citation.documentId)
+                ? citation.documentId
+                : null,
               pageNumber: citation.pageNumber,
               section: citation.section,
               text: citation.text,
@@ -219,11 +252,16 @@ export class EvidenceMapService {
           select: {
             id: true,
             documentId: true,
+            linkSourceId: true,
             pageNumber: true,
             section: true,
             text: true,
             sourceChunkId: true,
             document: { select: { originalFileName: true } },
+            // The URL and title are the frozen ones from the submission, so a
+            // citation stays checkable even after the candidate changed or
+            // removed the link from their own profile.
+            linkSource: { select: { title: true, url: true } },
           },
         },
       },
@@ -252,8 +290,15 @@ export class EvidenceMapService {
           mappedAt: mapped?.updatedAt ?? null,
           evidence: (mapped?.evidence ?? []).map((e) => ({
             id: e.id,
-            documentId: e.documentId,
-            fileName: e.document.originalFileName,
+            // One field for the source id whichever kind it is, so the UI can
+            // address both uniformly — the same shape the AI service uses.
+            documentId: e.documentId ?? e.linkSourceId!,
+            sourceType: e.linkSourceId ? ('URL' as const) : ('FILE' as const),
+            fileName:
+              e.document?.originalFileName ??
+              e.linkSource?.title ??
+              hostnameOf(e.linkSource?.url ?? ''),
+            sourceUrl: e.linkSource?.url ?? null,
             pageNumber: e.pageNumber,
             section: e.section,
             text: e.text,

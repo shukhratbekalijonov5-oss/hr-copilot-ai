@@ -7,6 +7,23 @@ export const PROCESS_PERSONAL_RESUME_JOB = 'PROCESS_PERSONAL_RESUME';
 export const DELETE_PERSONAL_RESUME_INDEX_JOB = 'DELETE_PERSONAL_RESUME_INDEX';
 /** Reconcile one vacancy with the candidate-discoverable index. */
 export const SYNC_VACANCY_INDEX_JOB = 'SYNC_VACANCY_INDEX';
+/**
+ * PERSONAL professional link → fetch the page, extract evidence, index it into
+ * the candidate-scoped collection. The network fetch is the reason this is a
+ * queue job and not request work: it can take tens of seconds and fail.
+ */
+export const PROCESS_CANDIDATE_LINK_JOB = 'PROCESS_CANDIDATE_LINK';
+/** Remove a deleted/replaced personal link's vectors. */
+export const DELETE_CANDIDATE_LINK_INDEX_JOB = 'DELETE_CANDIDATE_LINK_INDEX';
+/**
+ * ORG-scoped application link snapshot → index into the tenant collection.
+ * Deliberately does NOT fetch anything: the content was frozen at apply time
+ * and re-fetching would break snapshot immutability.
+ */
+export const PROCESS_APPLICATION_LINK_JOB = 'PROCESS_APPLICATION_LINK';
+/** Remove a deleted application link snapshot's vectors. */
+export const DELETE_APPLICATION_LINK_INDEX_JOB =
+  'DELETE_APPLICATION_LINK_INDEX';
 
 /**
  * Job payloads carry identifiers only — never file contents, buffers, signed
@@ -33,8 +50,23 @@ export interface SyncVacancyIndexJobData {
   vacancyId: string;
 }
 
+export interface CandidateLinkJobData {
+  linkId: string;
+  candidateAccountId: string;
+}
+
+export interface ApplicationLinkJobData {
+  linkSourceId: string;
+  organizationId: string;
+  candidateId: string;
+}
+
 export type ResumeQueueJobData =
-  ProcessDocumentJobData | PersonalResumeJobData | SyncVacancyIndexJobData;
+  | ProcessDocumentJobData
+  | PersonalResumeJobData
+  | SyncVacancyIndexJobData
+  | CandidateLinkJobData
+  | ApplicationLinkJobData;
 
 /** Progress checkpoints reported back to ProcessingJob.progress. */
 export const PROCESSING_PROGRESS = {

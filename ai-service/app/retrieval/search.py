@@ -31,7 +31,15 @@ def search_evidence(
     embedder: EmbeddingModel,
     store: QdrantStore,
     reranker=None,
+    allowed_source_ids: list[str] | None = None,
 ) -> SearchResponse:
+    """Retrieve passages for one organization.
+
+    ``allowed_source_ids`` is the surviving-source filter every candidate-scoped
+    caller passes (see ``AllowedSourceIds``): it is applied in the vector query
+    itself, so deleted evidence cannot occupy a slot in the returned set, let
+    alone reach generation.
+    """
     started = time.perf_counter()
 
     rerank_active = bool(use_rerank and settings.reranker_enabled and reranker)
@@ -46,6 +54,7 @@ def search_evidence(
             limit=pool,
             candidate_id=candidate_id,
             document_id=document_id,
+            allowed_source_ids=allowed_source_ids,
         )
 
     hits = [_to_evidence(hit.payload, hit.score) for hit in raw_hits]
@@ -71,7 +80,7 @@ def search_evidence(
     else:
         hits.sort(key=lambda h: h.retrievalScore, reverse=True)
 
-    hits = hits[:limit]
+    hits = cap_per_source(hits, limit, settings.retrieval_max_per_source)
 
     logger.info(
         "Evidence search completed",
@@ -111,15 +120,61 @@ def rerank_hits(
     return ordered, int((time.perf_counter() - started) * 1000)
 
 
+def cap_per_source(
+    hits: list[EvidenceHit], limit: int, max_per_source: int
+) -> list[EvidenceHit]:
+    """Keeps one source from monopolising the results, WITHOUT losing any.
+
+    A candidate may submit a 40-page portfolio site and a one-page resume. Pure
+    relevance ordering then hands back ten chunks of the portfolio and none of
+    the CV, and a summary built on that reads as if the resume did not exist.
+
+    So this is a re-ORDER, not a filter: at most ``max_per_source`` passages per
+    source are taken in their existing (relevance) order, then the leftovers
+    backfill the remaining slots. The result is never shorter than the plain
+    truncation would have been, and its first entries are still the strongest —
+    they are just drawn from more than one source when more than one has
+    something to say.
+
+    Source type is deliberately NOT part of this: a URL is not favoured for
+    being new, and a file is not favoured for being familiar.
+    """
+    if max_per_source <= 0 or len(hits) <= limit:
+        return hits[:limit]
+
+    kept: list[EvidenceHit] = []
+    overflow: list[EvidenceHit] = []
+    seen: dict[str, int] = {}
+
+    for hit in hits:
+        key = hit.documentId or hit.chunkId
+        count = seen.get(key, 0)
+        if count < max_per_source:
+            seen[key] = count + 1
+            kept.append(hit)
+        else:
+            overflow.append(hit)
+
+    if len(kept) < limit:
+        kept.extend(overflow[: limit - len(kept)])
+    return kept[:limit]
+
+
 def _to_evidence(payload: dict, score: float) -> EvidenceHit:
+    # Every source field is read with a default: chunks indexed before URL
+    # evidence existed carry none, and they are files.
+    file_name = payload.get("fileName")
     return EvidenceHit(
         chunkId=payload.get("chunkId", ""),
         candidateId=payload.get("candidateId"),
         documentId=payload.get("documentId", ""),
-        fileName=payload.get("fileName"),
+        fileName=file_name,
         section=payload.get("section"),
         pageNumber=payload.get("pageNumber"),
         chunkIndex=int(payload.get("chunkIndex", 0)),
         text=payload.get("text", ""),
         retrievalScore=score,
+        sourceType=payload.get("sourceType") or "FILE",
+        sourceTitle=payload.get("sourceTitle") or file_name,
+        sourceUrl=payload.get("sourceUrl"),
     )

@@ -303,6 +303,17 @@ export const DOCUMENT_TYPES = [
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
+/**
+ * Which KIND of evidence a passage, citation or source is.
+ *
+ * The AI layer is source-agnostic after normalization, but the UI is not
+ * allowed to be: "Resume.pdf · page 2" and "Portfolio Website · Projects ·
+ * portfolio.example.com/projects" are different things to a reader, and
+ * collapsing both into "candidate evidence" would hide where a claim came from.
+ */
+export const EVIDENCE_SOURCE_TYPES = ["FILE", "URL"] as const;
+export type EvidenceSourceType = (typeof EVIDENCE_SOURCE_TYPES)[number];
+
 export interface CandidateDocument {
   id: ID;
   candidateId: ID | null;
@@ -313,6 +324,32 @@ export interface CandidateDocument {
   status: DocumentStatus;
   /** null until the AI service has parsed the file. */
   pageCount: number | null;
+  /** The application this copy was submitted with, when the API reports one. */
+  applicationId: ID | null;
+  createdAt: ISODateString;
+}
+
+/**
+ * One professional link a candidate SUBMITTED with an application, as the
+ * recruiter sees it.
+ *
+ * Read-only by construction: there is no recruiter endpoint that creates,
+ * edits, deletes or refreshes one. It is a frozen copy — the URL, title and
+ * content are what was submitted, and they do not change when the candidate
+ * later edits or removes the link from their own profile.
+ */
+export interface CandidateLinkSource {
+  id: ID;
+  url: string;
+  title: string;
+  detectedType: string | null;
+  /** Indexing lifecycle — the same vocabulary documents use. */
+  status: DocumentStatus;
+  charCount: number | null;
+  pagesFetched: number | null;
+  /** When the submitted content was fetched from the web. */
+  fetchedAt: ISODateString;
+  applicationId: ID | null;
   createdAt: ISODateString;
 }
 
@@ -437,6 +474,11 @@ export interface Candidate {
   updatedAt: ISODateString;
   /** Present on the detail endpoint. */
   documents: CandidateDocument[];
+  /**
+   * The professional links this person submitted with an application, frozen
+   * as submitted. Read-only: there is no recruiter mutation for them anywhere.
+   */
+  linkSources: CandidateLinkSource[];
   applications: Application[];
   /** Derived from the documents' statuses — the worst-case pipeline state. */
   processingStatus: DocumentStatus | null;
@@ -602,6 +644,16 @@ export interface Citation {
   page: number | null;
   section: string | null;
   snippet: string;
+  /**
+   * FILE unless stated otherwise. Absent on citations produced before URL
+   * evidence existed, and on stored evidence rows, which are always files.
+   */
+  sourceType: EvidenceSourceType;
+  /**
+   * The exact page a URL citation came from — possibly a subpage of the
+   * submitted link. Null for files, where `page` plays that role.
+   */
+  sourceUrl: string | null;
 }
 
 /** A requirement paired with whatever supports it. */
@@ -620,11 +672,14 @@ export interface RequirementEvidence {
 /** One retrieved passage, with everything needed to open its source. */
 export interface EvidencePassage {
   documentId: ID;
-  /** Null when the API did not report a filename. */
+  /** File name, or link title. Null when the API reported neither. */
   documentName: string | null;
   page: number | null;
   section: string | null;
   text: string;
+  sourceType: EvidenceSourceType;
+  /** The page a URL passage came from. Null for files. */
+  sourceUrl: string | null;
 }
 
 /**
@@ -907,6 +962,76 @@ export interface PersonalDocumentCollection {
   primaryDocumentId: ID | null;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Professional links (the other half of personal evidence)                    */
+/* -------------------------------------------------------------------------- */
+
+export const LINK_STATUSES = [
+  "PENDING",
+  "FETCHING",
+  "PROCESSING",
+  "COMPLETED",
+  "FAILED",
+] as const;
+export type LinkStatus = (typeof LINK_STATUSES)[number];
+
+/**
+ * Why a link could not be turned into evidence.
+ *
+ * A stable API contract the UI localizes on — the backend's `failureMessage`
+ * is a developer detail and is never rendered.
+ */
+export const LINK_FAILURE_CODES = [
+  "INVALID_URL",
+  "UNSUPPORTED_PROTOCOL",
+  "PRIVATE_NETWORK_URL",
+  "FETCH_TIMEOUT",
+  "TOO_MANY_REDIRECTS",
+  "CONTENT_TOO_LARGE",
+  "UNSUPPORTED_CONTENT_TYPE",
+  "ACCESS_DENIED",
+  "NO_MEANINGFUL_CONTENT",
+  "RENDER_FAILED",
+  "UPSTREAM_ERROR",
+  "INDEXING_FAILED",
+] as const;
+export type LinkFailureCode = (typeof LINK_FAILURE_CODES)[number];
+
+/**
+ * One professional link the signed-in job seeker maintains.
+ *
+ * Personal evidence, exactly like a personal document: it belongs to the
+ * account, no organization can read it, and applying is what creates the
+ * org-scoped snapshot a recruiter eventually sees.
+ */
+export interface CandidateLink {
+  id: ID;
+  url: string;
+  /** The candidate's own label, or the page title, or the hostname. */
+  title: string;
+  /** Display-only classification ("GITHUB", "WEBSITE", ...). Never a score. */
+  detectedType: string | null;
+  status: LinkStatus;
+  /** Set only when status is FAILED. */
+  failureCode: LinkFailureCode | null;
+  charCount: number | null;
+  pagesFetched: number | null;
+  lastFetchedAt: ISODateString | null;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export interface CandidateLinkCollection {
+  links: CandidateLink[];
+  limit: number;
+  remaining: number;
+}
+
+export interface CandidateLinkInput {
+  url: string;
+  title?: string;
+}
+
 export interface CandidateAccount {
   id: ID;
   headline: string | null;
@@ -1053,12 +1178,20 @@ export interface MatchRequirement {
   reason: string;
 }
 
-/** A passage from the candidate's own resume/profile behind a match. */
+/**
+ * A passage from the candidate's OWN evidence behind a match.
+ *
+ * Any of their sources: a file, a profile field, or a professional link. A
+ * skill shown only on a portfolio counts exactly as much as one on a CV, and
+ * the job seeker is told which it was.
+ */
 export interface MatchEvidence {
   fileName: string | null;
   pageNumber: number | null;
   section: string | null;
   text: string;
+  sourceType: EvidenceSourceType;
+  sourceUrl: string | null;
 }
 
 export interface JobMatch {
@@ -1072,6 +1205,20 @@ export interface JobMatch {
     status: VacancyStatus;
   };
   match: JobMatchStrength;
+  /** 1-based position in the full ranked list. */
+  rank: number;
+  /**
+   * 0-100, and its only job is to ORDER the list. Not a probability of being
+   * hired and not a percentage of the role the person can do — the UI must
+   * never label it as either.
+   */
+  score: number;
+  /** Per-signal breakdown, for showing WHY a job ranked where it did. */
+  signals: Record<string, number>;
+  /** Technologies the posting names that the candidate has evidence for. */
+  matchedSkills: string[];
+  /** Technologies the posting names that the evidence does not show. */
+  missingSkills: string[];
   /** Null when generation was unavailable; deterministic data still stands. */
   explanation: string | null;
   supportedRequirements: MatchRequirement[];
@@ -1088,6 +1235,59 @@ export interface JobMatchResult {
   /** False when the grounded explanation step did not run. */
   generated: boolean;
   generatedAt: ISODateString;
+  /**
+   * The evidence revision this analysis describes. Compared against the
+   * account's CURRENT revision to decide whether what is on screen still
+   * reflects the candidate's evidence, or is a picture of a deleted file.
+   */
+  evidenceRevision: number;
+  /** Evidence changed while this was being generated. */
+  stale: boolean;
+  /** Prose for this page is still being written; not the same as failed. */
+  explanationsPending: boolean;
+  /** 1-based page of the ranked list carried by this result. */
+  page: number;
+  limit: number;
+  /**
+   * The FULL ranked count.
+   *
+   * Deliberately not the length of `matches`: the list is paginated, and a
+   * client needs the real total to know how far it can scroll. This is the
+   * number that used to be a top-5.
+   */
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+  /** How many vacancies the candidate was eligible for in the first place. */
+  totalEligible: number;
+  /** What the ranking knew about the candidate; for the evidence summary. */
+  capability: CandidateCapabilitySummary;
+}
+
+/** The grounded picture of a candidate that ranking was built from. */
+export interface CandidateCapabilitySummary {
+  skills?: string[];
+  roleFamilies?: string[];
+  /** Source title -> how many blocks of text it contributed. */
+  evidenceSources?: Record<string, number>;
+  evidenceChars?: number;
+  probes?: number;
+}
+
+/**
+ * How much evidence the signed-in candidate currently has.
+ *
+ * Files and links count independently and equally: matching needs evidence of
+ * SOME kind, and a portfolio is as real as a CV. (Applying is a separate rule
+ * that still requires a resume — the two are deliberately not the same gate.)
+ */
+export interface CandidateEvidenceState {
+  hasAccount: boolean;
+  files: number;
+  links: number;
+  total: number;
+  evidenceRevision: number;
+  canRunJobMatch: boolean;
 }
 
 /* -------------------------------------------------------------------------- */

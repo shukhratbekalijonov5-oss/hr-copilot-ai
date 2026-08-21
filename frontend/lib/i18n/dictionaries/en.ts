@@ -75,6 +75,7 @@ const en = {
     save: "Save changes",
     saved: "Saved",
     cancel: "Cancel",
+    edit: "Edit",
     close: "Close",
     retry: "Try again",
     search: "Search",
@@ -404,7 +405,33 @@ const en = {
       other: "{count} files submitted",
     } as Plural,
     noDocumentsYet:
-      "Nothing submitted yet. The resume an applicant sends with their application appears here.",
+      "Nothing submitted yet. The files and links an applicant sends with their application appear here.",
+
+    // Evidence sources — files and professional links, read-only for HR.
+    evidenceSources: "Evidence sources",
+    evidenceSourceCounts: "{files} files · {links} links submitted",
+    filesCount: {
+      one: "File · {count}",
+      other: "Files · {count}",
+    } as Plural,
+    linksCount: {
+      one: "Professional link · {count}",
+      other: "Professional links · {count}",
+    } as Plural,
+    noSource: "No source selected",
+    noSourceHint: "Pick a file or a link to see what was submitted.",
+    originalUrl: "Original link",
+    submittedContent: "Submitted content",
+    fetchedOn: "Read on {date}",
+    pagesRead: {
+      one: "{count} page read",
+      other: "{count} pages read",
+    } as Plural,
+    snapshotNote:
+      "This is the content as it was when the candidate applied. The live page may have changed since, and the analysis below is based on what was submitted.",
+    sourceIndexingFailed:
+      "This link could not be prepared for analysis, so it does not appear in AI answers.",
+    openOriginal: "Open original",
     applications: "Applications",
     applicationsHint:
       "Stage changes are recorded against the person who made them.",
@@ -498,6 +525,7 @@ const en = {
     retrievalContext: "Retrieval context",
     unnamedCandidate: "Unnamed candidate",
     sourceDocument: "Source document",
+    sourceLink: "Professional link",
     summaryTitle: "AI summary",
     searchingEvidence: "Searching candidate evidence…",
     generatingSummary: "Generating grounded summary…",
@@ -644,6 +672,7 @@ const en = {
       "Nothing in the uploaded documents supports this requirement. That is not a judgement about the candidate — ask about it in a screen.",
     openAtPage: "Open {name} at page {page}",
     openDocument: "Open {name}",
+    openSource: "Open {name}",
   },
 
   processing: {
@@ -1060,6 +1089,72 @@ const en = {
       "Pick another workspace to continue. If this looks wrong, ask an administrator of that organization.",
   },
 
+  /**
+   * Professional links — the candidate-facing half of the evidence feature.
+   *
+   * Failure copy is written for a person, not an operator: it says what
+   * happened to THEIR link and what they can do, and never quotes an HTTP
+   * status, a hostname or an internal reason.
+   */
+  candidateLinks: {
+    title: "Professional links",
+    hint: "Up to {limit} public links — a portfolio, a repository, a project page. They are analysed the same way as your files.",
+    empty: "No links yet.",
+    add: "Add link",
+    remove: "Remove",
+    retry: "Try again",
+    refresh: "Refresh analysis",
+    urlLabel: "Link",
+    urlPlaceholder: "https://your-portfolio.com",
+    labelLabel: "Label (optional)",
+    labelPlaceholder: "My portfolio",
+    slots: "{count} of {limit} links used",
+    analysedOn: "Analysed on {date}",
+    limitReached:
+      "You have used all your link slots. Remove one to add another. Your files are counted separately.",
+    privacyNote:
+      "Saved links are private to your profile. When you apply, a copy of what was read is sent with that application. Editing a link never rewrites what you already sent — but deleting one removes it from those applications too.",
+    addFailed: "This link could not be added.",
+    removeFailed: "This link could not be removed.",
+    retryFailed: "This link could not be analysed again.",
+    confirmDeleteTitle: "Delete this professional link?",
+    confirmDeleteQuestion: "“{name}” will be removed from your profile.",
+    confirmDeleteConsequence:
+      "This evidence is also removed from applications you have already sent, and from the AI analysis recruiters see. The applications themselves stay.",
+    errorCodes: {
+      LINK_LIMIT_REACHED:
+        "You can save up to 3 professional links. Remove one to add another.",
+      LINK_DUPLICATE: "You have already added this link.",
+      LINK_INVALID_URL:
+        "That does not look like a public web address. Check it and try again.",
+      LINK_NOT_RETRYABLE:
+        "This link cannot be analysed again. Edit the address or remove it.",
+      LINK_BUSY: "This link is already being analysed.",
+    },
+    failureCodes: {
+      INVALID_URL: "That address could not be read. Check it and try again.",
+      UNSUPPORTED_PROTOCOL:
+        "Only public web addresses starting with http:// or https:// can be used.",
+      PRIVATE_NETWORK_URL:
+        "That address is not reachable from the public internet, so it cannot be used here.",
+      FETCH_TIMEOUT: "The site took too long to respond. You can try again.",
+      TOO_MANY_REDIRECTS:
+        "That address kept redirecting. Try the direct link to the page.",
+      CONTENT_TOO_LARGE:
+        "That page is too large to analyse. Try linking to a specific page instead.",
+      UNSUPPORTED_CONTENT_TYPE:
+        "That link points at a file type we cannot read. Upload files in the files section instead.",
+      ACCESS_DENIED:
+        "That page is not publicly accessible — it may need a sign-in, or it may no longer exist.",
+      NO_MEANINGFUL_CONTENT:
+        "No readable text was found on that page. If it needs JavaScript to show its content, try linking to a page with text on it.",
+      RENDER_FAILED: "That page could not be opened. You can try again.",
+      UPSTREAM_ERROR: "The site returned an error. You can try again.",
+      INDEXING_FAILED:
+        "The page was read but could not be prepared for analysis. You can try again.",
+    },
+  },
+
   candidateProfile: {
     title: "My profile",
     description: "What a hiring team sees when you apply.",
@@ -1129,6 +1224,10 @@ const en = {
     createFailed: "Could not create your profile.",
     resumeUploadFailed: "Could not upload that file.",
     documentDeleteFailed: "Could not delete that document.",
+    confirmDeleteTitle: "Delete this document?",
+    confirmDeleteQuestion: "“{name}” will be deleted permanently.",
+    confirmDeleteConsequence:
+      "This evidence is also removed from applications you have already sent, and from the AI analysis recruiters see. The applications themselves stay.",
   },
 
   jobs: {
@@ -1158,6 +1257,9 @@ const en = {
     mustHave: "Must have",
     niceToHave: "Nice to have",
     apply: "Apply",
+    applyAgain: "Apply again",
+    previousAttemptRejected:
+      "Your previous application to this role was not selected. You can apply again — the earlier attempt stays in your history.",
     applying: "Applying",
     applied: "Applied",
     appliedHint: "You have applied to this role. Track it under My applications.",
@@ -1310,6 +1412,9 @@ const en = {
       "Comparing job requirements…",
       "Preparing grounded explanations…",
     ],
+    loadMore: "Show more matches",
+    loadingMore: "Loading…",
+    showingCount: "showing {shown} of {total}",
     refreshing: "Refreshing…",
     refreshingHint:
       "Refreshing matches in the background. Your current results stay visible.",
@@ -1322,6 +1427,8 @@ const en = {
     },
     coverageNote:
       "Match labels reflect how much of each role's requirements your documents support. They are not a score of you and not an application recommendation.",
+    explanationPending:
+      "Writing the explanation for this match. The evidence below is already complete.",
     explanationUnavailable:
       "The AI explanation is temporarily unavailable. The match evidence below is still complete.",
     requirementSummary: "Requirement summary",
@@ -1335,10 +1442,15 @@ const en = {
     needProfileTitle: "Create your profile first",
     needProfileHint:
       "Job matching works from your own profile and resume. Create your candidate profile to get started.",
-    notReadyTitle: "Add something to match on",
+    notReadyTitle: "Add evidence to use AI Job Match",
     notReadyHint:
-      "Add skills, experience or a summary to your profile — or upload a resume — so matching has evidence to work with.",
+      "Matching reads your files and your professional links. Upload a resume or add a link so it has real evidence to work with — a profile on its own is not evidence.",
     completeProfile: "Complete profile",
+    goToProfile: "Go to my profile",
+    staleNotice:
+      "Your evidence changed. Refresh matches to analyse your current profile.",
+    resumeImprovesWithLinks:
+      "Add a resume for stronger matching. Your professional links are already being analysed.",
     resumeImproves:
       "A resume improves match quality: requirements are checked against your actual documents.",
     uploadResume: "Upload resume",
@@ -1406,6 +1518,14 @@ const en = {
       INDEXING: "Indexing",
       COMPLETED: "Completed",
       FAILED: "Failed",
+    },
+    /** A professional link's lifecycle. Describes the fetch, never the person. */
+    link: {
+      PENDING: "Waiting",
+      FETCHING: "Reading page",
+      PROCESSING: "Analysing",
+      COMPLETED: "Analysed",
+      FAILED: "Could not read",
     },
     pipeline: {
       UPLOADED: "Uploaded",

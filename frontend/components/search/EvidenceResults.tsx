@@ -8,8 +8,15 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/LoadingSkeleton";
 import { UnavailableState } from "@/components/ui/UnavailableState";
-import { AlertIcon, FileIcon, SearchIcon, SparkIcon } from "@/components/ui/icons";
+import {
+  AlertIcon,
+  FileIcon,
+  GlobeIcon,
+  SearchIcon,
+  SparkIcon,
+} from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
+import { displayUrl } from "@/lib/utils";
 import type { EvidenceFetchResult } from "@/lib/search/grounded-search";
 
 interface EvidenceResultsProps {
@@ -107,12 +114,37 @@ export function EvidenceResults({ result }: EvidenceResultsProps) {
                       <blockquote className="border-l-2 border-line-strong pl-3 text-[13px] leading-relaxed text-ink-muted">
                         {passage.text}
                       </blockquote>
+                      {/*
+                        One card shape, two provenance shapes: a file is
+                        located by page, a submitted link by its address.
+                        Which source a hit came from is never a ranking
+                        signal — only how it is labelled.
+                      */}
                       <p className="mt-2 flex flex-wrap items-center gap-1.5 pl-3 text-[12px] text-ink-subtle">
-                        <FileIcon className="size-3.5" />
-                        <span className="font-medium text-ink-muted">
-                          {passage.documentName ?? d.search.sourceDocument}
+                        {passage.sourceType === "URL" ? (
+                          <GlobeIcon className="size-3.5" />
+                        ) : (
+                          <FileIcon className="size-3.5" />
+                        )}
+                        <span className="min-w-0 truncate font-medium text-ink-muted">
+                          {passage.documentName ??
+                            (passage.sourceType === "URL"
+                              ? d.search.sourceLink
+                              : d.search.sourceDocument)}
                         </span>
-                        {passage.page !== null ? (
+                        {passage.sourceType === "URL" &&
+                        passage.sourceUrl ? (
+                          <a
+                            href={passage.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer noopener nofollow"
+                            title={passage.sourceUrl}
+                            className="min-w-0 truncate hover:text-brand hover:underline"
+                          >
+                            · {displayUrl(passage.sourceUrl, 36)}
+                          </a>
+                        ) : null}
+                        {passage.sourceType !== "URL" && passage.page !== null ? (
                           <span>
                             · {d.common.page} {passage.page}
                           </span>

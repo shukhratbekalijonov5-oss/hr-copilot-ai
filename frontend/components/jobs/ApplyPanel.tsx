@@ -9,13 +9,19 @@ import { Button, buttonStyles } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { AlertIcon, CheckIcon, SparkIcon } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
+import { CANDIDATE_STATUS_LABELS } from "@/lib/candidate/status";
+import type { ApplyEligibility } from "@/lib/candidate/apply-eligibility";
 import type { CandidateActionReason } from "@/lib/types";
 
 interface ApplyPanelProps {
   slug: string;
   organizationName: string;
-  /** True when this account already has an application for this job. */
-  alreadyApplied: boolean;
+  /**
+   * The state of this person's LATEST attempt at this job. A rejected latest
+   * attempt means they may apply again — "has ever applied" is not the
+   * question, and answering it that way bans a rejected candidate forever.
+   */
+  eligibility: ApplyEligibility;
   hasCandidateAccount: boolean;
 }
 
@@ -31,13 +37,16 @@ interface ApplyPanelProps {
 export function ApplyPanel({
   slug,
   organizationName,
-  alreadyApplied,
+  eligibility,
   hasCandidateAccount,
 }: ApplyPanelProps) {
   const { d, f } = useI18n();
   const jobMatch = useOptionalJobMatchState();
 
-  const [applied, setApplied] = useState(alreadyApplied);
+  // Only a LIVE attempt shows the applied state. A rejected one leaves the
+  // Apply action available and is shown as context above it.
+  const [applied, setApplied] = useState(eligibility.kind === "active");
+  const rejectedBefore = eligibility.kind === "can_reapply";
   const [failure, setFailure] = useState<CandidateActionReason | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -111,6 +120,28 @@ export function ApplyPanel({
   return (
     <Card>
       <CardBody className="flex flex-col gap-3">
+        {/*
+          Says WHY the Apply button is back rather than pretending the earlier
+          attempt never happened: the previous application stays in their
+          history, and this is a new attempt at the same role.
+        */}
+        {rejectedBefore ? (
+          <p className="flex items-start gap-2 rounded-lg border border-line bg-surface-muted/50 px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-muted">
+            <AlertIcon className="mt-px size-4 shrink-0" />
+            <span>
+              {f(d.jobs.previousAttemptRejected, {
+                status: CANDIDATE_STATUS_LABELS.REJECTED,
+              })}{" "}
+              <Link
+                href="/my-applications"
+                className="font-medium text-brand-ink hover:text-brand"
+              >
+                {d.jobs.viewApplications}
+              </Link>
+            </span>
+          </p>
+        ) : null}
+
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
@@ -119,7 +150,11 @@ export function ApplyPanel({
             onClick={apply}
             icon={<SparkIcon className="size-4" />}
           >
-            {pending ? d.jobs.applying : d.jobs.apply}
+            {pending
+              ? d.jobs.applying
+              : rejectedBefore
+                ? d.jobs.applyAgain
+                : d.jobs.apply}
           </Button>
           <Badge tone="neutral">{d.status.applicationSource.DIRECT}</Badge>
         </div>

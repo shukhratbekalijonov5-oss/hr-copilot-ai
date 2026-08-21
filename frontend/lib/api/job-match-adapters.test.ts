@@ -27,6 +27,11 @@ function match(
       ...overrides.vacancy,
     },
     match: overrides.match ?? "STRONG",
+    rank: overrides.rank ?? 1,
+    score: overrides.score ?? 80,
+    signals: overrides.signals ?? {},
+    matchedSkills: overrides.matchedSkills ?? [],
+    missingSkills: overrides.missingSkills ?? [],
     explanation:
       "explanation" in overrides
         ? overrides.explanation!
@@ -59,11 +64,21 @@ function response(matches: JobMatchResponse[]): JobMatchesResponse {
     locale: "en",
     generated: true,
     generatedAt: "2026-08-20T00:00:00.000Z",
+    evidenceRevision: 4,
+    stale: false,
+    explanationsPending: false,
+    page: 1,
+    limit: 20,
+    total: matches.length,
+    totalPages: 1,
+    hasMore: false,
+    totalEligible: matches.length,
+    capability: {},
   };
 }
 
 describe("toJobMatchResult", () => {
-  it("preserves STRONG, PARTIAL and WEAK labels without exposing a score", () => {
+  it("preserves STRONG, PARTIAL and WEAK labels", () => {
     const result = toJobMatchResult(
       response([
         match({ match: "STRONG" }),
@@ -77,7 +92,46 @@ describe("toJobMatchResult", () => {
       "PARTIAL",
       "WEAK",
     ]);
-    expect(JSON.stringify(result)).not.toMatch(/score|percent|percentage/i);
+  });
+
+  it("carries an ORDERING score, and nothing that claims to be a percentage", () => {
+    // The score exists now because 148 ranked vacancies need an order. What
+    // must never come back is a field presenting it as a probability of being
+    // hired or a percentage of the job the person can do — the earlier
+    // contract banned the word "score" outright to prevent exactly that, and
+    // this is the narrower rule that survives.
+    const result = toJobMatchResult(response([match({ score: 84 })]));
+
+    const [item] = result.matches;
+    expect(item.score).toBe(84);
+    expect(item.score).toBeGreaterThanOrEqual(0);
+    expect(item.score).toBeLessThanOrEqual(100);
+    expect(Object.keys(item)).not.toContain("percentage");
+    expect(Object.keys(item)).not.toContain("probability");
+    expect(Object.keys(item)).not.toContain("fitPercent");
+  });
+
+  it("keeps the rank the backend assigned, so pages line up", () => {
+    const result = toJobMatchResult(
+      response([
+        match({ rank: 7, vacancy: { slug: "seventh" } }),
+        match({ rank: 8, vacancy: { slug: "eighth" } }),
+      ]),
+    );
+    expect(result.matches.map((m) => m.rank)).toEqual([7, 8]);
+  });
+
+  it("reports the FULL ranked total, not the size of the page", () => {
+    const payload = response([match()]);
+    payload.total = 148;
+    payload.hasMore = true;
+    payload.page = 1;
+
+    const result = toJobMatchResult(payload);
+
+    expect(result.total).toBe(148);
+    expect(result.hasMore).toBe(true);
+    expect(result.matches).toHaveLength(1);
   });
 
   it("keeps deterministic requirements and evidence when generated is false", () => {

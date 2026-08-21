@@ -88,7 +88,10 @@ def validate_citations(
             rejected.append(chunk_id)
             continue
 
-        # Metadata comes from the retrieved chunk, never from the model.
+        # Metadata comes from the retrieved chunk, never from the model. The
+        # URL included: a model that invented a plausible-looking
+        # "portfolio.example.com/kubernetes" would be handing a recruiter a
+        # link that looks verifiable and leads nowhere.
         citations.append(
             Citation(
                 chunkId=hit.chunkId,
@@ -97,6 +100,9 @@ def validate_citations(
                 pageNumber=hit.pageNumber,
                 section=hit.section,
                 text=hit.text,
+                sourceType=hit.sourceType,
+                sourceTitle=hit.sourceTitle or hit.fileName,
+                sourceUrl=hit.sourceUrl,
             )
         )
 

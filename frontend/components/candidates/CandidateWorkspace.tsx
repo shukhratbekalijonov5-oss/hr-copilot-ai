@@ -24,14 +24,18 @@ import {
 } from "@/components/ui/StatusBadge";
 import { MyVacancySelector } from "@/components/vacancies/MyVacancySelector";
 import { DocumentViewer } from "@/components/candidates/DocumentViewer";
+import { LinkSourceView } from "@/components/candidates/LinkSourceView";
 import {
   AlertIcon,
+  FileIcon,
+  GlobeIcon,
   MailIcon,
   MapPinIcon,
   MessageIcon,
 } from "@/components/ui/icons";
 import { aiReadiness } from "@/lib/api/adapters";
 import { useI18n } from "@/lib/i18n/context";
+import { displayUrl } from "@/lib/utils";
 import { APPLICATION_STATUSES } from "@/lib/types";
 import type {
   AiFailureReason,
@@ -65,6 +69,15 @@ interface CandidateWorkspaceProps {
 }
 
 /**
+ * Which evidence source the left pane is showing. One selection across both
+ * kinds — a citation can point at either, and the pane shows one thing.
+ */
+interface ActiveSource {
+  type: "FILE" | "URL";
+  id: string | null;
+}
+
+/**
  * The candidate screen: the document on the left, everything read out of it on
  * the right.
  *
@@ -87,9 +100,28 @@ export function CandidateWorkspace({
   const router = useRouter();
   const { d, f, p, date } = useI18n();
 
-  const [activeDocumentId, setActiveDocumentId] = useState(
-    candidate.documents[0]?.id ?? null,
+  /**
+   * Which evidence source the left pane is showing.
+   *
+   * One selection across BOTH kinds, because a citation can point at either and
+   * the pane can only show one thing. Files default to being selected first
+   * (they are the primary submission), falling back to a link when a candidate
+   * somehow has only links.
+   */
+  const [activeSource, setActiveSource] = useState<ActiveSource>(() =>
+    candidate.documents[0]
+      ? { type: "FILE", id: candidate.documents[0].id }
+      : candidate.linkSources[0]
+        ? { type: "URL", id: candidate.linkSources[0].id }
+        : { type: "FILE", id: null },
   );
+  const activeDocumentId =
+    activeSource.type === "FILE" ? activeSource.id : null;
+  const activeLinkSource =
+    activeSource.type === "URL"
+      ? (candidate.linkSources.find((source) => source.id === activeSource.id) ??
+        null)
+      : null;
   const [page, setPage] = useState(1);
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -123,8 +155,19 @@ export function CandidateWorkspace({
    */
   function openCitation(citation: Citation) {
     setActiveCitation(citation);
-    setActiveDocumentId(citation.documentId);
+    // The citation says which KIND of source it came from, so the pane can
+    // switch between the file viewer and the link view without guessing.
+    setActiveSource({
+      type: citation.sourceType,
+      id: citation.documentId,
+    });
     if (citation.page !== null) setPage(citation.page);
+  }
+
+  function selectSource(next: ActiveSource) {
+    setActiveSource(next);
+    setPage(1);
+    setActiveCitation(null);
   }
 
   function changeStatus(status: ApplicationStatus) {
@@ -178,7 +221,7 @@ export function CandidateWorkspace({
    * intentionally more permissive than the headline status badge, which reports
    * the worst-case state across every file.
    */
-  const readiness = aiReadiness(candidate.documents);
+  const readiness = aiReadiness(candidate.documents, candidate.linkSources);
   const analysisReady = readiness === "ready";
 
   /**
@@ -274,46 +317,90 @@ export function CandidateWorkspace({
         </CardBody>
       </Card>
 
+      {/*
+        Every source the candidate submitted, of both kinds, in one list.
+        There are no add/edit/remove controls anywhere in here and no API
+        behind one: files and links alike are the applicant's own submissions.
+      */}
       <Card>
         <CardHeader
-          title={d.candidates.documents}
-          description={p(
-            d.candidates.documentsUploaded,
-            candidate.documents.length,
-          )}
+          title={d.candidates.evidenceSources}
+          description={f(d.candidates.evidenceSourceCounts, {
+            files: candidate.documents.length,
+            links: candidate.linkSources.length,
+          })}
         />
-        {candidate.documents.length > 0 ? (
-          <ul className="divide-y divide-[var(--line)]">
-            {candidate.documents.map((document) => (
-              <li
-                key={document.id}
-                className="flex items-center gap-3 px-4 py-3"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveDocumentId(document.id);
-                    setPage(1);
-                    setActiveCitation(null);
-                  }}
-                  className="min-w-0 flex-1 text-left"
-                >
-                  <span className="block truncate text-[13.5px] font-medium text-ink hover:text-brand">
-                    {document.originalFileName}
-                  </span>
-                  <span className="block text-[12px] text-ink-muted">
-                    {d.status.documentType[document.type]} ·{" "}
-                    {date(document.createdAt)}
-                  </span>
-                </button>
-                <DocumentStatusBadge status={document.status} />
-              </li>
-            ))}
-          </ul>
+        {candidate.documents.length + candidate.linkSources.length > 0 ? (
+          <div>
+            {candidate.documents.length > 0 ? (
+              <>
+                <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+                  {p(d.candidates.filesCount, candidate.documents.length)}
+                </p>
+                <ul className="divide-y divide-[var(--line)]">
+                  {candidate.documents.map((document) => (
+                    <li
+                      key={document.id}
+                      className="flex items-center gap-3 px-4 py-3"
+                    >
+                      <FileIcon className="size-4 shrink-0 text-ink-subtle" />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          selectSource({ type: "FILE", id: document.id })
+                        }
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <span className="block truncate text-[13.5px] font-medium text-ink hover:text-brand">
+                          {document.originalFileName}
+                        </span>
+                        <span className="block text-[12px] text-ink-muted">
+                          {d.status.documentType[document.type]} ·{" "}
+                          {date(document.createdAt)}
+                        </span>
+                      </button>
+                      <DocumentStatusBadge status={document.status} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
+            {candidate.linkSources.length > 0 ? (
+              <>
+                <p className="border-t border-line px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+                  {p(d.candidates.linksCount, candidate.linkSources.length)}
+                </p>
+                <ul className="divide-y divide-[var(--line)]">
+                  {candidate.linkSources.map((source) => (
+                    <li
+                      key={source.id}
+                      className="flex items-center gap-3 px-4 py-3"
+                    >
+                      <GlobeIcon className="size-4 shrink-0 text-ink-subtle" />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          selectSource({ type: "URL", id: source.id })
+                        }
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <span className="block truncate text-[13.5px] font-medium text-ink hover:text-brand">
+                          {source.title}
+                        </span>
+                        <span className="block truncate text-[12px] text-ink-muted">
+                          {displayUrl(source.url, 40)} · {date(source.fetchedAt)}
+                        </span>
+                      </button>
+                      <DocumentStatusBadge status={source.status} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+          </div>
         ) : (
           <CardBody>
-            {/* No upload control: these files are the applicant's own
-                submissions, and only they can add or remove them. */}
             <p className="text-[13px] leading-relaxed text-ink-muted">
               {d.candidates.noDocumentsYet}
             </p>
@@ -368,7 +455,7 @@ export function CandidateWorkspace({
         description={d.evidence.noVacancyHint}
       />
     </Card>
-  ) : candidate.documents.length === 0 ? (
+  ) : candidate.documents.length + candidate.linkSources.length === 0 ? (
     <Card>
       <EmptyState
         title={d.evidence.noDocuments}
@@ -562,19 +649,30 @@ export function CandidateWorkspace({
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-        <DocumentViewer
-          documents={candidate.documents}
-          activeDocumentId={activeDocumentId}
-          page={page}
-          activeCitation={activeCitation}
-          onSelectDocument={(documentId) => {
-            setActiveDocumentId(documentId);
-            setPage(1);
-            setActiveCitation(null);
-          }}
-          onChangePage={setPage}
-          className="min-w-0 lg:sticky lg:top-18 lg:h-[calc(100dvh-7rem)]"
-        />
+        {/*
+          A URL source is NOT rendered through the PDF viewer: it has no pages
+          and no file, and pretending otherwise would show an empty frame. Each
+          kind gets the view that tells the truth about it.
+        */}
+        {activeSource.type === "URL" ? (
+          <LinkSourceView
+            source={activeLinkSource}
+            activeCitation={activeCitation}
+            className="min-w-0 lg:sticky lg:top-18 lg:h-[calc(100dvh-7rem)]"
+          />
+        ) : (
+          <DocumentViewer
+            documents={candidate.documents}
+            activeDocumentId={activeDocumentId}
+            page={page}
+            activeCitation={activeCitation}
+            onSelectDocument={(documentId) =>
+              selectSource({ type: "FILE", id: documentId })
+            }
+            onChangePage={setPage}
+            className="min-w-0 lg:sticky lg:top-18 lg:h-[calc(100dvh-7rem)]"
+          />
+        )}
 
         <Tabs
           items={tabs}

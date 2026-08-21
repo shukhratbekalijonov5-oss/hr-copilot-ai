@@ -2,10 +2,10 @@
 
 import { useId, useState } from "react";
 import { Chip } from "@/components/ui/Badge";
-import { ChevronDownIcon, FileIcon } from "@/components/ui/icons";
+import { ChevronDownIcon, FileIcon, GlobeIcon } from "@/components/ui/icons";
 import { evidencePreview, sectionKey } from "@/lib/ai/evidence-preview";
 import { useI18n } from "@/lib/i18n/context";
-import { cn } from "@/lib/utils";
+import { cn, displayUrl } from "@/lib/utils";
 import type { MatchEvidence } from "@/lib/types";
 
 /**
@@ -45,6 +45,7 @@ function EvidenceCard({
   const [showOriginal, setShowOriginal] = useState(false);
   const originalId = useId();
 
+  const isUrl = evidence.sourceType === "URL";
   const preview = evidencePreview(evidence.text);
   const section = sectionKey(evidence.section);
   const heading = section
@@ -78,12 +79,34 @@ function EvidenceCard({
         </p>
       )}
 
+      {/*
+        Provenance says WHICH of the candidate's own sources this came from.
+        A skill shown only on a portfolio counts exactly as much as one on a
+        CV — but the job seeker should know which of their sources is doing the
+        work, so a link is labelled as a link and points at the page.
+      */}
       <p className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[12px] text-ink-subtle">
-        <FileIcon className="size-3.5 shrink-0" />
+        {isUrl ? (
+          <GlobeIcon className="size-3.5 shrink-0" />
+        ) : (
+          <FileIcon className="size-3.5 shrink-0" />
+        )}
         <span className="truncate font-medium text-ink-muted">
-          {evidence.fileName ?? d.search.sourceDocument}
+          {evidence.fileName ??
+            (isUrl ? d.search.sourceLink : d.search.sourceDocument)}
         </span>
-        {evidence.pageNumber !== null ? (
+        {isUrl && evidence.sourceUrl ? (
+          <a
+            href={evidence.sourceUrl}
+            target="_blank"
+            rel="noreferrer noopener nofollow"
+            title={evidence.sourceUrl}
+            className="truncate hover:text-brand hover:underline"
+          >
+            · {displayUrl(evidence.sourceUrl, 32)}
+          </a>
+        ) : null}
+        {!isUrl && evidence.pageNumber !== null ? (
           <span>
             · {d.common.page} {evidence.pageNumber}
           </span>

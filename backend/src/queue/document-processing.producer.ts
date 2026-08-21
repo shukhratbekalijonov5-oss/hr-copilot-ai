@@ -2,11 +2,17 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import {
+  DELETE_APPLICATION_LINK_INDEX_JOB,
+  DELETE_CANDIDATE_LINK_INDEX_JOB,
   DELETE_PERSONAL_RESUME_INDEX_JOB,
+  PROCESS_APPLICATION_LINK_JOB,
+  PROCESS_CANDIDATE_LINK_JOB,
   PROCESS_DOCUMENT_JOB,
   PROCESS_PERSONAL_RESUME_JOB,
   RESUME_PROCESSING_QUEUE,
   SYNC_VACANCY_INDEX_JOB,
+  type ApplicationLinkJobData,
+  type CandidateLinkJobData,
   type PersonalResumeJobData,
   type ProcessDocumentJobData,
   type ResumeQueueJobData,
@@ -122,6 +128,76 @@ export class DocumentProcessingProducer {
     data: SyncVacancyIndexJobData,
   ): Promise<string | null> {
     const job = await this.queue.add(SYNC_VACANCY_INDEX_JOB, data);
+    return job.id ?? null;
+  }
+
+  /**
+   * Queues a PERSONAL link for fetching and candidate-scoped indexing.
+   *
+   * Own job-id namespace (`link-`) so a link can never dedupe against a
+   * document. `replaceExisting` backs the candidate-facing "Retry" and
+   * "Refresh" actions: BullMQ treats `add` with an existing id as a no-op, so
+   * without it a retry after a failure would silently enqueue nothing.
+   */
+  async enqueueCandidateLink(
+    data: CandidateLinkJobData,
+    { replaceExisting = false }: { replaceExisting?: boolean } = {},
+  ): Promise<string | null> {
+    const jobId = `link-${data.linkId}`;
+    if (replaceExisting) {
+      const existing = await this.queue.getJob(jobId);
+      if (existing) {
+        const state = await existing.getState();
+        if (state === 'active' || state === 'waiting' || state === 'delayed') {
+          this.logger.warn(
+            `Link ${data.linkId} already has a ${state} job; not requeuing`,
+          );
+          return existing.id ?? null;
+        }
+        await existing.remove();
+      }
+    }
+    const job = await this.queue.add(PROCESS_CANDIDATE_LINK_JOB, data, {
+      jobId,
+    });
+    return job.id ?? null;
+  }
+
+  /** True when a fetch job for this link is genuinely still pending/running. */
+  async hasLiveLinkJob(linkId: string): Promise<boolean> {
+    const job = await this.queue.getJob(`link-${linkId}`);
+    if (!job) return false;
+    const state = await job.getState();
+    return state === 'active' || state === 'waiting' || state === 'delayed';
+  }
+
+  /** Queues removal of a deleted personal link's vectors. */
+  async enqueueCandidateLinkIndexDeletion(
+    data: CandidateLinkJobData,
+  ): Promise<string | null> {
+    const job = await this.queue.add(DELETE_CANDIDATE_LINK_INDEX_JOB, data, {
+      jobId: `link-delete-${data.linkId}`,
+    });
+    return job.id ?? null;
+  }
+
+  /** Queues indexing of one org-scoped application link snapshot. */
+  async enqueueApplicationLink(
+    data: ApplicationLinkJobData,
+  ): Promise<string | null> {
+    const job = await this.queue.add(PROCESS_APPLICATION_LINK_JOB, data, {
+      jobId: `app-link-${data.linkSourceId}`,
+    });
+    return job.id ?? null;
+  }
+
+  /** Queues removal of a deleted application link snapshot's vectors. */
+  async enqueueApplicationLinkIndexDeletion(
+    data: ApplicationLinkJobData,
+  ): Promise<string | null> {
+    const job = await this.queue.add(DELETE_APPLICATION_LINK_INDEX_JOB, data, {
+      jobId: `app-link-delete-${data.linkSourceId}`,
+    });
     return job.id ?? null;
   }
 

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.candidate.job_match import classify_match, match_jobs
+from app.candidate.job_match import match_jobs
+from app.candidate.ranking import TIER_PARTIAL, TIER_STRONG, tier_for
 from app.config import get_settings
 from app.generation.client import GenerationFailedError
 from app.models.schemas import (
@@ -24,61 +25,39 @@ from app.models.schemas import (
     RequirementCheck,
 )
 from app.vectorstore.qdrant_store import SearchHit
+from tests.fixtures.embedding import FakeEmbedder, embed
 
 
 def check(required: bool = True) -> RequirementCheck:
     return RequirementCheck(text="x", required=required, reason="")
 
 
-class TestClassifyMatchRule:
-    """The documented deterministic table, case by case."""
+class TestTierRule:
+    """The label is now DERIVED from the score, so the two cannot disagree.
 
-    def test_no_requirements_is_partial(self):
-        assert classify_match([], [], []) == "PARTIAL"
+    This replaced a separate requirement-counting table. Two rules that could
+    each decide a label independently is one rule too many: they drift, and
+    then a match reads "STRONG" next to a low position in the list.
+    """
 
-    def test_all_required_supported_is_strong(self):
-        assert classify_match([check(), check()], [], []) == "STRONG"
+    def test_boundaries_are_inclusive_at_the_bottom_of_each_tier(self):
+        assert tier_for(TIER_STRONG) == "STRONG"
+        assert tier_for(TIER_STRONG - 1) == "PARTIAL"
+        assert tier_for(TIER_PARTIAL) == "PARTIAL"
+        assert tier_for(TIER_PARTIAL - 1) == "WEAK"
 
-    def test_supported_with_equal_unclear_is_strong(self):
-        assert classify_match([check()], [], [check()]) == "STRONG"
+    def test_the_extremes(self):
+        assert tier_for(100) == "STRONG"
+        assert tier_for(0) == "WEAK"
 
-    def test_more_unclear_than_supported_is_partial(self):
-        assert classify_match([check()], [], [check(), check()]) == "PARTIAL"
-
-    def test_any_missing_required_blocks_strong(self):
-        assert classify_match([check(), check()], [check()], []) == "PARTIAL"
-
-    def test_nothing_supported_is_weak(self):
-        assert classify_match([], [check()], [check()]) == "WEAK"
-
-    def test_more_missing_than_supported_is_weak(self):
-        assert classify_match([check()], [check(), check()], []) == "WEAK"
-
-    def test_optional_requirements_ignored_when_required_exist(self):
-        # The optional gap must not drag a fully-supported required set down.
-        supported = [check(required=True)]
-        unsupported = [check(required=False)]
-        assert classify_match(supported, unsupported, []) == "STRONG"
-
-    def test_optional_only_vacancy_falls_back_to_all(self):
-        assert classify_match([check(required=False)], [check(required=False)], []) == "PARTIAL"
-
-    def test_deterministic_repeatable(self):
-        args = ([check()], [check()], [check()])
-        assert {classify_match(*args) for _ in range(10)} == {"PARTIAL"}
+    def test_is_monotonic(self):
+        """A higher score can never mean a weaker label."""
+        order = {"WEAK": 0, "PARTIAL": 1, "STRONG": 2}
+        tiers = [order[tier_for(score)] for score in range(0, 101)]
+        assert tiers == sorted(tiers)
 
 
 # --- fakes --------------------------------------------------------------------
-
-
-class FakeEmbedder:
-    dimension = 4
-
-    def encode_query(self, text: str) -> list[float]:
-        return [1.0, 0.0, 0.0, 0.0]
-
-    def encode_passages(self, texts):
-        return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
 
 
 class FakeResumeStore:
@@ -87,27 +66,72 @@ class FakeResumeStore:
     def __init__(self, chunks: list[dict]):
         self.chunks = chunks
         self.queried_accounts: list[str] = []
+        #: Every allowlist the pipeline passed, so a test can assert the
+        #: surviving-source filter actually reached the store.
+        self.allowlists: list[list[str] | None] = []
 
-    def search(self, *, candidate_account_id, query_vector, limit):
+    def _permitted(self, allowed_source_ids):
+        """Mirrors the real store's filter, including the empty-list rule."""
+        self.allowlists.append(allowed_source_ids)
+        if allowed_source_ids is None:
+            return self.chunks
+        if len(allowed_source_ids) == 0:
+            return []
+        return [c for c in self.chunks if c.get("documentId") in allowed_source_ids]
+
+    def search(
+        self, *, candidate_account_id, query_vector, limit, allowed_source_ids=None
+    ):
         if not candidate_account_id:
             raise ValueError("candidate_account_id is required for every search")
         self.queried_accounts.append(candidate_account_id)
         # Low raw score: whether a requirement is supported must come from the
         # lexical evidence check, not from an inflated retrieval score (which
         # would land in the semantic NEEDS_HUMAN_REVIEW escalation band).
-        return [SearchHit(score=0.05, payload=c) for c in self.chunks[:limit]]
+        permitted = self._permitted(allowed_source_ids)
+        return [SearchHit(score=0.05, payload=c) for c in permitted[:limit]]
 
-    def list_chunks(self, candidate_account_id, limit=12):
+    def list_chunks(
+        self, candidate_account_id, limit=12, allowed_source_ids=None, with_vectors=False
+    ):
         self.queried_accounts.append(candidate_account_id)
-        return self.chunks[:limit]
+        permitted = self._permitted(allowed_source_ids)[:limit]
+        if not with_vectors:
+            return permitted
+        # A vector per chunk, so the in-process evidence map has something to
+        # compare against — the real store returns these too.
+        return [{**c, "_vector": embed(c.get("text", ""))} for c in permitted]
 
 
 class FakeVacancyStore:
+    """Vacancy index that records what it was ASKED for.
+
+    `fetch_vacancies` is the production path now: the backend names the
+    eligible vacancies and every one of them is scored. `search_open` survives
+    only for standalone calls that supply no eligible set.
+    """
+
     def __init__(self, hits: list[SearchHit]):
         self.hits = hits
+        self.requested_ids: list[str] | None = None
 
     def search_open(self, *, query_vector, limit):
         return self.hits[:limit]
+
+    def fetch_vacancies(self, vacancy_ids, *, with_vectors=True):
+        self.requested_ids = list(vacancy_ids)
+        wanted = set(vacancy_ids)
+        rows = []
+        for hit in self.hits:
+            payload = dict(hit.payload)
+            if payload.get("vacancyId") not in wanted:
+                continue
+            if with_vectors:
+                payload["_vector"] = embed(
+                    f"{payload.get('title', '')} {payload.get('text', '')}"
+                )
+            rows.append(payload)
+        return rows
 
 
 class FakeGenerator:
@@ -162,17 +186,28 @@ def run_match(
     profile=None,
     generator=None,
     locale="en",
+    eligible=None,
+    explain_limit=20,
 ):
+    """Runs the pipeline the way the backend does: with an eligible set.
+
+    `eligible=None` defaults to EVERY vacancy in the fixture, which is the
+    point — the universe is the caller's, not a top-K search's.
+    """
+    hits = vacancy_hits or []
     stores = (
         FakeResumeStore(resume_chunks or []),
-        FakeVacancyStore(vacancy_hits or []),
+        FakeVacancyStore(hits),
     )
+    if eligible is None:
+        eligible = sorted({h.payload["vacancyId"] for h in hits})
     response = match_jobs(
         request=JobMatchRequest(
             candidateAccountId="acct-1",
             profile=profile or CandidateProfileInput(skills=["Docker"]),
             locale=locale,
-            limit=5,
+            eligibleVacancyIds=eligible,
+            explainLimit=explain_limit,
         ),
         settings=get_settings(),
         embedder=FakeEmbedder(),
@@ -192,11 +227,19 @@ class TestMatchPipeline:
             generator=FakeGenerator({"v1": "ok"}),
         )
         [match] = response.matches
-        assert match.match == "STRONG"
         assert [c.text for c in match.supportedRequirements] == ["Docker"]
         assert match.evidence, "supported requirement must cite evidence"
         assert match.evidence[0].fileName == "resume.pdf"
         assert match.evidence[0].pageNumber == 1
+        # Full required coverage, so the coverage signal is maxed out. The
+        # TIER is derived from the whole score, not from coverage alone —
+        # this fixture's vacancy is a bare title with no skills or role family
+        # to corroborate it, so it lands mid-table rather than STRONG. That is
+        # the deliberate change: the old rule called any vacancy whose stated
+        # requirements happened to be met a STRONG match, which is how a
+        # two-line posting outranked a genuinely well-matched role.
+        assert match.signals["required"] == 1.0
+        assert match.match in ("STRONG", "PARTIAL")
 
     def test_absent_skill_stays_unsupported_no_matter_what_the_model_says(self):
         # The generator "claims" AWS is fine — the lists are computed before
@@ -214,6 +257,9 @@ class TestMatchPipeline:
             "AWS production experience"
         ]
         assert match.supportedRequirements == []
+        # The coverage floor: nothing the job requires was demonstrated, so the
+        # label stays WEAK however similar the text reads. The job is still
+        # ranked and still returned — it is the CLAIM that is held honest.
         assert match.match == "WEAK"
 
     def test_profile_fields_ground_requirements_without_a_resume(self):
@@ -272,7 +318,12 @@ class TestMatchPipeline:
             generator=FakeGenerator(fail=True),
         )
         [match] = response.matches
-        assert match.match == "STRONG"
+        # The deterministic part survives a provider outage untouched: the
+        # ranking, the score and the requirement lists are all computed before
+        # generation is even attempted.
+        assert match.signals["required"] == 1.0
+        assert match.score > 0
+        assert match.rank == 1
         assert match.explanation is None
         assert response.generated is False
 
@@ -311,6 +362,11 @@ class TestMatchPipeline:
             generator=generator,
         )
         context = generator.seen_context
-        supported_block = context.split("NOT shown")[0]
+        # Split on the SUPPORTED heading rather than a loose substring: the
+        # context now also lists matched/missing technologies, and a fragile
+        # split would pass or fail on layout rather than on the property.
+        supported_block = context.split("Requirements SUPPORTED")[1].split(
+            "Requirements NOT shown"
+        )[0]
         assert "Terraform" not in supported_block
         assert "Docker" in supported_block

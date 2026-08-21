@@ -16,6 +16,8 @@ import { AiModule } from './ai/ai.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { CandidateAccountModule } from './candidate-account/candidate-account.module';
+import { CandidateLinksModule } from './candidate-links/candidate-links.module';
+import { WebIngestionModule } from './web-ingestion/web-ingestion.module';
 import { PublicJobsModule } from './public-jobs/public-jobs.module';
 import { UsersModule } from './users/users.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -71,11 +73,15 @@ import { RolesGuard } from './common/guards/roles.guard';
     NotificationsModule,
     StorageModule,
     AiModule,
+    // Outbound fetching of candidate-supplied URLs, with the SSRF policy that
+    // makes it safe. The only place the backend talks to the open internet.
+    WebIngestionModule,
 
     // Feature modules
     HealthModule,
     AuthModule,
     CandidateAccountModule,
+    CandidateLinksModule,
     PublicJobsModule,
     UsersModule,
     OrganizationsModule,

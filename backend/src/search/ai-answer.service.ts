@@ -11,9 +11,11 @@ import {
   AiServiceClient,
   AiServiceDisabledError,
   isSupportedLocale,
+  type AiRagResult,
   type AiVacancyContext,
   type SupportedLocale,
 } from '../ai/ai-service.client';
+import { CandidateEvidenceLifecycleService } from '../candidate-evidence/candidate-evidence.service';
 
 /**
  * Grounded AI answers, candidate summaries and interview questions — all
@@ -46,6 +48,7 @@ export class AiAnswerService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantService,
     private readonly ownedVacancies: OwnedVacancyService,
+    private readonly evidence: CandidateEvidenceLifecycleService,
   ) {}
 
   async answer(
@@ -85,7 +88,18 @@ export class AiAnswerService {
     }
     const locale = await this.resolveLocale(userId, input.locale);
 
-    return this.guard('answer questions', () =>
+    // Ask-about-a-candidate is restricted to that candidate's SURVIVING
+    // sources. The org-wide mode has no candidate to scope by and passes null;
+    // its results are filtered against surviving sources by SearchService on
+    // the way back instead.
+    const allowedSourceIds = input.candidateId
+      ? await this.evidence.activeApplicationSourceIds(
+          organizationId,
+          input.candidateId,
+        )
+      : null;
+
+    const answer = await this.guard('answer questions', () =>
       this.ai.answerQuestion({
         organizationId,
         query: input.query,
@@ -94,8 +108,69 @@ export class AiAnswerService {
         vacancy: vacancyContext,
         locale,
         limit: input.limit,
+        allowedSourceIds,
       }),
     );
+
+    // The org-wide mode had no allowlist, so enforce the rule on the way back
+    // instead: a withdrawn source must never be cited.
+    return allowedSourceIds === null
+      ? this.dropWithdrawnCitations(organizationId, answer)
+      : answer;
+  }
+
+  /**
+   * Removes citations naming sources that no longer exist, and says so.
+   *
+   * Only the organization-wide Ask needs this. Every other AI surface is
+   * scoped to one candidate, so it can send a small list of surviving source
+   * ids and have the index filter before retrieval. Organization-wide there is
+   * no such list — sending every source id an organization owns would be an
+   * unbounded filter that silently degrades as the corpus grows, which is
+   * worse than no filter, because it would look like one.
+   *
+   * So the guarantee here is enforced where it is bounded: on the handful of
+   * citations actually returned. A withdrawn source can never be cited, and if
+   * one was, the answer stops being reported as GROUNDED — its prose may have
+   * been shaped by evidence that no longer exists, and a human should look.
+   * (The window is only between a delete committing and its eviction
+   * completing; the citations are the part that would be user-visible.)
+   */
+  private async dropWithdrawnCitations(
+    organizationId: string,
+    answer: AiRagResult,
+  ): Promise<AiRagResult> {
+    if (answer.citations.length === 0) return answer;
+
+    const ids = [...new Set(answer.citations.map((c) => c.documentId))];
+    const [documents, linkSources] = await Promise.all([
+      this.prisma.document.findMany({
+        where: { id: { in: ids }, organizationId },
+        select: { id: true },
+      }),
+      this.prisma.applicationLinkSource.findMany({
+        where: { id: { in: ids }, organizationId },
+        select: { id: true },
+      }),
+    ]);
+    const surviving = new Set([
+      ...documents.map((d) => d.id),
+      ...linkSources.map((s) => s.id),
+    ]);
+
+    const kept = answer.citations.filter((c) => surviving.has(c.documentId));
+    if (kept.length === answer.citations.length) return answer;
+
+    this.logger.warn(
+      `Dropped ${answer.citations.length - kept.length} citation(s) naming ` +
+        `withdrawn sources from an organization-wide answer`,
+    );
+    return {
+      ...answer,
+      citations: kept,
+      status:
+        kept.length === 0 ? 'INSUFFICIENT_EVIDENCE' : 'NEEDS_HUMAN_REVIEW',
+    };
   }
 
   /**
@@ -147,6 +222,10 @@ export class AiAnswerService {
     );
     await this.ownedVacancies.assertCandidateInVacancy(vacancyId, candidateId);
     const resolved = await this.resolveLocale(userId, locale);
+    const allowedSourceIds = await this.evidence.activeApplicationSourceIds(
+      organizationId,
+      candidateId,
+    );
 
     return this.guard('summarise candidates', () =>
       this.ai.summariseCandidate({
@@ -154,6 +233,7 @@ export class AiAnswerService {
         candidateId,
         locale: resolved,
         vacancy: toVacancyContext(vacancy),
+        allowedSourceIds,
       }),
     );
   }
@@ -173,6 +253,10 @@ export class AiAnswerService {
     );
     await this.ownedVacancies.assertCandidateInVacancy(vacancyId, candidateId);
     const resolvedLocale = await this.resolveLocale(userId, locale);
+    const allowedSourceIds = await this.evidence.activeApplicationSourceIds(
+      organizationId,
+      candidateId,
+    );
 
     return this.guard('generate interview questions', () =>
       this.ai.interviewQuestions({
@@ -186,6 +270,7 @@ export class AiAnswerService {
           required: r.required,
         })),
         locale: resolvedLocale,
+        allowedSourceIds,
       }),
     );
   }

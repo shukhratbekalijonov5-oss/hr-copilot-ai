@@ -49,8 +49,16 @@ def map_requirements(
     embedder,
     store,
     reranker,
+    allowed_source_ids: list[str] | None = None,
 ) -> EvidenceMapResponse:
-    """Runs candidate-scoped retrieval for each requirement and classifies it."""
+    """Runs candidate-scoped retrieval for each requirement and classifies it.
+
+    ``allowed_source_ids`` restricts every requirement's retrieval to the
+    candidate's SURVIVING sources. Without it a requirement could come back
+    EVIDENCE_FOUND on the strength of a passage from a file or link the
+    candidate has withdrawn — a recruiter would read a verdict supported by
+    evidence that no longer exists anywhere else in the product.
+    """
     started = time.perf_counter()
     metrics.increment(metrics.JD_MAPPING_TOTAL)
     limits = _thresholds(settings)
@@ -70,6 +78,7 @@ def map_requirements(
             embedder=embedder,
             store=store,
             reranker=reranker,
+            allowed_source_ids=allowed_source_ids,
         )
 
         result = classify_requirement(
@@ -127,6 +136,7 @@ def generate_interview_questions(
     store,
     reranker,
     generator: GenerationClient,
+    allowed_source_ids: list[str] | None = None,
 ) -> InterviewQuestionsResponse:
     """Builds interview prompts from what the evidence does and does not show.
 
@@ -144,6 +154,7 @@ def generate_interview_questions(
         embedder=embedder,
         store=store,
         reranker=reranker,
+        allowed_source_ids=allowed_source_ids,
     )
 
     questions: list[InterviewQuestion] = []
@@ -187,6 +198,12 @@ def generate_interview_questions(
 
 
 def _to_citation(hit) -> Citation:
+    """Carries provenance through, INCLUDING which kind of source it was.
+
+    Dropping the source fields here would make every mapped citation look like
+    a file: "Portfolio Website · Projects" would be presented as a document
+    with no page number rather than a page a recruiter can open.
+    """
     return Citation(
         chunkId=hit.chunkId,
         documentId=hit.documentId,
@@ -194,6 +211,9 @@ def _to_citation(hit) -> Citation:
         pageNumber=hit.pageNumber,
         section=hit.section,
         text=hit.text,
+        sourceType=hit.sourceType,
+        sourceTitle=hit.sourceTitle or hit.fileName,
+        sourceUrl=hit.sourceUrl,
     )
 
 
@@ -212,6 +232,11 @@ def _citations_to_hits(citations: list[Citation], candidate_id: str):
             chunkIndex=0,
             text=c.text,
             retrievalScore=0.0,
+            # Kept, so a question generated from link evidence cites the link
+            # rather than a nameless "document".
+            sourceType=c.sourceType,
+            sourceTitle=c.sourceTitle or c.fileName,
+            sourceUrl=c.sourceUrl,
         )
         for c in citations
     ]

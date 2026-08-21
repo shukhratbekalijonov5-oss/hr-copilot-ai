@@ -22,6 +22,19 @@ from app.parsers.sections import Section
 
 @dataclass
 class Chunk:
+    """One indexable passage of ANY evidence source.
+
+    Source-agnostic by design. ``document_id`` is the storage key of whatever
+    the passage came from — an uploaded file, or a submitted professional link
+    — and ``file_name`` is its human-readable title. The extra
+    ``source_type``/``source_url`` fields say which kind it is and, for a link,
+    which exact page, so a citation can read "Resume.pdf · page 2" or
+    "Portfolio Website · Projects · portfolio.example.com/projects".
+
+    The defaults are load-bearing: chunks indexed before links existed carry no
+    source metadata, and they are files.
+    """
+
     organization_id: str
     candidate_id: str | None
     document_id: str
@@ -32,6 +45,10 @@ class Chunk:
     # Carried so a retrieved passage can be cited without a second lookup.
     file_name: str | None = None
     document_type: str | None = None
+    source_type: str = "FILE"
+    # The exact page a URL passage came from. Always None for files, where
+    # page_number plays the same "where exactly" role.
+    source_url: str | None = None
 
 
 _PARAGRAPH_SPLIT = re.compile(r"\n\s*\n")
@@ -82,6 +99,96 @@ def chunk_sections(
                     text=piece,
                     file_name=file_name,
                     document_type=document_type,
+                )
+            )
+            index += 1
+
+    return chunks
+
+
+@dataclass
+class WebSection:
+    """One normalized section of a fetched web page.
+
+    Produced by the BACKEND (src/web-ingestion), which owns every outbound
+    request. By the time a section reaches this service the page has already
+    been fetched, size-bounded, stripped of chrome and turned into text — the
+    AI service performs no network egress to candidate-supplied destinations,
+    and this type is where that boundary lands.
+    """
+
+    name: str | None
+    heading: str | None
+    text: str
+    url: str | None
+
+
+def chunk_web_sections(
+    sections: list[WebSection],
+    *,
+    organization_id: str,
+    candidate_id: str | None,
+    source_id: str,
+    source_title: str,
+    source_url: str,
+    target_chars: int = 900,
+    overlap_chars: int = 150,
+    min_split_chars: int = 1200,
+    max_chunks: int = 80,
+) -> list[Chunk]:
+    """Turns fetched web sections into indexable chunks.
+
+    The same splitting rules as files, deliberately: after normalization a
+    portfolio section and a resume section are the same kind of thing, and
+    giving them different chunk shapes would make retrieval quality depend on
+    where evidence happened to come from.
+
+    Two things are specific to the web:
+
+      * a section's ``url`` is the exact page it came from, which may be a
+        subpage of the submitted link, so a citation can point at
+        ``/projects`` rather than at the site's front door;
+      * ``max_chunks`` caps one source. A long, repetitive site must not be
+        able to occupy a candidate's entire evidence footprint — the retrieval
+        layer also caps per source, and this is the ingestion-side half of the
+        same rule.
+    """
+    chunks: list[Chunk] = []
+    index = 0
+
+    for section in sections:
+        text = section.text.strip()
+        if not text:
+            continue
+
+        pieces = (
+            [text]
+            if len(text) <= min_split_chars
+            else _split_text(text, target_chars, overlap_chars)
+        )
+
+        for piece in pieces:
+            piece = piece.strip()
+            if not piece:
+                continue
+            if index >= max_chunks:
+                return chunks
+            chunks.append(
+                Chunk(
+                    organization_id=organization_id,
+                    candidate_id=candidate_id,
+                    document_id=source_id,
+                    # The canonical name when the heading mapped to one,
+                    # otherwise the heading as written. Never invented: a
+                    # section with neither stays None.
+                    section=section.name or section.heading,
+                    page_number=None,
+                    chunk_index=index,
+                    text=piece,
+                    file_name=source_title,
+                    document_type="URL",
+                    source_type="URL",
+                    source_url=section.url or source_url,
                 )
             )
             index += 1

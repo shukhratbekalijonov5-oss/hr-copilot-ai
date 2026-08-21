@@ -1,5 +1,7 @@
 import { Job, UnrecoverableError } from 'bullmq';
 import { DocumentProcessingProcessor } from './document-processing.processor';
+import { WebIngestionError } from '../web-ingestion/web-ingestion.errors';
+import { LinkFailureCode } from '../generated/prisma/enums';
 import type { ProcessDocumentJobData } from './queue.constants';
 
 const ORG_A = 'org-a';
@@ -29,6 +31,49 @@ const DOCUMENT = {
   type: 'RESUME',
 };
 
+const LINK = {
+  id: 'link-1',
+  candidateAccountId: 'acct-1',
+  url: 'https://portfolio.example.com/',
+  title: null,
+};
+
+const LINK_SOURCE = {
+  id: 'link-src-1',
+  organizationId: ORG_A,
+  applicationId: 'app-1',
+  url: 'https://portfolio.example.com/',
+  title: 'Portfolio Website',
+  detectedType: 'WEBSITE',
+  sections: [
+    {
+      name: 'projects',
+      heading: 'Projects',
+      text: 'Kubernetes deployment work',
+      url: 'https://portfolio.example.com/projects',
+    },
+  ],
+};
+
+const INGESTED = {
+  finalUrl: 'https://portfolio.example.com/',
+  title: 'Ji-woo Han',
+  description: null,
+  detectedType: 'WEBSITE',
+  sections: [
+    {
+      name: 'projects',
+      heading: 'Projects',
+      text: 'Kubernetes deployment work',
+      url: 'https://portfolio.example.com/projects',
+    },
+  ],
+  charCount: 26,
+  pagesFetched: 2,
+  fetchMode: 'STATIC' as const,
+  contentHash: 'a'.repeat(64),
+};
+
 const AI_RESULT = {
   documentId: 'd1',
   pageCount: 2,
@@ -46,9 +91,10 @@ describe('DocumentProcessingProcessor', () => {
   let ai: any;
   let prisma: any;
   let storage: any;
+  let web: any;
 
   const build = () =>
-    new DocumentProcessingProcessor(processing, ai, prisma, storage);
+    new DocumentProcessingProcessor(processing, ai, prisma, storage, web);
 
   beforeEach(() => {
     processing = {
@@ -70,6 +116,20 @@ describe('DocumentProcessingProcessor', () => {
       deletePersonalResume: jest.fn().mockResolvedValue(undefined),
       indexVacancy: jest.fn().mockResolvedValue(undefined),
       deleteVacancyIndex: jest.fn().mockResolvedValue(undefined),
+      indexPersonalWebSource: jest.fn().mockResolvedValue({
+        sourceId: 'link-1',
+        chunksCreated: 5,
+        vectorsIndexed: 5,
+        durationMs: 200,
+      }),
+      indexApplicationWebSource: jest.fn().mockResolvedValue({
+        sourceId: 'link-src-1',
+        chunksCreated: 5,
+        vectorsIndexed: 5,
+        durationMs: 200,
+      }),
+      deletePersonalWebSource: jest.fn().mockResolvedValue(undefined),
+      deleteApplicationWebSource: jest.fn().mockResolvedValue(undefined),
     };
     prisma = {
       document: {
@@ -77,10 +137,22 @@ describe('DocumentProcessingProcessor', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       vacancy: { findUnique: jest.fn() },
+      candidateLink: {
+        findFirst: jest.fn().mockResolvedValue(LINK),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      applicationLinkSource: {
+        findFirst: jest.fn().mockResolvedValue(LINK_SOURCE),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      // A link whose content CHANGED invalidates anything generated from the
+      // old content, so indexing it bumps the account's evidence revision.
+      candidateAccount: { update: jest.fn().mockResolvedValue({}) },
     };
     storage = {
       getObject: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.4')),
     };
+    web = { ingest: jest.fn().mockResolvedValue(INGESTED) };
   });
 
   describe('personal resume jobs (candidate-scoped path)', () => {
@@ -370,6 +442,320 @@ describe('DocumentProcessingProcessor', () => {
       );
       expect(processing.markFailed).toHaveBeenCalled();
       expect(ai.processDocument).not.toHaveBeenCalled();
+    });
+  });
+  describe('candidate link jobs (personal, network-fetching path)', () => {
+    const linkJob = (over: Record<string, unknown> = {}) =>
+      ({
+        name: 'PROCESS_CANDIDATE_LINK',
+        data: { linkId: 'link-1', candidateAccountId: 'acct-1' },
+        attemptsMade: 0,
+        ...over,
+      }) as never;
+
+    it('verifies OWNERSHIP before fetching anything', async () => {
+      await build().process(linkJob());
+
+      expect(prisma.candidateLink.findFirst.mock.calls[0][0].where).toEqual({
+        id: 'link-1',
+        candidateAccountId: 'acct-1',
+      });
+    });
+
+    it('walks the row through FETCHING then PROCESSING then COMPLETED', async () => {
+      await build().process(linkJob());
+
+      const statuses = prisma.candidateLink.updateMany.mock.calls.map(
+        (call: any[]) => call[0].data.status,
+      );
+      expect(statuses).toEqual(['FETCHING', 'PROCESSING', 'COMPLETED']);
+    });
+
+    it('skips re-indexing when a refresh finds the page unchanged', async () => {
+      // The hash is over the normalized text, so an identical hash means the
+      // stored vectors are already exactly right.
+      prisma.candidateLink.findFirst.mockResolvedValue({
+        ...LINK,
+        status: 'COMPLETED',
+        contentHash: INGESTED.contentHash,
+      });
+
+      await build().process(linkJob());
+
+      expect(ai.indexPersonalWebSource).not.toHaveBeenCalled();
+      const final = prisma.candidateLink.updateMany.mock.calls.at(-1)[0].data;
+      expect(final.status).toBe('COMPLETED');
+      expect(final.lastFetchedAt).toBeInstanceOf(Date);
+    });
+
+    it('re-indexes unchanged content when the previous attempt had FAILED', async () => {
+      // A matching hash says nothing about whether the vectors exist; skipping
+      // here would leave the link permanently unsearchable.
+      prisma.candidateLink.findFirst.mockResolvedValue({
+        ...LINK,
+        status: 'FAILED',
+        contentHash: INGESTED.contentHash,
+      });
+
+      await build().process(linkJob());
+
+      expect(ai.indexPersonalWebSource).toHaveBeenCalled();
+    });
+
+    it('re-indexes when the page has changed', async () => {
+      prisma.candidateLink.findFirst.mockResolvedValue({
+        ...LINK,
+        status: 'COMPLETED',
+        contentHash: 'b'.repeat(64),
+      });
+
+      await build().process(linkJob());
+
+      expect(ai.indexPersonalWebSource).toHaveBeenCalled();
+    });
+
+    it('CHANGED content invalidates anything generated from the old content', async () => {
+      // A refreshed link now says something different, so a Job Match computed
+      // against the previous version is no longer a description of this
+      // candidate's evidence.
+      prisma.candidateLink.findFirst.mockResolvedValue({
+        ...LINK,
+        status: 'COMPLETED',
+        contentHash: 'b'.repeat(64),
+      });
+
+      await build().process(linkJob());
+
+      expect(prisma.candidateAccount.update).toHaveBeenCalledWith({
+        where: { id: LINK.candidateAccountId },
+        data: { evidenceRevision: { increment: 1 } },
+      });
+    });
+
+    it('UNCHANGED content does not invalidate anything', async () => {
+      // Pressing Refresh on a page that has not moved must not make a perfectly
+      // good analysis look stale.
+      prisma.candidateLink.findFirst.mockResolvedValue({
+        ...LINK,
+        status: 'COMPLETED',
+        contentHash: INGESTED.contentHash,
+      });
+
+      await build().process(linkJob());
+
+      expect(prisma.candidateAccount.update).not.toHaveBeenCalled();
+    });
+
+    it('persists the extracted content so apply can freeze it later', async () => {
+      await build().process(linkJob());
+
+      const final = prisma.candidateLink.updateMany.mock.calls.at(-1)[0].data;
+      expect(final.sections).toEqual(INGESTED.sections);
+      expect(final.contentHash).toBe(INGESTED.contentHash);
+      expect(final.pagesFetched).toBe(2);
+      expect(final.fetchMode).toBe('STATIC');
+      expect(final.lastFetchedAt).toBeInstanceOf(Date);
+    });
+
+    it('indexes into the PERSONAL collection, with no organization anywhere', async () => {
+      await build().process(linkJob());
+
+      expect(ai.indexApplicationWebSource).not.toHaveBeenCalled();
+      const call = ai.indexPersonalWebSource.mock.calls[0][0];
+      expect(call.candidateAccountId).toBe('acct-1');
+      expect(call.sourceId).toBe('link-1');
+      expect(call).not.toHaveProperty('organizationId');
+    });
+
+    it('titles an unlabelled link from the page, falling back to the host', async () => {
+      await build().process(linkJob());
+      expect(ai.indexPersonalWebSource.mock.calls[0][0].title).toBe(
+        'Ji-woo Han',
+      );
+
+      web.ingest.mockResolvedValue({ ...INGESTED, title: null });
+      await build().process(linkJob());
+      expect(ai.indexPersonalWebSource.mock.calls[1][0].title).toBe(
+        'portfolio.example.com',
+      );
+    });
+
+    it("prefers the candidate's own label over the page title", async () => {
+      prisma.candidateLink.findFirst.mockResolvedValue({
+        ...LINK,
+        title: 'My portfolio',
+      });
+      await build().process(linkJob());
+      expect(ai.indexPersonalWebSource.mock.calls[0][0].title).toBe(
+        'My portfolio',
+      );
+    });
+
+    it('records a typed failure and does NOT retry a permanent one', async () => {
+      web.ingest.mockRejectedValue(
+        new WebIngestionError(
+          LinkFailureCode.PRIVATE_NETWORK_URL,
+          'resolves to a private address',
+        ),
+      );
+
+      await expect(build().process(linkJob())).rejects.toBeInstanceOf(
+        UnrecoverableError,
+      );
+      const failure = prisma.candidateLink.updateMany.mock.calls.at(-1)[0].data;
+      expect(failure.status).toBe('FAILED');
+      expect(failure.failureCode).toBe(LinkFailureCode.PRIVATE_NETWORK_URL);
+    });
+
+    it('records a typed failure and DOES retry a transient one', async () => {
+      web.ingest.mockRejectedValue(
+        new WebIngestionError(LinkFailureCode.FETCH_TIMEOUT, 'timed out'),
+      );
+
+      // Not UnrecoverableError: BullMQ should try again with backoff.
+      const error = await build()
+        .process(linkJob())
+        .catch((e: Error) => e);
+      expect(error).toBeInstanceOf(WebIngestionError);
+      expect(error).not.toBeInstanceOf(UnrecoverableError);
+    });
+
+    it('never reports COMPLETED when nothing was indexed', async () => {
+      ai.indexPersonalWebSource.mockResolvedValue({
+        sourceId: 'link-1',
+        chunksCreated: 0,
+        vectorsIndexed: 0,
+        durationMs: 10,
+      });
+
+      await expect(build().process(linkJob())).rejects.toThrow();
+      const failure = prisma.candidateLink.updateMany.mock.calls.at(-1)[0].data;
+      expect(failure.failureCode).toBe(LinkFailureCode.INDEXING_FAILED);
+    });
+
+    it('evicts vectors when the link was deleted after the job was queued', async () => {
+      prisma.candidateLink.findFirst.mockResolvedValue(null);
+
+      await expect(build().process(linkJob())).rejects.toBeInstanceOf(
+        UnrecoverableError,
+      );
+      expect(ai.deletePersonalWebSource).toHaveBeenCalledWith(
+        'acct-1',
+        'link-1',
+      );
+    });
+
+    it('evicts vectors when the link is deleted MID-processing', async () => {
+      // The delete's own eviction may have run before these vectors existed,
+      // so the deletion has to stay authoritative.
+      prisma.candidateLink.updateMany.mockResolvedValue({ count: 0 });
+
+      await build().process(linkJob());
+      expect(ai.deletePersonalWebSource).toHaveBeenCalledWith(
+        'acct-1',
+        'link-1',
+      );
+    });
+
+    it('evicts on the delete job', async () => {
+      await build().process({
+        name: 'DELETE_CANDIDATE_LINK_INDEX',
+        data: { linkId: 'link-1', candidateAccountId: 'acct-1' },
+      } as never);
+      expect(ai.deletePersonalWebSource).toHaveBeenCalledWith(
+        'acct-1',
+        'link-1',
+      );
+    });
+  });
+
+  describe('application link snapshot jobs (organization-scoped path)', () => {
+    const snapshotJob = (over: Record<string, unknown> = {}) =>
+      ({
+        name: 'PROCESS_APPLICATION_LINK',
+        data: {
+          linkSourceId: 'link-src-1',
+          organizationId: ORG_A,
+          candidateId: 'cand-1',
+        },
+        attemptsMade: 0,
+        ...over,
+      }) as never;
+
+    it('NEVER re-fetches the page — the snapshot is the evidence', async () => {
+      await build().process(snapshotJob());
+
+      // Re-fetching would silently replace an application's evidence with
+      // whatever the site says today. That is the failure the whole snapshot
+      // model exists to prevent.
+      expect(web.ingest).not.toHaveBeenCalled();
+      expect(ai.indexApplicationWebSource.mock.calls[0][0].sections).toEqual([
+        expect.objectContaining({ text: 'Kubernetes deployment work' }),
+      ]);
+    });
+
+    it('indexes under the organization AND the candidate', async () => {
+      await build().process(snapshotJob());
+
+      expect(ai.indexApplicationWebSource.mock.calls[0][0]).toMatchObject({
+        organizationId: ORG_A,
+        candidateId: 'cand-1',
+        applicationId: 'app-1',
+        sourceId: 'link-src-1',
+      });
+      expect(ai.indexPersonalWebSource).not.toHaveBeenCalled();
+    });
+
+    it('scopes the lookup by organization so a malformed job cannot cross tenants', async () => {
+      await build().process(snapshotJob());
+      expect(
+        prisma.applicationLinkSource.findFirst.mock.calls[0][0].where,
+      ).toEqual({ id: 'link-src-1', organizationId: ORG_A });
+    });
+
+    it('marks the snapshot COMPLETED', async () => {
+      await build().process(snapshotJob());
+      expect(
+        prisma.applicationLinkSource.updateMany.mock.calls.at(-1)[0].data
+          .status,
+      ).toBe('COMPLETED');
+    });
+
+    it('marks it FAILED when indexing fails', async () => {
+      ai.indexApplicationWebSource.mockRejectedValue(new Error('qdrant down'));
+
+      await expect(build().process(snapshotJob())).rejects.toThrow();
+      expect(
+        prisma.applicationLinkSource.updateMany.mock.calls.at(-1)[0].data
+          .status,
+      ).toBe('FAILED');
+    });
+
+    it('evicts vectors when the snapshot no longer exists', async () => {
+      prisma.applicationLinkSource.findFirst.mockResolvedValue(null);
+
+      await expect(build().process(snapshotJob())).rejects.toBeInstanceOf(
+        UnrecoverableError,
+      );
+      expect(ai.deleteApplicationWebSource).toHaveBeenCalledWith(
+        ORG_A,
+        'link-src-1',
+      );
+    });
+
+    it('evicts on the delete job', async () => {
+      await build().process({
+        name: 'DELETE_APPLICATION_LINK_INDEX',
+        data: {
+          linkSourceId: 'link-src-1',
+          organizationId: ORG_A,
+          candidateId: 'cand-1',
+        },
+      } as never);
+      expect(ai.deleteApplicationWebSource).toHaveBeenCalledWith(
+        ORG_A,
+        'link-src-1',
+      );
     });
   });
 });

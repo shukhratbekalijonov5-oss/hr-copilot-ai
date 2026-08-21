@@ -10,6 +10,7 @@ import {
 } from "@/lib/api/adapters";
 import type {
   CandidateAccountResponse,
+  CandidateEvidenceStateResponse,
   CandidatePersonalDocumentsResponse,
   MyApplicationResponse,
   SavedJobResponse,
@@ -19,6 +20,7 @@ import { ApiError } from "@/lib/api/errors";
 import type {
   CandidateAccount,
   CandidateAccountInput,
+  CandidateEvidenceState,
   MyApplication,
   MyApplicationPage,
   PersonalDocument,
@@ -229,15 +231,44 @@ export function unsaveJob(slug: string): Promise<{ saved: boolean }> {
  * side effect of rendering. The subject is always the caller's own account;
  * there is no id to pass.
  */
+/**
+ * The caller's evidence state.
+ *
+ * Two counts and a revision — cheap enough to call on every render of an
+ * evidence-gated screen, which is what keeps the gate honest after a deletion
+ * in another tab.
+ */
+export function getCandidateEvidenceState(): Promise<CandidateEvidenceState> {
+  return apiFetch<CandidateEvidenceStateResponse>(
+    "/candidate-account/me/evidence",
+  ).then((response) => ({
+    hasAccount: response.hasAccount,
+    files: response.files,
+    links: response.links,
+    total: response.total,
+    evidenceRevision: response.evidenceRevision,
+    canRunJobMatch: response.canRunJobMatch,
+  }));
+}
+
 export async function getJobMatches(input: {
   locale: Locale;
+  /** 1-based page of the RANKED list. Not a new search. */
+  page?: number;
   limit?: number;
+  /** The candidate's explicit "Refresh matches". Never set while paging. */
+  refresh?: boolean;
 }): Promise<JobMatchResult> {
   const response = await apiFetch<JobMatchesResponse>(
     "/candidate-account/me/job-matches",
     {
       method: "POST",
-      body: { locale: input.locale, limit: input.limit },
+      body: {
+        locale: input.locale,
+        page: input.page,
+        limit: input.limit,
+        refresh: input.refresh,
+      },
     },
   );
   return toJobMatchResult(response);

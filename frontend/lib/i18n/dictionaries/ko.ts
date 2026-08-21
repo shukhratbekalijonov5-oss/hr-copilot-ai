@@ -37,6 +37,7 @@ const ko: Dictionary = {
     save: "변경사항 저장",
     saved: "저장됨",
     cancel: "취소",
+    edit: "수정",
     close: "닫기",
     retry: "다시 시도",
     search: "검색",
@@ -339,6 +340,29 @@ const ko: Dictionary = {
     documentsUploaded: { other: "제출된 파일 {count}개" },
     noDocumentsYet:
       "아직 제출된 문서가 없습니다. 지원자가 지원 시 보낸 이력서가 여기에 표시됩니다.",
+
+    // 근거 소스 — 파일과 전문 링크. HR은 읽기 전용입니다.
+    evidenceSources: "근거 소스",
+    evidenceSourceCounts: "제출된 파일 {files}개 · 링크 {links}개",
+    filesCount: {
+      other: "파일 · {count}",
+    } as Plural,
+    linksCount: {
+      other: "전문 링크 · {count}",
+    } as Plural,
+    noSource: "선택된 소스가 없습니다",
+    noSourceHint: "제출된 내용을 보려면 파일이나 링크를 선택하세요.",
+    originalUrl: "원본 링크",
+    submittedContent: "제출된 내용",
+    fetchedOn: "{date}에 읽음",
+    pagesRead: {
+      other: "{count}개 페이지를 읽음",
+    } as Plural,
+    snapshotNote:
+      "지원 시점의 내용입니다. 실제 페이지는 그 이후 변경되었을 수 있으며, 아래 분석은 제출된 내용을 기준으로 합니다.",
+    sourceIndexingFailed:
+      "이 링크는 분석용으로 준비하지 못해 AI 답변에 나타나지 않습니다.",
+    openOriginal: "원본 열기",
     applications: "지원 현황",
     applicationsHint: "단계 변경은 변경한 담당자와 함께 기록됩니다.",
     applicationStage: "지원 단계",
@@ -427,6 +451,7 @@ const ko: Dictionary = {
     retrievalContext: "검색 컨텍스트",
     unnamedCandidate: "이름 없는 지원자",
     sourceDocument: "출처 문서",
+    sourceLink: "전문 링크",
     summaryTitle: "AI 요약",
     searchingEvidence: "지원자 근거를 검색하는 중…",
     generatingSummary: "근거 기반 요약을 생성하는 중…",
@@ -566,6 +591,7 @@ const ko: Dictionary = {
       "업로드된 문서에 이 요건을 뒷받침하는 내용이 없습니다. 지원자에 대한 판단이 아니므로 면접에서 직접 확인하세요.",
     openAtPage: "{name} {page}페이지 열기",
     openDocument: "{name} 열기",
+    openSource: "{name} 열기",
   },
 
   processing: {
@@ -945,6 +971,72 @@ const ko: Dictionary = {
       "다른 워크스페이스를 선택해 계속하세요. 잘못된 것 같다면 해당 조직 관리자에게 문의하세요.",
   },
 
+  /**
+   * 전문 링크 — 근거 기능의 지원자 측 절반.
+   *
+   * 실패 문구는 운영자가 아니라 사람을 위해 쓰였습니다. 본인의 링크에 무슨
+   * 일이 있었고 무엇을 할 수 있는지 말하며, HTTP 상태나 호스트명, 내부 사유는
+   * 절대 노출하지 않습니다.
+   */
+  candidateLinks: {
+    title: "전문 링크",
+    hint: "공개 링크 최대 {limit}개 — 포트폴리오, 저장소, 프로젝트 페이지. 파일과 동일한 방식으로 분석됩니다.",
+    empty: "아직 링크가 없습니다.",
+    add: "링크 추가",
+    remove: "삭제",
+    retry: "다시 시도",
+    refresh: "분석 갱신",
+    urlLabel: "링크",
+    urlPlaceholder: "https://your-portfolio.com",
+    labelLabel: "라벨 (선택)",
+    labelPlaceholder: "내 포트폴리오",
+    slots: "링크 {limit}개 중 {count}개 사용",
+    analysedOn: "{date}에 분석됨",
+    limitReached:
+      "링크 슬롯을 모두 사용했습니다. 추가하려면 하나를 삭제하세요. 파일은 별도로 계산됩니다.",
+    privacyNote:
+      "저장한 링크는 내 프로필에만 표시됩니다. 지원할 때 읽어들인 내용의 사본이 함께 전송됩니다. 링크를 수정해도 이미 보낸 지원서는 바뀌지 않지만, 삭제하면 해당 지원서에서도 함께 삭제됩니다.",
+    addFailed: "이 링크를 추가하지 못했습니다.",
+    removeFailed: "이 링크를 삭제하지 못했습니다.",
+    retryFailed: "이 링크를 다시 분석하지 못했습니다.",
+    confirmDeleteTitle: "이 전문 링크를 삭제할까요?",
+    confirmDeleteQuestion: "“{name}”이(가) 프로필에서 삭제됩니다.",
+    confirmDeleteConsequence:
+      "이 근거는 이미 보낸 지원서와 채용 담당자가 보는 AI 분석에서도 삭제됩니다. 지원서 자체는 그대로 남습니다.",
+    errorCodes: {
+      LINK_LIMIT_REACHED:
+        "전문 링크는 최대 3개까지 저장할 수 있습니다. 추가하려면 하나를 삭제하세요.",
+      LINK_DUPLICATE: "이미 추가한 링크입니다.",
+      LINK_INVALID_URL:
+        "공개 웹 주소로 보이지 않습니다. 주소를 확인한 뒤 다시 시도하세요.",
+      LINK_NOT_RETRYABLE:
+        "이 링크는 다시 분석할 수 없습니다. 주소를 수정하거나 삭제하세요.",
+      LINK_BUSY: "이 링크는 이미 분석 중입니다.",
+    },
+    failureCodes: {
+      INVALID_URL: "그 주소를 읽을 수 없습니다. 확인 후 다시 시도하세요.",
+      UNSUPPORTED_PROTOCOL:
+        "http:// 또는 https:// 로 시작하는 공개 웹 주소만 사용할 수 있습니다.",
+      PRIVATE_NETWORK_URL:
+        "그 주소는 공개 인터넷에서 접근할 수 없어 사용할 수 없습니다.",
+      FETCH_TIMEOUT: "사이트 응답이 너무 오래 걸렸습니다. 다시 시도할 수 있습니다.",
+      TOO_MANY_REDIRECTS:
+        "그 주소가 계속 리디렉션됩니다. 해당 페이지의 직접 링크를 사용해 보세요.",
+      CONTENT_TOO_LARGE:
+        "그 페이지는 분석하기에 너무 큽니다. 특정 페이지로 연결해 보세요.",
+      UNSUPPORTED_CONTENT_TYPE:
+        "읽을 수 없는 파일 형식을 가리키는 링크입니다. 파일은 파일 영역에 업로드하세요.",
+      ACCESS_DENIED:
+        "그 페이지는 공개되어 있지 않습니다. 로그인이 필요하거나 더 이상 존재하지 않을 수 있습니다.",
+      NO_MEANINGFUL_CONTENT:
+        "그 페이지에서 읽을 수 있는 텍스트를 찾지 못했습니다. 내용을 표시하는 데 JavaScript가 필요하다면 텍스트가 있는 페이지로 연결해 보세요.",
+      RENDER_FAILED: "그 페이지를 열지 못했습니다. 다시 시도할 수 있습니다.",
+      UPSTREAM_ERROR: "사이트가 오류를 반환했습니다. 다시 시도할 수 있습니다.",
+      INDEXING_FAILED:
+        "페이지는 읽었지만 분석용으로 준비하지 못했습니다. 다시 시도할 수 있습니다.",
+    },
+  },
+
   candidateProfile: {
     title: "내 프로필",
     description: "지원할 때 채용팀에 보이는 정보입니다.",
@@ -1010,6 +1102,10 @@ const ko: Dictionary = {
     createFailed: "프로필을 만들지 못했습니다.",
     resumeUploadFailed: "파일을 업로드하지 못했습니다.",
     documentDeleteFailed: "문서를 삭제하지 못했습니다.",
+    confirmDeleteTitle: "이 문서를 삭제할까요?",
+    confirmDeleteQuestion: "“{name}”이(가) 영구적으로 삭제됩니다.",
+    confirmDeleteConsequence:
+      "이 근거는 이미 보낸 지원서와 채용 담당자가 보는 AI 분석에서도 삭제됩니다. 지원서 자체는 그대로 남습니다.",
   },
 
   jobs: {
@@ -1036,6 +1132,9 @@ const ko: Dictionary = {
     mustHave: "필수",
     niceToHave: "우대",
     apply: "지원하기",
+    applyAgain: "다시 지원하기",
+    previousAttemptRejected:
+      "이 공고에 이전에 지원한 결과는 불합격이었습니다. 다시 지원할 수 있으며, 이전 지원 내역은 그대로 남습니다.",
     applying: "지원 중",
     applied: "지원 완료",
     appliedHint: "이 공고에 지원했습니다. 지원 현황에서 확인하세요.",
@@ -1185,6 +1284,9 @@ const ko: Dictionary = {
       "채용 요건을 비교하는 중…",
       "근거 기반 설명을 준비하는 중…",
     ],
+    loadMore: "매칭 더 보기",
+    loadingMore: "불러오는 중…",
+    showingCount: "{total}개 중 {shown}개 표시",
     refreshing: "새로고침 중…",
     refreshingHint:
       "백그라운드에서 매칭을 새로고침하고 있습니다. 현재 결과는 계속 표시됩니다.",
@@ -1197,6 +1299,8 @@ const ko: Dictionary = {
     },
     coverageNote:
       "매칭 라벨은 각 공고의 요건이 내 문서로 얼마나 뒷받침되는지를 나타냅니다. 개인에 대한 점수나 지원 추천이 아닙니다.",
+    explanationPending:
+      "이 매칭에 대한 설명을 작성하고 있습니다. 아래 근거는 이미 완성되어 있습니다.",
     explanationUnavailable:
       "AI 설명을 일시적으로 사용할 수 없습니다. 아래 매칭 근거는 그대로 제공됩니다.",
     requirementSummary: "요건 요약",
@@ -1210,10 +1314,15 @@ const ko: Dictionary = {
     needProfileTitle: "먼저 프로필을 만드세요",
     needProfileHint:
       "잡 매칭은 내 프로필과 이력서를 기반으로 동작합니다. 후보자 프로필을 만들어 시작하세요.",
-    notReadyTitle: "매칭할 정보를 추가하세요",
+    notReadyTitle: "AI 채용 매칭을 쓰려면 근거를 추가하세요",
     notReadyHint:
-      "프로필에 기술, 경력, 요약을 추가하거나 이력서를 업로드하면 매칭에 사용할 근거가 생깁니다.",
+      "매칭은 파일과 전문 링크를 읽습니다. 이력서를 올리거나 링크를 추가해 주세요. 프로필 정보만으로는 근거가 되지 않습니다.",
     completeProfile: "프로필 완성하기",
+    goToProfile: "내 프로필로 이동",
+    staleNotice:
+      "근거가 변경되었습니다. 현재 프로필로 분석하려면 매칭을 새로고침하세요.",
+    resumeImprovesWithLinks:
+      "이력서를 추가하면 매칭이 더 정확해집니다. 전문 링크는 이미 분석되고 있습니다.",
     resumeImproves:
       "이력서가 있으면 매칭 품질이 좋아집니다. 요건을 실제 문서와 대조해 확인합니다.",
     uploadResume: "이력서 업로드",
@@ -1275,6 +1384,14 @@ const ko: Dictionary = {
       INDEXING: "색인 중",
       COMPLETED: "완료",
       FAILED: "실패",
+    },
+    /** 링크의 처리 상태. 사람이 아니라 수집 과정을 설명합니다. */
+    link: {
+      PENDING: "대기 중",
+      FETCHING: "페이지 읽는 중",
+      PROCESSING: "분석 중",
+      COMPLETED: "분석 완료",
+      FAILED: "읽지 못함",
     },
     pipeline: {
       UPLOADED: "업로드",

@@ -27,6 +27,8 @@ import type {
   EvidenceMapEvidenceResponse,
   EvidenceMapResponse,
   EvidenceSearchResponse,
+  CandidateLinkResponse,
+  CandidateLinkSourceResponse,
   CandidateResumeResponse,
   CandidateResponse,
   DocumentResponse,
@@ -63,6 +65,8 @@ import type {
   RequirementMapping,
   EvidenceSearchResult,
   CandidateDocument,
+  CandidateLink,
+  CandidateLinkSource,
   Citation,
   DocumentStatus,
   Evidence,
@@ -216,8 +220,65 @@ export function toDocument(
     fileSize: response.fileSize ?? null,
     status: response.status,
     pageCount: response.pageCount ?? null,
+    applicationId: response.applicationId ?? null,
     createdAt: response.createdAt,
   };
+}
+
+/**
+ * One submitted professional link, as the recruiter sees it.
+ *
+ * The title falls back to the hostname so a source is never rendered as a
+ * blank row, and the URL is passed through untouched — it is the candidate's
+ * own public link and the thing a recruiter may want to open.
+ */
+export function toCandidateLinkSource(
+  response: CandidateLinkSourceResponse,
+): CandidateLinkSource {
+  return {
+    id: response.id,
+    url: response.url,
+    title: response.title ?? hostnameOf(response.url),
+    detectedType: response.detectedType,
+    status: response.status,
+    charCount: response.charCount ?? null,
+    pagesFetched: response.pagesFetched ?? null,
+    fetchedAt: response.fetchedAt,
+    applicationId: response.applicationId ?? null,
+    createdAt: response.createdAt,
+  };
+}
+
+/** The caller's own professional links. */
+export function toCandidateLink(response: CandidateLinkResponse): CandidateLink {
+  return {
+    id: response.id,
+    url: response.url,
+    title: response.title ?? hostnameOf(response.url),
+    detectedType: response.detectedType,
+    status: response.status,
+    failureCode: response.failureCode,
+    charCount: response.charCount ?? null,
+    pagesFetched: response.pagesFetched ?? null,
+    lastFetchedAt: response.lastFetchedAt,
+    createdAt: response.createdAt,
+    updatedAt: response.updatedAt,
+  };
+}
+
+/**
+ * A short readable stand-in for a URL.
+ *
+ * Long URLs must never be rendered unbounded — a 300-character link breaks
+ * every layout it lands in — so lists show this and keep the full address on
+ * the outbound link itself.
+ */
+export function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
 export function toProcessingJob(
@@ -322,14 +383,21 @@ export type AiReadiness = "ready" | "no_documents" | "processing" | "failed";
 
 export function aiReadiness(
   documents: { status: DocumentStatus }[],
+  /**
+   * Submitted professional links. They are evidence exactly like files, so a
+   * candidate whose only indexed source is a portfolio is READY — gating the
+   * AI panels on files alone would hide answers the model can genuinely give.
+   */
+  linkSources: { status: DocumentStatus }[] = [],
 ): AiReadiness {
-  if (documents.length === 0) return "no_documents";
-  if (documents.some((document) => document.status === "COMPLETED")) {
+  const sources = [...documents, ...linkSources];
+  if (sources.length === 0) return "no_documents";
+  if (sources.some((source) => source.status === "COMPLETED")) {
     return "ready";
   }
   // Nothing is indexed. Still moving through the pipeline beats "failed", so a
   // candidate mid-upload is not reported as broken.
-  if (documents.some((document) => document.status !== "FAILED")) {
+  if (sources.some((source) => source.status !== "FAILED")) {
     return "processing";
   }
   return "failed";
@@ -422,6 +490,7 @@ export function toCandidate(response: CandidateResponse): Candidate {
   const documents = (response.documents ?? []).map((document) =>
     toDocument(document, response.id),
   );
+  const linkSources = (response.linkSources ?? []).map(toCandidateLinkSource);
   const applications = (response.applications ?? []).map(toApplication);
   const primary = applications[0];
 
@@ -438,6 +507,7 @@ export function toCandidate(response: CandidateResponse): Candidate {
     createdAt: response.createdAt,
     updatedAt: response.updatedAt,
     documents,
+    linkSources,
     applications,
     processingStatus: aggregateDocumentStatus(documents),
     primaryVacancyId: primary?.vacancyId ?? null,
@@ -500,6 +570,9 @@ export function toCitation(
     page: evidence.pageNumber,
     section: evidence.section,
     snippet: evidence.text,
+    // Stored CandidateEvidence rows point at a Document by construction.
+    sourceType: "FILE",
+    sourceUrl: null,
   };
 }
 
@@ -576,10 +649,12 @@ export function toEvidenceSearchResult(
 
     match.passages.push({
       documentId: hit.documentId,
-      documentName: hit.fileName,
+      documentName: hit.sourceTitle ?? hit.fileName,
       page: hit.pageNumber,
       section: hit.section,
       text: hit.text,
+      sourceType: hit.sourceType ?? "FILE",
+      sourceUrl: hit.sourceUrl ?? null,
     });
   }
 
@@ -608,10 +683,13 @@ export function toAiCitation(response: AiCitationResponse): Citation {
     id: response.chunkId,
     chunkId: response.chunkId,
     documentId: response.documentId,
-    documentName: response.fileName,
+    documentName: response.sourceTitle ?? response.fileName,
     page: response.pageNumber,
     section: response.section,
     snippet: response.text,
+    // Absent means the chunk predates URL evidence, and those are all files.
+    sourceType: response.sourceType ?? "FILE",
+    sourceUrl: response.sourceUrl ?? null,
   };
 }
 
@@ -627,6 +705,10 @@ export function toEvidenceMapCitation(
     page: response.pageNumber,
     section: response.section,
     snippet: response.text,
+    // Rows stored before URL evidence existed carry no source type, and they
+    // are all files.
+    sourceType: response.sourceType ?? "FILE",
+    sourceUrl: response.sourceUrl ?? null,
   };
 }
 
@@ -851,17 +933,43 @@ export function toJobMatchResult(response: JobMatchesResponse): JobMatchResult {
         status: match.vacancy.status,
       },
       match: match.match,
+      rank: match.rank ?? 0,
+      score: match.score ?? 0,
+      signals: match.signals ?? {},
+      matchedSkills: match.matchedSkills ?? [],
+      missingSkills: match.missingSkills ?? [],
       explanation: match.explanation,
       supportedRequirements: match.supportedRequirements,
       unsupportedRequirements: match.unsupportedRequirements,
       unclearRequirements: match.unclearRequirements,
-      evidence: match.evidence,
+      evidence: match.evidence.map((item) => ({
+        ...item,
+        // A file unless the API said otherwise — chunks indexed before links
+        // existed carry no source type, and they are all files.
+        sourceType: item.sourceType ?? "FILE",
+        sourceUrl: item.sourceUrl ?? null,
+      })),
       saved: match.saved,
       applicationState: match.applicationState,
     })),
     locale: response.locale,
     generated: response.generated,
     generatedAt: response.generatedAt,
+    // Defaulted for safety, but the backend always sends both: a missing
+    // revision must not silently read as "revision 0 and therefore fresh".
+    evidenceRevision: response.evidenceRevision ?? 0,
+    stale: response.stale ?? false,
+    explanationsPending: response.explanationsPending ?? false,
+    page: response.page ?? 1,
+    limit: response.limit ?? response.matches.length,
+    // Defaulted to the page length only when the API said nothing — never
+    // silently smaller than what arrived, or the UI would stop scrolling
+    // early and hide ranked results.
+    total: response.total ?? response.matches.length,
+    totalPages: response.totalPages ?? 1,
+    hasMore: response.hasMore ?? false,
+    totalEligible: response.totalEligible ?? 0,
+    capability: (response.capability ?? {}) as JobMatchResult["capability"],
   };
 }
 

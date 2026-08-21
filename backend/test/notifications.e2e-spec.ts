@@ -205,13 +205,12 @@ describe('Notifications (e2e)', () => {
       expect(await unread(bobToken)).toBe(0);
 
       johnCandidateId = backendRow.candidate!.id;
-      const application = await prisma.application.findUniqueOrThrow({
+      const application = await prisma.application.findFirstOrThrow({
         where: {
-          vacancyId_candidateId: {
-            vacancyId: backendVacancyId,
-            candidateId: johnCandidateId,
-          },
+          vacancyId: backendVacancyId,
+          candidateId: johnCandidateId,
         },
+        orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
       johnApplicationId = application.id;
@@ -329,13 +328,12 @@ describe('Notifications (e2e)', () => {
     let devopsApplicationId: string;
 
     beforeAll(async () => {
-      const application = await prisma.application.findUniqueOrThrow({
+      const application = await prisma.application.findFirstOrThrow({
         where: {
-          vacancyId_candidateId: {
-            vacancyId: devopsVacancyId,
-            candidateId: johnCandidateId,
-          },
+          vacancyId: devopsVacancyId,
+          candidateId: johnCandidateId,
         },
+        orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
       devopsApplicationId = application.id;

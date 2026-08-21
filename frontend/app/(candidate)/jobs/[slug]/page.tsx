@@ -12,6 +12,7 @@ import { SaveJobButton } from "@/components/jobs/SaveJobButton";
 import { ApplyPanel } from "@/components/jobs/ApplyPanel";
 import { BriefcaseIcon } from "@/components/ui/icons";
 import { format, formatDateFor } from "@/lib/i18n/format";
+import { applyEligibility } from "@/lib/candidate/apply-eligibility";
 import { getI18n } from "@/lib/i18n/server";
 
 export async function generateMetadata(
@@ -57,11 +58,13 @@ export default async function JobDetailPage(
   }
 
   /**
-   * Whether this person already applied.
+   * Whether this person may apply right now.
    *
-   * Read from their own application list rather than guessed: the backend
-   * allows one application per job per account, ever, so the button must say
-   * "applied" instead of failing with a 409 when it is pressed.
+   * Read from their own application list rather than guessed, and judged on
+   * the LATEST attempt rather than on "has any application ever existed".
+   * A rejection ends an attempt, not the candidate's chance at the role, so
+   * treating any past application as "already applied" is what used to lock
+   * a rejected candidate out of the job permanently.
    */
   const [applications, saved] = await Promise.all([
     session.hasCandidateAccount
@@ -72,8 +75,9 @@ export default async function JobDetailPage(
       : Promise.resolve({ saved: [] }),
   ]);
 
-  const alreadyApplied = applications.applications.some(
-    (application) => application.job.publicSlug === job.publicSlug,
+  const eligibility = applyEligibility(
+    applications.applications,
+    job.publicSlug,
   );
   const isSaved = saved.saved.some((item) => item.job.publicSlug === slug);
 
@@ -123,7 +127,7 @@ export default async function JobDetailPage(
         <ApplyPanel
           slug={job.publicSlug}
           organizationName={job.organizationName}
-          alreadyApplied={alreadyApplied}
+          eligibility={eligibility}
           hasCandidateAccount={session.hasCandidateAccount}
         />
 

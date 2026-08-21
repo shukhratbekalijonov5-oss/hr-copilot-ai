@@ -2,11 +2,17 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job, UnrecoverableError } from 'bullmq';
 import {
+  DELETE_APPLICATION_LINK_INDEX_JOB,
+  DELETE_CANDIDATE_LINK_INDEX_JOB,
   DELETE_PERSONAL_RESUME_INDEX_JOB,
   PROCESSING_PROGRESS,
+  PROCESS_APPLICATION_LINK_JOB,
+  PROCESS_CANDIDATE_LINK_JOB,
   PROCESS_PERSONAL_RESUME_JOB,
   RESUME_PROCESSING_QUEUE,
   SYNC_VACANCY_INDEX_JOB,
+  type ApplicationLinkJobData,
+  type CandidateLinkJobData,
   type PersonalResumeJobData,
   type ProcessDocumentJobData,
   type ResumeQueueJobData,
@@ -19,7 +25,25 @@ import {
 } from '../ai/ai-service.client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
-import { DocumentStatus } from '../generated/prisma/enums';
+import {
+  WebIngestionService,
+  type IngestedWebSource,
+} from '../web-ingestion/web-ingestion.service';
+import {
+  WebIngestionError,
+  linkFailureIsRetryable,
+} from '../web-ingestion/web-ingestion.errors';
+import {
+  fromJsonSections,
+  toAiSections,
+  toJsonSections,
+} from '../web-ingestion/stored-sections';
+import { hostnameOf } from '../web-ingestion/url-policy';
+import {
+  DocumentStatus,
+  LinkFailureCode,
+  LinkStatus,
+} from '../generated/prisma/enums';
 
 /**
  * Drives one document through the processing lifecycle.
@@ -45,6 +69,7 @@ export class DocumentProcessingProcessor extends WorkerHost {
     private readonly ai: AiServiceClient,
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly web: WebIngestionService,
   ) {
     super();
   }
@@ -57,11 +82,310 @@ export class DocumentProcessingProcessor extends WorkerHost {
         return this.deletePersonalResumeIndex(
           job.data as PersonalResumeJobData,
         );
+      case PROCESS_CANDIDATE_LINK_JOB:
+        return this.processCandidateLink(job.data as CandidateLinkJobData);
+      case DELETE_CANDIDATE_LINK_INDEX_JOB:
+        return this.deleteCandidateLinkIndex(job.data as CandidateLinkJobData);
+      case PROCESS_APPLICATION_LINK_JOB:
+        return this.processApplicationLink(job.data as ApplicationLinkJobData);
+      case DELETE_APPLICATION_LINK_INDEX_JOB:
+        return this.deleteApplicationLinkIndex(
+          job.data as ApplicationLinkJobData,
+        );
       case SYNC_VACANCY_INDEX_JOB:
         return this.syncVacancyIndex(job.data as SyncVacancyIndexJobData);
       default:
         return this.processOrgDocument(job as Job<ProcessDocumentJobData>);
     }
+  }
+
+  /**
+   * PERSONAL professional link → fetch, extract, index into the
+   * candidate-scoped collection.
+   *
+   * Two things distinguish this from the document path. First, the slow part
+   * is an outbound request to a machine nobody here controls, so it is
+   * bounded by WebIngestionService and its failures are TYPED — a
+   * private-network target is not the same event as a timeout, and only one of
+   * them is worth retrying. Second, the extracted content is persisted on the
+   * row: apply has to freeze exactly what the AI saw, and re-fetching later
+   * would freeze something else.
+   */
+  private async processCandidateLink(
+    data: CandidateLinkJobData,
+  ): Promise<void> {
+    const { linkId, candidateAccountId } = data;
+
+    if (!this.ai.enabled) {
+      await this.failLink(
+        data,
+        LinkFailureCode.INDEXING_FAILED,
+        'AI service is not configured (AI_SERVICE_URL is unset)',
+      );
+      throw new UnrecoverableError('AI service is not configured');
+    }
+
+    // Ownership is re-read rather than trusted from the payload, exactly as
+    // the document path does: a malformed job cannot cross accounts.
+    const link = await this.prisma.candidateLink.findFirst({
+      where: { id: linkId, candidateAccountId },
+    });
+    if (!link) {
+      // Deleted after enqueue, or between attempts when an earlier attempt may
+      // already have indexed. Evict (idempotent) so a delete can never leave
+      // stale personal vectors behind.
+      await this.ai.deletePersonalWebSource(candidateAccountId, linkId);
+      throw new UnrecoverableError(
+        `Link ${linkId} no longer exists for this account`,
+      );
+    }
+
+    // Captured before the status is moved: it is what says whether the
+    // CURRENT vectors are trustworthy, which the unchanged-content skip below
+    // depends on.
+    const wasCompleted = link.status === LinkStatus.COMPLETED;
+
+    await this.prisma.candidateLink.updateMany({
+      where: { id: linkId, candidateAccountId },
+      data: { status: LinkStatus.FETCHING },
+    });
+
+    // Explicitly typed: an inferred `let` assigned inside a try block widens
+    // to `any`, which quietly removes every guarantee the ingestion contract
+    // makes about what comes back.
+    let ingested: IngestedWebSource;
+    try {
+      ingested = await this.web.ingest(link.url, { label: `link=${linkId}` });
+    } catch (error) {
+      const code =
+        error instanceof WebIngestionError
+          ? error.code
+          : LinkFailureCode.UPSTREAM_ERROR;
+      await this.failLink(
+        data,
+        code,
+        error instanceof Error ? error.message : 'Unknown fetch error',
+      );
+      // Only transient classes go back on the queue. Retrying a blocked
+      // private address or an unsupported protocol can only fail identically,
+      // and would hammer someone else's server for nothing.
+      if (!linkFailureIsRetryable(code)) {
+        throw new UnrecoverableError(
+          `Link ${linkId} failed permanently: ${code}`,
+        );
+      }
+      throw error;
+    }
+
+    // A REFRESH of a page that has not changed needs no work: the content hash
+    // is over the normalized extracted text, so an identical hash means the
+    // existing chunks and vectors are already exactly right. Re-embedding them
+    // would burn CPU to produce the same numbers.
+    //
+    // Gated on the PRE-refresh status: a hash can match while the previous
+    // attempt failed to index, and skipping then would leave the link
+    // permanently unsearchable.
+    if (
+      wasCompleted &&
+      link.contentHash &&
+      link.contentHash === ingested.contentHash
+    ) {
+      await this.prisma.candidateLink.updateMany({
+        where: { id: linkId, candidateAccountId },
+        data: { status: LinkStatus.COMPLETED, lastFetchedAt: new Date() },
+      });
+      this.logger.log(
+        `Candidate link ${linkId} is unchanged since the last fetch; ` +
+          're-indexing skipped',
+      );
+      return;
+    }
+
+    await this.prisma.candidateLink.updateMany({
+      where: { id: linkId, candidateAccountId },
+      data: { status: LinkStatus.PROCESSING },
+    });
+
+    const title = link.title?.trim() || ingested.title || hostnameOf(link.url);
+    try {
+      const result = await this.ai.indexPersonalWebSource({
+        candidateAccountId,
+        sourceId: linkId,
+        title,
+        url: link.url,
+        detectedType: ingested.detectedType,
+        sections: toAiSections(ingested.sections),
+      });
+      if (result.vectorsIndexed <= 0) {
+        throw new Error('AI service indexed no vectors');
+      }
+    } catch (error) {
+      await this.failLink(
+        data,
+        LinkFailureCode.INDEXING_FAILED,
+        error instanceof Error ? error.message : 'Unknown indexing error',
+      );
+      throw error;
+    }
+
+    const updated = await this.prisma.candidateLink.updateMany({
+      where: { id: linkId, candidateAccountId },
+      data: {
+        status: LinkStatus.COMPLETED,
+        failureCode: null,
+        failureMessage: null,
+        title,
+        detectedType: ingested.detectedType,
+        sections: toJsonSections(ingested.sections),
+        contentHash: ingested.contentHash,
+        charCount: ingested.charCount,
+        pagesFetched: ingested.pagesFetched,
+        fetchMode: ingested.fetchMode,
+        lastFetchedAt: new Date(),
+      },
+    });
+    if (updated.count === 0) {
+      // Deleted while the fetch was in flight: the delete's own eviction may
+      // have run BEFORE the vectors above were written. Remove them now — a
+      // deletion stays authoritative.
+      await this.ai.deletePersonalWebSource(candidateAccountId, linkId);
+      this.logger.log(
+        `Link ${linkId} was deleted mid-processing; freshly indexed vectors evicted`,
+      );
+      return;
+    }
+
+    // The link now says something different from what it said before, so any
+    // Job Match generated against the old content is no longer a description
+    // of this candidate's evidence. (Reached only when the content actually
+    // changed — an unchanged re-fetch returns above without touching this.)
+    await this.prisma.candidateAccount
+      .update({
+        where: { id: candidateAccountId },
+        data: { evidenceRevision: { increment: 1 } },
+      })
+      .catch((error: unknown) => {
+        // A missed bump makes one stale result look current for a cycle;
+        // failing the indexing job over it would be worse.
+        this.logger.warn(
+          `Indexed link ${linkId} but could not bump the evidence revision: ` +
+            `${(error as Error).message}`,
+        );
+      });
+
+    this.logger.log(
+      `Candidate link ${linkId} indexed: ${ingested.sections.length} section(s), ` +
+        `${ingested.pagesFetched} page(s), mode ${ingested.fetchMode}`,
+    );
+  }
+
+  private async deleteCandidateLinkIndex(
+    data: CandidateLinkJobData,
+  ): Promise<void> {
+    if (!this.ai.enabled) return;
+    await this.ai.deletePersonalWebSource(data.candidateAccountId, data.linkId);
+    this.logger.log(
+      `Candidate link ${data.linkId} removed from the personal index`,
+    );
+  }
+
+  /**
+   * ORG-scoped application link snapshot → tenant index.
+   *
+   * Deliberately performs NO network request. The content was frozen when the
+   * candidate applied and lives on the row; re-fetching here would silently
+   * replace an application's evidence with whatever the site says today, which
+   * is the exact failure the snapshot model exists to prevent.
+   */
+  private async processApplicationLink(
+    data: ApplicationLinkJobData,
+  ): Promise<void> {
+    const { linkSourceId, organizationId, candidateId } = data;
+
+    if (!this.ai.enabled) {
+      throw new UnrecoverableError('AI service is not configured');
+    }
+
+    const source = await this.prisma.applicationLinkSource.findFirst({
+      where: { id: linkSourceId, organizationId },
+    });
+    if (!source) {
+      await this.ai.deleteApplicationWebSource(organizationId, linkSourceId);
+      throw new UnrecoverableError(
+        `Application link source ${linkSourceId} no longer exists`,
+      );
+    }
+
+    try {
+      const result = await this.ai.indexApplicationWebSource({
+        organizationId,
+        candidateId,
+        applicationId: source.applicationId,
+        sourceId: source.id,
+        title: source.title ?? hostnameOf(source.url),
+        url: source.url,
+        detectedType: source.detectedType,
+        sections: toAiSections(fromJsonSections(source.sections)),
+      });
+      if (result.vectorsIndexed <= 0) {
+        throw new Error('AI service indexed no vectors');
+      }
+    } catch (error) {
+      await this.prisma.applicationLinkSource.updateMany({
+        where: { id: linkSourceId, organizationId },
+        data: {
+          status: DocumentStatus.FAILED,
+          errorMessage: (error as Error).message.slice(0, 500),
+        },
+      });
+      throw error;
+    }
+
+    const updated = await this.prisma.applicationLinkSource.updateMany({
+      where: { id: linkSourceId, organizationId },
+      data: { status: DocumentStatus.COMPLETED, errorMessage: null },
+    });
+    if (updated.count === 0) {
+      await this.ai.deleteApplicationWebSource(organizationId, linkSourceId);
+      return;
+    }
+    this.logger.log(`Application link source ${linkSourceId} indexed`);
+  }
+
+  private async deleteApplicationLinkIndex(
+    data: ApplicationLinkJobData,
+  ): Promise<void> {
+    if (!this.ai.enabled) return;
+    await this.ai.deleteApplicationWebSource(
+      data.organizationId,
+      data.linkSourceId,
+    );
+    this.logger.log(
+      `Application link source ${data.linkSourceId} removed from the tenant index`,
+    );
+  }
+
+  /** Records a typed failure on the link row. Never throws. */
+  private async failLink(
+    data: CandidateLinkJobData,
+    code: LinkFailureCode,
+    detail: string,
+  ): Promise<void> {
+    await this.prisma.candidateLink
+      .updateMany({
+        where: { id: data.linkId, candidateAccountId: data.candidateAccountId },
+        data: {
+          status: LinkStatus.FAILED,
+          failureCode: code,
+          // Truncated and developer-facing; the UI localizes on failureCode.
+          failureMessage: detail.slice(0, 500),
+        },
+      })
+      .catch((error: unknown) => {
+        this.logger.error(
+          `Could not record failure for link ${data.linkId}: ${(error as Error).message}`,
+        );
+      });
   }
 
   /**

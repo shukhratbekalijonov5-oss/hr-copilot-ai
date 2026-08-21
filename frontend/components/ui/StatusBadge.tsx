@@ -7,6 +7,7 @@ import type {
   ApplicationStatus,
   DocumentStatus,
   EvidenceStatus,
+  LinkStatus,
   ProcessingJobStatus,
   VacancyStatus,
 } from "@/lib/types";
@@ -36,6 +37,19 @@ const DOCUMENT_TONES: Record<DocumentStatus, BadgeTone> = {
   CHUNKING: "info",
   EMBEDDING: "info",
   INDEXING: "info",
+  COMPLETED: "positive",
+  FAILED: "critical",
+};
+
+/**
+ * A link's lifecycle. Mirrors the document tones so a candidate reads one
+ * status vocabulary across their files and their links — FAILED is critical
+ * because it is actionable (retry, edit, or remove), not a judgement.
+ */
+const LINK_TONES: Record<LinkStatus, BadgeTone> = {
+  PENDING: "neutral",
+  FETCHING: "info",
+  PROCESSING: "info",
   COMPLETED: "positive",
   FAILED: "critical",
 };
@@ -94,6 +108,11 @@ export function DocumentStatusBadge({
   return (
     <Badge tone={DOCUMENT_TONES[status]}>{d.status.document[status]}</Badge>
   );
+}
+
+export function LinkStatusBadge({ status }: { status: LinkStatus }) {
+  const { d } = useI18n();
+  return <Badge tone={LINK_TONES[status]}>{d.status.link[status]}</Badge>;
 }
 
 export function ProcessingJobStatusBadge({

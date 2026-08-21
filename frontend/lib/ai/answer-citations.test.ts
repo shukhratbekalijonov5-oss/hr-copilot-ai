@@ -15,6 +15,8 @@ function citation(chunkId: string, page: number): Citation {
     page,
     section: "experience",
     snippet: "…",
+    sourceType: "FILE",
+    sourceUrl: null,
   };
 }
 

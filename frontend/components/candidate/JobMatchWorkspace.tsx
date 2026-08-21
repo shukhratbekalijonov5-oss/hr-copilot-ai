@@ -11,6 +11,10 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/LoadingSkeleton";
 import { UnavailableState } from "@/components/ui/UnavailableState";
 import { AlertIcon, CheckIcon, SparkIcon, UserIcon } from "@/components/ui/icons";
+import {
+  canRunJobMatch,
+  evidenceHint,
+} from "@/lib/candidate/job-match-freshness";
 import { useI18n } from "@/lib/i18n/context";
 
 /**
@@ -23,30 +27,35 @@ import { useI18n } from "@/lib/i18n/context";
  * exactly what the backend classified.
  */
 export function JobMatchWorkspace() {
-  const { d, p } = useI18n();
+  const { d, f, p } = useI18n();
   const {
     result,
     failure,
     pending,
-    readiness,
+    evidence,
     readinessPending,
     readinessFailure,
+    stale,
     run,
+    loadMore,
+    loadingMore,
     clear,
   } = useJobMatchState();
 
-  const hasAccount = readiness?.hasAccount ?? Boolean(result);
-  const hasResume = readiness?.hasResume ?? Boolean(result);
-  const hasProfileSignal = readiness?.hasProfileSignal ?? Boolean(result);
+  const hasAccount = evidence?.hasAccount ?? Boolean(result);
+  // Files and links are equal evidence. A candidate with a portfolio and no
+  // resume can match; a candidate with a full profile and neither cannot.
+  const hasEvidence = evidence ? canRunJobMatch(evidence) : Boolean(result);
+  const hint = evidenceHint(evidence);
 
-  /* Readiness gates — matching needs something to match on. */
+  /* Readiness gates — matching needs EVIDENCE to match on. */
 
   const profileCta = (
     <Link
       href="/my-profile"
       className="inline-flex items-center rounded-lg bg-brand px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-brand-strong"
     >
-      {d.jobMatch.completeProfile}
+      {d.jobMatch.goToProfile}
     </Link>
   );
 
@@ -71,7 +80,16 @@ export function JobMatchWorkspace() {
     );
   }
 
-  if (!result && !hasResume && !hasProfileSignal) {
+  /*
+    ZERO EVIDENCE.
+
+    This gate ignores `result` on purpose. A candidate who deletes their last
+    file must not keep seeing the analysis it produced — that analysis is a
+    description of evidence that no longer exists, and leaving it on screen
+    is the exact thing this rule forbids. The backend refuses to generate in
+    this state too; this is the surface that stops the old answer lingering.
+  */
+  if (!hasEvidence) {
     return (
       <Card>
         <EmptyState
@@ -86,11 +104,18 @@ export function JobMatchWorkspace() {
 
   return (
     <div className="flex flex-col gap-4">
-      {!hasResume ? (
+      {hint !== "none" ? (
         <p className="flex flex-col gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-muted sm:flex-row sm:items-start">
           <AlertIcon className="mt-px size-4 shrink-0" />
           <span className="min-w-0 flex-1">
-            {d.jobMatch.resumeImproves}{" "}
+            {/*
+              With links but no resume the honest message is "this is working,
+              a resume would add to it" — not "you have nothing", which is what
+              the old resume-only wording implied.
+            */}
+            {hint === "resume-improves"
+              ? d.jobMatch.resumeImprovesWithLinks
+              : d.jobMatch.resumeImproves}{" "}
             <Link
               href="/my-profile"
               className="font-medium text-brand-ink hover:text-brand"
@@ -100,6 +125,8 @@ export function JobMatchWorkspace() {
           </span>
         </p>
       ) : null}
+
+      {stale && !pending ? <StaleNotice onRefresh={run} /> : null}
 
       {!result && !pending && !failure ? (
         <Card>
@@ -131,7 +158,20 @@ export function JobMatchWorkspace() {
       {result ? (
         <>
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2.5 text-[12.5px] text-ink-muted">
-            <span>{p(d.jobMatch.matchCount, result.matches.length)}</span>
+            {/*
+              The count is the FULL ranked total, not the length of what has
+              been loaded. Showing "20 matched roles" for a ranking of 148
+              would be the same lie the old top-5 told.
+            */}
+            <span className={stale ? "text-ink-subtle line-through" : undefined}>
+              {p(d.jobMatch.matchCount, result.total)}
+              {result.matches.length < result.total
+                ? ` · ${f(d.jobMatch.showingCount, {
+                    shown: result.matches.length,
+                    total: result.total,
+                  })}`
+                : ""}
+            </span>
             <div className="ml-auto flex flex-col items-stretch gap-1 sm:items-end">
               <Button
                 type="button"
@@ -157,6 +197,11 @@ export function JobMatchWorkspace() {
           {pending ? <BackgroundRefreshNotice /> : null}
           {!pending && failure ? <BackgroundRefreshError /> : null}
 
+          {/*
+            A stale result stays visible but is visibly not current: hiding it
+            outright would look like a bug, and leaving it unmarked would let
+            it pass for the present state of the candidate's evidence.
+          */}
           {result.matches.length === 0 ? (
             <Card>
               <EmptyState
@@ -166,14 +211,34 @@ export function JobMatchWorkspace() {
               />
             </Card>
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul
+              className={
+                stale
+                  ? "flex flex-col gap-3 opacity-55"
+                  : "flex flex-col gap-3"
+              }
+            >
               {result.matches.map((match) => (
                 <li key={match.vacancy.slug}>
-                  <MatchCard match={match} generated={result.generated} />
+                  <MatchCard match={match} pending={result.explanationsPending} />
                 </li>
               ))}
             </ul>
           )}
+
+          {result.hasMore ? (
+            <div className="flex justify-center pt-1">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={loadMore}
+                loading={loadingMore}
+                disabled={loadingMore || pending}
+              >
+                {loadingMore ? d.jobMatch.loadingMore : d.jobMatch.loadMore}
+              </Button>
+            </div>
+          ) : null}
 
           <p className="text-[12px] leading-relaxed text-ink-subtle">
             {d.jobMatch.coverageNote}
@@ -181,6 +246,36 @@ export function JobMatchWorkspace() {
         </>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The displayed analysis no longer describes the candidate's evidence.
+ *
+ * Deliberately a call to action rather than a warning to dismiss: the fix is
+ * one click, and the alternative — reading last week's conclusions about a
+ * deleted file — is worse than a moment of friction.
+ */
+function StaleNotice({ onRefresh }: { onRefresh: () => void }) {
+  const { d } = useI18n();
+
+  return (
+    <p
+      role="status"
+      className="flex flex-col gap-2 rounded-lg bg-warning-soft px-3 py-2.5 text-[12.5px] leading-relaxed text-warning sm:flex-row sm:items-center"
+    >
+      <AlertIcon className="mt-px size-4 shrink-0" />
+      <span className="min-w-0 flex-1">{d.jobMatch.staleNotice}</span>
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        onClick={onRefresh}
+        className="w-full sm:w-auto"
+      >
+        {d.jobMatch.refresh}
+      </Button>
+    </p>
   );
 }
 

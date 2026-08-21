@@ -9,6 +9,7 @@ import * as ai from "@/lib/api/ai.service";
 import * as applications from "@/lib/api/applications.service";
 import * as auth from "@/lib/api/auth.service";
 import * as candidateAccount from "@/lib/api/candidate-account.service";
+import * as candidateLinks from "@/lib/api/candidate-links.service";
 import * as candidates from "@/lib/api/candidates.service";
 import * as compare from "@/lib/api/compare.service";
 import * as dashboard from "@/lib/api/dashboard.service";
@@ -117,6 +118,14 @@ export const api = {
   getPersonalDocumentUrl: candidateAccount.getPersonalDocumentUrl,
   deletePersonalDocument: candidateAccount.deletePersonalDocument,
   getPersonalResumeUrl: candidateAccount.getPersonalResumeUrl,
+  getCandidateEvidenceState: candidateAccount.getCandidateEvidenceState,
+
+  // professional links — the other half of the candidate's own evidence
+  getCandidateLinks: candidateLinks.getCandidateLinks,
+  createCandidateLink: candidateLinks.createCandidateLink,
+  updateCandidateLink: candidateLinks.updateCandidateLink,
+  deleteCandidateLink: candidateLinks.deleteCandidateLink,
+  reprocessCandidateLink: candidateLinks.reprocessCandidateLink,
   getMyApplications: candidateAccount.getMyApplications,
   withdrawApplication: candidateAccount.withdrawApplication,
   getSavedJobs: candidateAccount.getSavedJobs,

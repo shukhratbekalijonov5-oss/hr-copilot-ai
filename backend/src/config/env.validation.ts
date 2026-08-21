@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -103,6 +104,16 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsString()
   INTERNAL_SERVICE_TOKEN?: string;
+
+  /**
+   * Opt-in headless rendering for JavaScript-only portfolio pages. Off unless
+   * a deployment has actually installed Playwright and its browser — see
+   * src/web-ingestion/renderer.ts for why this is a switch and not a
+   * dependency.
+   */
+  @IsOptional()
+  @IsBoolean()
+  WEB_RENDER_ENABLED?: boolean;
 }
 
 /** Fields that must be present and non-empty when STORAGE_DRIVER=r2. */

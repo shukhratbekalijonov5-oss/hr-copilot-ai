@@ -11,10 +11,9 @@ import {
   type ReactNode,
 } from "react";
 import {
-  getJobMatchReadinessAction,
+  getCandidateEvidenceStateAction,
   runJobMatchesAction,
   type JobMatchFailure,
-  type JobMatchReadiness,
 } from "@/app/(candidate)/actions";
 import {
   clearCachedJobMatchResult,
@@ -22,17 +21,32 @@ import {
   patchJobMatchResult,
   setCachedJobMatchResult,
 } from "@/lib/candidate/job-match-cache";
-import type { ApplicationStatus, JobMatchResult } from "@/lib/types";
+import { isJobMatchStale } from "@/lib/candidate/job-match-freshness";
+import type {
+  ApplicationStatus,
+  CandidateEvidenceState,
+  JobMatchResult,
+} from "@/lib/types";
 
 interface JobMatchState {
   cacheKey: string;
   result: JobMatchResult | null;
   failure: JobMatchFailure | null;
   pending: boolean;
-  readiness: JobMatchReadiness | null;
+  evidence: CandidateEvidenceState | null;
   readinessPending: boolean;
   readinessFailure: boolean;
+  /**
+   * True when the displayed result describes an evidence set the candidate has
+   * since changed. Such a result is never presented as the current analysis —
+   * §"old match results must never masquerade as current".
+   */
+  stale: boolean;
+  /** Ranks every eligible vacancy and shows page 1. */
   run: () => Promise<void>;
+  /** Appends the next page of the SAME ranking. Never re-ranks. */
+  loadMore: () => Promise<void>;
+  loadingMore: boolean;
   clear: () => void;
   patchSaved: (slug: string, saved: boolean) => void;
   patchApplicationState: (
@@ -55,35 +69,48 @@ export function JobMatchStateProvider({
   );
   const [failure, setFailure] = useState<JobMatchFailure | null>(null);
   const [pending, setPending] = useState(false);
-  const [readiness, setReadiness] = useState<JobMatchReadiness | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [evidence, setEvidence] = useState<CandidateEvidenceState | null>(null);
   const [readinessPending, setReadinessPending] = useState(true);
   const [readinessFailure, setReadinessFailure] = useState(false);
   const requestVersion = useRef(0);
 
+  /**
+   * Re-reads the evidence state from the backend.
+   *
+   * Called on mount and again after every run, so a deletion made in another
+   * tab — or between opening this page and pressing the button — is reflected
+   * rather than assumed away.
+   */
+  const refreshEvidence = useCallback(async () => {
+    try {
+      const response = await getCandidateEvidenceStateAction();
+      if (response.ok) {
+        setEvidence(response.data);
+        setReadinessFailure(false);
+        return response.data;
+      }
+      setReadinessFailure(true);
+    } catch {
+      setReadinessFailure(true);
+    }
+    return null;
+  }, []);
+
   useEffect(() => {
     let active = true;
 
-    getJobMatchReadinessAction()
-      .then((response) => {
-        if (!active) return;
-        if (response.ok) {
-          setReadiness(response.data);
-          setReadinessFailure(false);
-        } else {
-          setReadinessFailure(true);
-        }
-      })
-      .catch(() => {
-        if (active) setReadinessFailure(true);
-      })
-      .finally(() => {
-        if (active) setReadinessPending(false);
-      });
+    // Wrapped in an async IIFE so nothing is set synchronously during the
+    // effect — the state only moves once the backend has actually answered.
+    void (async () => {
+      await refreshEvidence();
+      if (active) setReadinessPending(false);
+    })();
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshEvidence]);
 
   const run = useCallback(async () => {
     if (pending) return;
@@ -94,7 +121,9 @@ export function JobMatchStateProvider({
     setPending(true);
 
     try {
-      const response = await runJobMatchesAction();
+      // `refresh` re-ranks: this is the candidate asking for a new analysis,
+      // not a scroll.
+      const response = await runJobMatchesAction({ page: 1, refresh: true });
       if (requestVersion.current !== version) return;
 
       if (response.ok) {
@@ -106,7 +135,46 @@ export function JobMatchStateProvider({
     } finally {
       if (requestVersion.current === version) setPending(false);
     }
-  }, [cacheKey, pending]);
+    // The evidence set may have changed during the ~20s call; re-reading it
+    // here is what lets the staleness check below notice.
+    await refreshEvidence();
+  }, [cacheKey, pending, refreshEvidence]);
+
+  /**
+   * Appends the next page of the ranking already on screen.
+   *
+   * Deliberately does NOT pass `refresh`: re-ranking between pages could move
+   * a vacancy across a page boundary and show it twice, or drop it entirely.
+   * The pages accumulate, so scrolling reveals more of one stable list.
+   */
+  const loadMore = useCallback(async () => {
+    if (loadingMore || pending || !result?.hasMore) return;
+
+    const version = requestVersion.current;
+    setLoadingMore(true);
+    try {
+      const response = await runJobMatchesAction({ page: result.page + 1 });
+      // A refresh started while this page was in flight wins: appending to a
+      // ranking that no longer exists would interleave two different lists.
+      if (requestVersion.current !== version) return;
+      if (!response.ok) {
+        setFailure(response.reason);
+        return;
+      }
+
+      setResult((current) => {
+        if (!current) return response.data;
+        const next = {
+          ...response.data,
+          matches: [...current.matches, ...response.data.matches],
+        };
+        setCachedJobMatchResult(cacheKey, next);
+        return next;
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [cacheKey, loadingMore, pending, result]);
 
   const clear = useCallback(() => {
     requestVersion.current += 1;
@@ -140,16 +208,22 @@ export function JobMatchStateProvider({
     [cacheKey],
   );
 
+  // The rule itself lives in job-match-freshness.ts, where it is tested.
+  const stale = isJobMatchStale(result, evidence);
+
   const value = useMemo<JobMatchState>(
     () => ({
       cacheKey,
       result,
       failure,
       pending,
-      readiness,
+      evidence,
       readinessPending,
       readinessFailure,
+      stale,
       run,
+      loadMore,
+      loadingMore,
       clear,
       patchSaved,
       patchApplicationState,
@@ -157,15 +231,18 @@ export function JobMatchStateProvider({
     [
       cacheKey,
       clear,
+      evidence,
       failure,
+      loadMore,
+      loadingMore,
       patchApplicationState,
       patchSaved,
       pending,
-      readiness,
       readinessFailure,
       readinessPending,
       result,
       run,
+      stale,
     ],
   );
 

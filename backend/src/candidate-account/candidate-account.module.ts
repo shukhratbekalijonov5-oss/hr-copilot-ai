@@ -4,8 +4,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { memoryStorage } from 'multer';
 import { CandidateAccountController } from './candidate-account.controller';
 import { CandidateAccountService } from './candidate-account.service';
+import { JobMatchRankingService } from './job-match-ranking.service';
 import { StorageModule } from '../storage/storage.module';
 import { QueueModule } from '../queue/queue.module';
+import { CandidateEvidenceModule } from '../candidate-evidence/candidate-evidence.module';
 import { DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES } from '../documents/document-policy';
 
 @Module({
@@ -29,9 +31,10 @@ import { DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES } from '../documents/document-policy'
     }),
     StorageModule,
     QueueModule,
+    CandidateEvidenceModule,
   ],
   controllers: [CandidateAccountController],
-  providers: [CandidateAccountService],
-  exports: [CandidateAccountService],
+  providers: [CandidateAccountService, JobMatchRankingService],
+  exports: [CandidateAccountService, JobMatchRankingService],
 })
 export class CandidateAccountModule {}

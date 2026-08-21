@@ -48,6 +48,7 @@ const uz: Dictionary = {
     save: "Oʻzgarishlarni saqlash",
     saved: "Saqlandi",
     cancel: "Bekor qilish",
+    edit: "Tahrirlash",
     close: "Yopish",
     retry: "Qayta urinish",
     search: "Qidirish",
@@ -378,6 +379,32 @@ const uz: Dictionary = {
     },
     noDocumentsYet:
       "Hozircha hujjat yoʻq. Nomzod ariza bilan yuborgan rezyume shu yerda koʻrinadi.",
+
+    // Dalil manbalari — fayllar va professional havolalar. HR uchun faqat oʻqish.
+    evidenceSources: "Dalil manbalari",
+    evidenceSourceCounts: "yuborilgan fayllar: {files} · havolalar: {links}",
+    filesCount: {
+      one: "Fayl · {count}",
+      other: "Fayllar · {count}",
+    } as Plural,
+    linksCount: {
+      one: "Professional havola · {count}",
+      other: "Professional havolalar · {count}",
+    } as Plural,
+    noSource: "Manba tanlanmagan",
+    noSourceHint: "Nima yuborilganini koʻrish uchun fayl yoki havolani tanlang.",
+    originalUrl: "Asl havola",
+    submittedContent: "Yuborilgan kontent",
+    fetchedOn: "{date} sanasida oʻqilgan",
+    pagesRead: {
+      one: "{count} sahifa oʻqildi",
+      other: "{count} sahifa oʻqildi",
+    } as Plural,
+    snapshotNote:
+      "Bu — nomzod ariza bergan paytdagi kontent. Jonli sahifa oʻshandan beri oʻzgargan boʻlishi mumkin; quyidagi tahlil yuborilgan nusxaga asoslanadi.",
+    sourceIndexingFailed:
+      "Bu havolani tahlilga tayyorlab boʻlmadi, shuning uchun u AI javoblarida koʻrinmaydi.",
+    openOriginal: "Aslini ochish",
     applications: "Arizalar",
     applicationsHint: "Bosqich oʻzgarishi uni bajargan xodim bilan qayd etiladi.",
     applicationStage: "Ariza bosqichi",
@@ -470,6 +497,7 @@ const uz: Dictionary = {
     retrievalContext: "Qidiruv konteksti",
     unnamedCandidate: "Ismi koʻrsatilmagan nomzod",
     sourceDocument: "Manba hujjat",
+    sourceLink: "Professional havola",
     summaryTitle: "AI xulosasi",
     searchingEvidence: "Nomzod dalillari qidirilmoqda…",
     generatingSummary: "Dalilga asoslangan xulosa tayyorlanmoqda…",
@@ -616,6 +644,7 @@ const uz: Dictionary = {
       "Yuklangan hujjatlarda bu talabni tasdiqlovchi maʼlumot yoʻq. Bu nomzodga qoʻyilgan hukm emas — intervyuda soʻrang.",
     openAtPage: "{name} faylini {page}-sahifada ochish",
     openDocument: "{name} faylini ochish",
+    openSource: "{name} ni ochish",
   },
 
   processing: {
@@ -1028,6 +1057,72 @@ const uz: Dictionary = {
       "Davom etish uchun boshqa ish maydonini tanlang. Bu xato boʻlsa, oʻsha tashkilot administratoriga murojaat qiling.",
   },
 
+  /**
+   * Professional havolalar — dalil tizimining nomzod tomonidagi yarmi.
+   *
+   * Xatolik matnlari operator uchun emas, odam uchun yozilgan: uning
+   * havolasiga nima boʻlgani va nima qila olishi. HTTP holati, host nomi yoki
+   * ichki sabab hech qachon koʻrsatilmaydi.
+   */
+  candidateLinks: {
+    title: "Professional havolalar",
+    hint: "{limit} tagacha ochiq havola — portfolio, repozitoriy, loyiha sahifasi. Ular fayllaringiz kabi tahlil qilinadi.",
+    empty: "Hozircha havola yoʻq.",
+    add: "Havola qoʻshish",
+    remove: "Oʻchirish",
+    retry: "Qayta urinish",
+    refresh: "Tahlilni yangilash",
+    urlLabel: "Havola",
+    urlPlaceholder: "https://your-portfolio.com",
+    labelLabel: "Nom (ixtiyoriy)",
+    labelPlaceholder: "Mening portfoliom",
+    slots: "{limit} havoladan {count} tasi ishlatilgan",
+    analysedOn: "{date} sanasida tahlil qilingan",
+    limitReached:
+      "Havola oʻrinlari toʻlgan. Yangisini qoʻshish uchun bittasini oʻchiring. Fayllar alohida hisoblanadi.",
+    privacyNote:
+      "Saqlangan havolalar faqat profilingizda koʻrinadi. Ariza berganingizda oʻqilgan kontent nusxasi oʻsha ariza bilan yuboriladi. Havolani tahrirlash yuborilgan arizani oʻzgartirmaydi, lekin oʻchirsangiz u oʻsha arizalardan ham oʻchadi.",
+    addFailed: "Bu havolani qoʻshib boʻlmadi.",
+    removeFailed: "Bu havolani oʻchirib boʻlmadi.",
+    retryFailed: "Bu havolani qayta tahlil qilib boʻlmadi.",
+    confirmDeleteTitle: "Bu professional havola oʻchirilsinmi?",
+    confirmDeleteQuestion: "“{name}” profilingizdan oʻchiriladi.",
+    confirmDeleteConsequence:
+      "Bu dalil siz yuborgan arizalardan va ish beruvchilar koʻradigan AI tahlilidan ham oʻchiriladi. Arizalarning oʻzi saqlanib qoladi.",
+    errorCodes: {
+      LINK_LIMIT_REACHED:
+        "Siz 3 tagacha professional havola saqlashingiz mumkin. Yangisini qoʻshish uchun bittasini oʻchiring.",
+      LINK_DUPLICATE: "Bu havola allaqachon qoʻshilgan.",
+      LINK_INVALID_URL:
+        "Bu ochiq veb-manzilga oʻxshamaydi. Tekshirib, qayta urinib koʻring.",
+      LINK_NOT_RETRYABLE:
+        "Bu havolani qayta tahlil qilib boʻlmaydi. Manzilni tahrirlang yoki oʻchiring.",
+      LINK_BUSY: "Bu havola allaqachon tahlil qilinmoqda.",
+    },
+    failureCodes: {
+      INVALID_URL: "Bu manzilni oʻqib boʻlmadi. Tekshirib, qayta urinib koʻring.",
+      UNSUPPORTED_PROTOCOL:
+        "Faqat http:// yoki https:// bilan boshlanadigan ochiq veb-manzillardan foydalanish mumkin.",
+      PRIVATE_NETWORK_URL:
+        "Bu manzil ochiq internetdan mavjud emas, shuning uchun bu yerda ishlatib boʻlmaydi.",
+      FETCH_TIMEOUT: "Sayt juda uzoq javob berdi. Qayta urinib koʻrishingiz mumkin.",
+      TOO_MANY_REDIRECTS:
+        "Bu manzil doimiy yoʻnaltirdi. Sahifaga toʻgʻridan-toʻgʻri havolani sinab koʻring.",
+      CONTENT_TOO_LARGE:
+        "Bu sahifa tahlil uchun juda katta. Aniq bir sahifaga havola bering.",
+      UNSUPPORTED_CONTENT_TYPE:
+        "Bu havola biz oʻqiy olmaydigan fayl turiga ishora qiladi. Fayllarni fayllar boʻlimiga yuklang.",
+      ACCESS_DENIED:
+        "Bu sahifa ochiq emas — kirish talab qilinishi yoki u endi mavjud boʻlmasligi mumkin.",
+      NO_MEANINGFUL_CONTENT:
+        "Bu sahifada oʻqiladigan matn topilmadi. Agar kontent JavaScript orqali koʻrsatilsa, matni bor sahifaga havola bering.",
+      RENDER_FAILED: "Bu sahifani ochib boʻlmadi. Qayta urinib koʻrishingiz mumkin.",
+      UPSTREAM_ERROR: "Sayt xatolik qaytardi. Qayta urinib koʻrishingiz mumkin.",
+      INDEXING_FAILED:
+        "Sahifa oʻqildi, lekin tahlilga tayyorlab boʻlmadi. Qayta urinib koʻrishingiz mumkin.",
+    },
+  },
+
   candidateProfile: {
     title: "Mening profilim",
     description: "Ariza berganingizda ishga qabul jamoasi nimani koʻradi.",
@@ -1093,6 +1188,10 @@ const uz: Dictionary = {
     createFailed: "Profilni yaratib boʻlmadi.",
     resumeUploadFailed: "Faylni yuklab boʻlmadi.",
     documentDeleteFailed: "Hujjatni oʻchirib boʻlmadi.",
+    confirmDeleteTitle: "Bu hujjat oʻchirilsinmi?",
+    confirmDeleteQuestion: "“{name}” butunlay oʻchiriladi.",
+    confirmDeleteConsequence:
+      "Bu dalil siz yuborgan arizalardan va ish beruvchilar koʻradigan AI tahlilidan ham oʻchiriladi. Arizalarning oʻzi saqlanib qoladi.",
   },
 
   jobs: {
@@ -1122,6 +1221,9 @@ const uz: Dictionary = {
     mustHave: "Majburiy",
     niceToHave: "Qoʻshimcha ustunlik",
     apply: "Ariza berish",
+    applyAgain: "Qayta ariza topshirish",
+    previousAttemptRejected:
+      "Bu lavozimga oldingi arizangiz rad etilgan. Qayta ariza topshirishingiz mumkin — avvalgi urinish tarixingizda saqlanadi.",
     applying: "Yuborilmoqda",
     applied: "Ariza berilgan",
     appliedHint: "Siz bu vakansiyaga ariza bergansiz. «Mening arizalarim»da kuzating.",
@@ -1271,6 +1373,9 @@ const uz: Dictionary = {
       "Ish talablari solishtirilmoqda…",
       "Dalilga asoslangan izohlar tayyorlanmoqda…",
     ],
+    loadMore: "Yana koʻrsatish",
+    loadingMore: "Yuklanmoqda…",
+    showingCount: "{total} tadan {shown} tasi koʻrsatilmoqda",
     refreshing: "Yangilanmoqda…",
     refreshingHint:
       "Mosliklar fonda yangilanmoqda. Joriy natijalar ekranda qoladi.",
@@ -1283,6 +1388,8 @@ const uz: Dictionary = {
     },
     coverageNote:
       "Moslik belgilari vakansiya talablarining qanchasi hujjatlaringiz bilan tasdiqlanganini bildiradi. Bu sizga berilgan baho ham, ariza topshirish tavsiyasi ham emas.",
+    explanationPending:
+      "Bu moslik uchun izoh yozilmoqda. Quyidagi dalillar allaqachon toʻliq.",
     explanationUnavailable:
       "AI izohi vaqtincha mavjud emas. Quyidagi moslik dalillari toʻliq holda taqdim etiladi.",
     requirementSummary: "Talablar xulosasi",
@@ -1296,10 +1403,15 @@ const uz: Dictionary = {
     needProfileTitle: "Avval profil yarating",
     needProfileHint:
       "Ish tanlash profilingiz va rezyumengiz asosida ishlaydi. Boshlash uchun nomzod profilini yarating.",
-    notReadyTitle: "Tanlash uchun maʼlumot qoʻshing",
+    notReadyTitle: "AI ish mosligidan foydalanish uchun dalil qoʻshing",
     notReadyHint:
-      "Profilingizga koʻnikma, tajriba yoki qisqacha maʼlumot qoʻshing — yoki rezyume yuklang, shunda tanlash uchun dalil boʻladi.",
+      "Moslik fayllaringiz va professional havolalaringizni oʻqiydi. Rezyume yuklang yoki havola qoʻshing — profilning oʻzi dalil emas.",
     completeProfile: "Profilni toʻldirish",
+    goToProfile: "Profilimga oʻtish",
+    staleNotice:
+      "Dalillaringiz oʻzgardi. Joriy profilingizni tahlil qilish uchun mosliklarni yangilang.",
+    resumeImprovesWithLinks:
+      "Aniqroq moslik uchun rezyume qoʻshing. Professional havolalaringiz allaqachon tahlil qilinmoqda.",
     resumeImproves:
       "Rezyume tanlash sifatini oshiradi: talablar haqiqiy hujjatlaringiz bilan solishtiriladi.",
     uploadResume: "Rezyume yuklash",
@@ -1367,6 +1479,14 @@ const uz: Dictionary = {
       INDEXING: "Indekslanmoqda",
       COMPLETED: "Yakunlandi",
       FAILED: "Xatolik",
+    },
+    /** Havolaning holati. Odamni emas, oʻqish jarayonini tavsiflaydi. */
+    link: {
+      PENDING: "Kutilmoqda",
+      FETCHING: "Sahifa oʻqilmoqda",
+      PROCESSING: "Tahlil qilinmoqda",
+      COMPLETED: "Tahlil qilindi",
+      FAILED: "Oʻqib boʻlmadi",
     },
     pipeline: {
       UPLOADED: "Yuklandi",
