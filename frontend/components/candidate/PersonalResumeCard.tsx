@@ -6,6 +6,7 @@ import {
   deletePersonalDocumentAction,
   getPersonalDocumentUrlAction,
   getPersonalResumeUrlAction,
+  reprocessPersonalDocumentAction,
 } from "@/app/(candidate)/actions";
 import { uploadPersonalDocument } from "@/lib/candidate/upload-document";
 import { Button } from "@/components/ui/Button";
@@ -54,6 +55,7 @@ export function PersonalResumeCard({
   const [pending, startTransition] = useTransition();
   const [opening, startOpen] = useTransition();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   // Deleting a file also withdraws it from applications already submitted, so
   // it is confirmed rather than done on a single click.
   const [confirming, setConfirming] = useState<PersonalDocument | null>(null);
@@ -145,6 +147,31 @@ export function PersonalResumeCard({
     });
   }
 
+  /**
+   * Requeues a FAILED document. The bytes are already stored, so no re-upload:
+   * the retry indexes exactly the file the candidate stands behind.
+   */
+  function retry(documentId: string) {
+    if (retryingId || pending || uploading) return;
+    setError(null);
+    setRetryingId(documentId);
+    startTransition(async () => {
+      const result = await reprocessPersonalDocumentAction(documentId);
+      setRetryingId(null);
+      if (!result.ok) {
+        setError(
+          localizedDocumentError(
+            result.code,
+            d,
+            result.message ?? d.candidateProfile.documentRetryFailed,
+          ),
+        );
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   return (
     <Card>
       <CardHeader
@@ -193,6 +220,18 @@ export function PersonalResumeCard({
                   </span>
                 </span>
                 <DocumentStatusBadge status={document.status} />
+                {document.status === "FAILED" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    loading={retryingId === document.id}
+                    disabled={pending}
+                    onClick={() => retry(document.id)}
+                  >
+                    {d.candidateProfile.retryDocument}
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"

@@ -5,7 +5,7 @@ import type { NormalizedSection } from './web-ingestion.service';
 /**
  * Reading and writing normalized web sections as JSON columns.
  *
- * `CandidateLink.sections` and `ApplicationLinkSource.sections` both store the
+ * `CandidateLink.sections` stores the
  * same shape, and both are read back defensively: a JSON column makes no
  * promises about what is inside it, and this content came from the internet in
  * the first place. A malformed entry is dropped rather than propagated into

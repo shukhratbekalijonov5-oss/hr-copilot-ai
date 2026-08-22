@@ -2,16 +2,13 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import {
-  DELETE_APPLICATION_LINK_INDEX_JOB,
   DELETE_CANDIDATE_LINK_INDEX_JOB,
   DELETE_PERSONAL_RESUME_INDEX_JOB,
-  PROCESS_APPLICATION_LINK_JOB,
   PROCESS_CANDIDATE_LINK_JOB,
   PROCESS_DOCUMENT_JOB,
   PROCESS_PERSONAL_RESUME_JOB,
   RESUME_PROCESSING_QUEUE,
   SYNC_VACANCY_INDEX_JOB,
-  type ApplicationLinkJobData,
   type CandidateLinkJobData,
   type PersonalResumeJobData,
   type ProcessDocumentJobData,
@@ -97,14 +94,41 @@ export class DocumentProcessingProducer {
    */
   async enqueuePersonalResume(
     data: PersonalResumeJobData,
+    { replaceExisting = false }: { replaceExisting?: boolean } = {},
   ): Promise<string | null> {
+    const jobId = `personal-${data.documentId}`;
+    if (replaceExisting) {
+      // A FAILED job keeps its id for days (removeOnFail is age-based), and
+      // BullMQ silently dedupes a new add against it — a retry would then
+      // enqueue nothing. Remove the finished job first; a genuinely live job
+      // is left alone so a retry can never double-process.
+      const existing = await this.queue.getJob(jobId);
+      if (existing) {
+        const state = await existing.getState();
+        if (state === 'active' || state === 'waiting' || state === 'delayed') {
+          this.logger.warn(
+            `Personal resume ${data.documentId} already has a ${state} job; not requeuing`,
+          );
+          return existing.id ?? null;
+        }
+        await existing.remove();
+      }
+    }
     const job = await this.queue.add(PROCESS_PERSONAL_RESUME_JOB, data, {
-      jobId: `personal-${data.documentId}`,
+      jobId,
     });
     this.logger.log(
       `Enqueued ${PROCESS_PERSONAL_RESUME_JOB} for document ${data.documentId}`,
     );
     return job.id ?? null;
+  }
+
+  /** True when an indexing job for this personal document is pending/running. */
+  async hasLivePersonalResumeJob(documentId: string): Promise<boolean> {
+    const job = await this.queue.getJob(`personal-${documentId}`);
+    if (!job) return false;
+    const state = await job.getState();
+    return state === 'active' || state === 'waiting' || state === 'delayed';
   }
 
   /** Queues removal of a replaced personal resume's vectors. */
@@ -177,26 +201,6 @@ export class DocumentProcessingProducer {
   ): Promise<string | null> {
     const job = await this.queue.add(DELETE_CANDIDATE_LINK_INDEX_JOB, data, {
       jobId: `link-delete-${data.linkId}`,
-    });
-    return job.id ?? null;
-  }
-
-  /** Queues indexing of one org-scoped application link snapshot. */
-  async enqueueApplicationLink(
-    data: ApplicationLinkJobData,
-  ): Promise<string | null> {
-    const job = await this.queue.add(PROCESS_APPLICATION_LINK_JOB, data, {
-      jobId: `app-link-${data.linkSourceId}`,
-    });
-    return job.id ?? null;
-  }
-
-  /** Queues removal of a deleted application link snapshot's vectors. */
-  async enqueueApplicationLinkIndexDeletion(
-    data: ApplicationLinkJobData,
-  ): Promise<string | null> {
-    const job = await this.queue.add(DELETE_APPLICATION_LINK_INDEX_JOB, data, {
-      jobId: `app-link-delete-${data.linkSourceId}`,
     });
     return job.id ?? null;
   }

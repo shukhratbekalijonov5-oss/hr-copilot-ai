@@ -242,41 +242,16 @@ export interface VacancyResponse {
   createdAt: string;
   updatedAt: string;
   requirements?: JobRequirementResponse[];
+  /**
+   * How many PEOPLE are attached, not how many applications. The two differ
+   * for any vacancy someone re-applied to, so the count is its own field —
+   * `_count.applications` stays a truthful attempt count.
+   */
+  candidateCount?: number;
   _count?: { applications: number; requirements: number };
 }
 
-export interface DocumentResponse {
-  id: string;
-  type: DocumentType;
-  originalFileName: string;
-  mimeType?: string | null;
-  fileSize?: number | null;
-  status: DocumentStatus;
-  pageCount?: number | null;
-  candidateId?: string | null;
-  /** The application this org-scoped copy was submitted with, when known. */
-  applicationId?: string | null;
-  processingJobId?: string | null;
-  createdAt: string;
-}
 
-/**
- * One professional link submitted with an application, as the recruiter API
- * returns it. Deliberately carries no extracted text: a recruiter reads that
- * through grounded answers and citations, not as a dump of somebody's website.
- */
-export interface CandidateLinkSourceResponse {
-  id: string;
-  url: string;
-  title: string | null;
-  detectedType: string | null;
-  status: DocumentStatus;
-  charCount: number | null;
-  pagesFetched: number | null;
-  fetchedAt: string;
-  applicationId?: string | null;
-  createdAt: string;
-}
 
 export interface ApplicationResponse {
   id: string;
@@ -293,6 +268,8 @@ export interface ApplicationResponse {
     fullName: string;
     email?: string | null;
     currentTitle?: string | null;
+    /** Signed URL of the LIVE account avatar; null → initials fallback. */
+    avatarUrl?: string | null;
   };
 }
 
@@ -308,9 +285,12 @@ export interface CandidateResponse {
   totalExperienceYears: number | null;
   createdAt: string;
   updatedAt: string;
-  documents?: DocumentResponse[];
-  /** Submitted professional links. Absent on list endpoints. */
-  linkSources?: CandidateLinkSourceResponse[];
+  /** Signed URL of the LIVE account avatar; null → initials fallback. */
+  avatarUrl?: string | null;
+  /** Count of CURRENT personal documents. */
+  documentCount?: number;
+  /** Current documents' statuses, for the aggregate processing state. */
+  documentStatuses?: DocumentStatus[];
   applications?: ApplicationResponse[];
 }
 
@@ -371,6 +351,8 @@ export interface ProcessingJobResponse {
     originalFileName: string;
     status: DocumentStatus;
     type: DocumentType;
+    /** Resolved by the API in the same query. Null for unattached documents. */
+    candidate?: { id: string; fullName: string } | null;
   } | null;
 }
 
@@ -674,7 +656,6 @@ export interface MyApplicationResponse {
     employmentType: string | null;
     organization: { name: string };
   };
-  submittedDocument: { originalFileName: string } | null;
 }
 
 /** GET /candidate-account/me/saved-jobs */

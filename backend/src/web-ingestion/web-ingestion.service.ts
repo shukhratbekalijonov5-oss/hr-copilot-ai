@@ -176,7 +176,12 @@ export class WebIngestionService {
     deadline: number,
     options: { allowRender?: boolean } = {},
   ): Promise<{ page: ExtractedPage; url: string; fetchMode: FetchMode }> {
-    const response = await this.fetcher.fetchText(url, { deadline });
+    const response = await this.fetcher.fetchText(url, {
+      deadline,
+      // Pages get the larger cap: an SPA's inline bundle is not a reason to
+      // refuse the readable markup around it. See maxPageBytes.
+      maxBytes: WEB_INGESTION_LIMITS.maxPageBytes,
+    });
 
     if (response.mediaType === 'text/plain') {
       const page = extractPlainText(response.body);

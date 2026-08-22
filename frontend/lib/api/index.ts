@@ -14,8 +14,6 @@ import * as candidateLinks from "@/lib/api/candidate-links.service";
 import * as candidates from "@/lib/api/candidates.service";
 import * as compare from "@/lib/api/compare.service";
 import * as dashboard from "@/lib/api/dashboard.service";
-import * as documents from "@/lib/api/documents.service";
-import * as evidence from "@/lib/api/evidence.service";
 import * as interviewChat from "@/lib/api/interview-chat.service";
 import * as notifications from "@/lib/api/notifications.service";
 import * as processing from "@/lib/api/processing.service";
@@ -65,8 +63,11 @@ export const api = {
   getCandidates: candidates.getCandidates,
   getAllCandidates: candidates.getAllCandidates,
   getCandidate: candidates.getCandidate,
+  getCandidateCurrentEvidence: candidates.getCandidateCurrentEvidence,
+  getCandidateCurrentDocumentUrl: candidates.getCandidateCurrentDocumentUrl,
   updateCandidate: candidates.updateCandidate,
   getApplications: applications.getApplications,
+  getAllApplications: applications.getAllApplications,
   setApplicationStatus: applications.setApplicationStatus,
   inviteToInterview: interviewChat.inviteToInterview,
 
@@ -87,10 +88,6 @@ export const api = {
   markAllNotificationsRead: notifications.markAllNotificationsRead,
 
   // documents
-  getDocuments: documents.getDocuments,
-  getAllDocuments: documents.getAllDocuments,
-  getDocument: documents.getDocument,
-  getDocumentDownloadUrl: documents.getDocumentDownloadUrl,
 
   // processing
   getProcessingJobs: processing.getProcessingJobs,
@@ -108,9 +105,6 @@ export const api = {
   getEvidenceMap: ai.getEvidenceMap,
 
   // evidence & compare
-  getCandidateEvidence: evidence.getCandidateEvidence,
-  getCandidateRequirementEvidence: evidence.getCandidateRequirementEvidence,
-  countEvidence: evidence.countEvidence,
   compareCandidates: compare.compareCandidates,
   mapMissingCandidates: compare.mapMissingCandidates,
 
@@ -123,6 +117,7 @@ export const api = {
   uploadPersonalDocument: candidateAccount.uploadPersonalDocument,
   getPersonalDocumentUrl: candidateAccount.getPersonalDocumentUrl,
   deletePersonalDocument: candidateAccount.deletePersonalDocument,
+  reprocessPersonalDocument: candidateAccount.reprocessPersonalDocument,
   getPersonalResumeUrl: candidateAccount.getPersonalResumeUrl,
   getCandidateEvidenceState: candidateAccount.getCandidateEvidenceState,
 

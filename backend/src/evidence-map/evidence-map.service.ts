@@ -2,12 +2,14 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { hostnameOf } from '../web-ingestion/url-policy';
 import { TenantService } from '../common/tenant/tenant.service';
 import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
+import { APPLICANT_CANDIDATE_SCOPE } from '../common/vacancy-access/applicant-scope';
 import {
   AiServiceClient,
   AiServiceDisabledError,
@@ -22,11 +24,20 @@ import { EvidenceType } from '../generated/prisma/enums';
 /**
  * JD -> candidate evidence mapping and its persistence.
  *
+ * ## What is mapped
+ *
+ * The candidate's CURRENT evidence — their personal documents and links, read
+ * from the candidate-scoped index under the vacancy-contextual authorization
+ * chain (owned vacancy -> legitimate applicant -> current evidence). Nothing
+ * is retrieved from application-time copies; none exist.
+ *
  * ## What is stored where
  *
- * Qdrant holds every searchable chunk of every document. PostgreSQL holds only
- * *requirement-linked* evidence — the passages a mapping actually selected for
- * a specific requirement. An ordinary semantic search creates no rows at all.
+ * Qdrant holds every searchable chunk of every current source. PostgreSQL
+ * holds only *requirement-linked* evidence — the passages a mapping actually
+ * selected for a specific requirement, each citing the current personal
+ * source it came from (FK CASCADE: the candidate deleting that source deletes
+ * the citation everywhere). An ordinary semantic search creates no rows.
  *
  * Copying every retrieved chunk into PostgreSQL would duplicate the index into
  * a store that cannot search it, and would grow without bound as recruiters
@@ -58,7 +69,7 @@ export class EvidenceMapService {
     vacancyId: string,
     locale: SupportedLocale = 'en',
   ) {
-    const { vacancy } = await this.assertScope(
+    const { vacancy, candidateAccountId } = await this.assertScope(
       organizationId,
       userId,
       candidateId,
@@ -71,19 +82,17 @@ export class EvidenceMapService {
       );
     }
 
-    // Only the candidate's SURVIVING submitted sources may be mapped. A
-    // requirement must never come back EVIDENCE_FOUND on the strength of a
-    // passage from a file or link the candidate has since withdrawn.
-    const allowedSourceIds = await this.evidence.activeApplicationSourceIds(
-      organizationId,
-      candidateId,
-    );
+    // Only the candidate's CURRENT sources may be mapped: `[]` means "no
+    // evidence exists" and retrieves nothing — a requirement must never come
+    // back EVIDENCE_FOUND on the strength of a passage from a file or link
+    // the candidate has since withdrawn.
+    const allowedSourceIds =
+      await this.evidence.activePersonalSourceIds(candidateAccountId);
 
     let result: AiEvidenceMapResult;
     try {
       result = await this.ai.mapEvidence({
-        organizationId,
-        candidateId,
+        candidateAccountId,
         vacancyId,
         requirements: vacancy.requirements.map((r) => ({
           requirementId: r.id,
@@ -106,6 +115,7 @@ export class EvidenceMapService {
     await this.persist(
       organizationId,
       candidateId,
+      candidateAccountId,
       vacancyId,
       result.requirements,
     );
@@ -128,6 +138,7 @@ export class EvidenceMapService {
   private async persist(
     organizationId: string,
     candidateId: string,
+    candidateAccountId: string,
     vacancyId: string,
     mappings: {
       requirementId: string;
@@ -173,27 +184,31 @@ export class EvidenceMapService {
 
         if (mapping.evidence.length === 0) return;
 
-        // A citation names a SOURCE, which is either a submitted file or a
-        // submitted link — the AI service uses one key space for both. Resolve
-        // the id against each table to find out which, and store only sources
-        // that still exist in this organization: the AI service indexes
-        // independently, so a source deleted since indexing would otherwise
-        // leave a citation pointing at nothing.
+        // A citation names a CURRENT SOURCE, which is either a personal file
+        // or a personal link — the AI service uses one key space for both.
+        // Resolve the id against each table to find out which, scoped to THIS
+        // candidate's account, and store only sources that still exist right
+        // now: the index is cleaned asynchronously, so a source deleted since
+        // indexing must not leave a citation pointing at nothing.
         const sourceIds = [
           ...new Set(mapping.evidence.map((e) => e.documentId)),
         ];
-        const [documents, linkSources] = await Promise.all([
+        const [documents, links] = await Promise.all([
           tx.document.findMany({
-            where: { id: { in: sourceIds }, organizationId },
+            where: {
+              id: { in: sourceIds },
+              candidateAccountId,
+              organizationId: null,
+            },
             select: { id: true },
           }),
-          tx.applicationLinkSource.findMany({
-            where: { id: { in: sourceIds }, organizationId },
+          tx.candidateLink.findMany({
+            where: { id: { in: sourceIds }, candidateAccountId },
             select: { id: true },
           }),
         ]);
         const knownDocuments = new Set(documents.map((d) => d.id));
-        const knownLinks = new Set(linkSources.map((s) => s.id));
+        const knownLinks = new Set(links.map((l) => l.id));
 
         await tx.candidateEvidence.createMany({
           data: mapping.evidence
@@ -212,7 +227,7 @@ export class EvidenceMapService {
               documentId: knownDocuments.has(citation.documentId)
                 ? citation.documentId
                 : null,
-              linkSourceId: knownLinks.has(citation.documentId)
+              candidateLinkId: knownLinks.has(citation.documentId)
                 ? citation.documentId
                 : null,
               pageNumber: citation.pageNumber,
@@ -252,16 +267,16 @@ export class EvidenceMapService {
           select: {
             id: true,
             documentId: true,
-            linkSourceId: true,
+            candidateLinkId: true,
             pageNumber: true,
             section: true,
             text: true,
             sourceChunkId: true,
             document: { select: { originalFileName: true } },
-            // The URL and title are the frozen ones from the submission, so a
-            // citation stays checkable even after the candidate changed or
-            // removed the link from their own profile.
-            linkSource: { select: { title: true, url: true } },
+            // The LIVE link. A citation follows the candidate's current
+            // evidence: if they delete the link, the citation cascades away
+            // with it rather than pointing at something withdrawn.
+            candidateLink: { select: { title: true, url: true } },
           },
         },
       },
@@ -292,13 +307,15 @@ export class EvidenceMapService {
             id: e.id,
             // One field for the source id whichever kind it is, so the UI can
             // address both uniformly — the same shape the AI service uses.
-            documentId: e.documentId ?? e.linkSourceId!,
-            sourceType: e.linkSourceId ? ('URL' as const) : ('FILE' as const),
+            documentId: e.documentId ?? e.candidateLinkId!,
+            sourceType: e.candidateLinkId
+              ? ('URL' as const)
+              : ('FILE' as const),
             fileName:
               e.document?.originalFileName ??
-              e.linkSource?.title ??
-              hostnameOf(e.linkSource?.url ?? ''),
-            sourceUrl: e.linkSource?.url ?? null,
+              e.candidateLink?.title ??
+              hostnameOf(e.candidateLink?.url ?? ''),
+            sourceUrl: e.candidateLink?.url ?? null,
             pageNumber: e.pageNumber,
             section: e.section,
             text: e.text,
@@ -329,8 +346,16 @@ export class EvidenceMapService {
     await this.ownedVacancies.requireOwned(userId, organizationId, vacancyId);
     const [candidate, vacancy] = await Promise.all([
       this.prisma.candidate.findFirst({
-        where: { id: candidateId, ...this.tenant.scope(organizationId) },
-        select: { id: true, fullName: true },
+        where: {
+          id: candidateId,
+          ...this.tenant.scope(organizationId),
+          ...APPLICANT_CANDIDATE_SCOPE,
+        },
+        select: {
+          id: true,
+          fullName: true,
+          candidateAccount: { select: { id: true } },
+        },
       }),
       this.prisma.vacancy.findFirst({
         where: { id: vacancyId, ...this.tenant.scope(organizationId) },
@@ -347,6 +372,16 @@ export class EvidenceMapService {
     this.tenant.assertFound(candidate, 'Candidate');
     this.tenant.assertFound(vacancy, 'Vacancy');
     await this.ownedVacancies.assertCandidateInVacancy(vacancyId, candidateId);
-    return { candidate: candidate!, vacancy: vacancy! };
+    // The applicant scope guarantees candidateAccountId, but the account row
+    // itself can be gone (account deletion cascades differently from the
+    // org-side record). No account means no current evidence to map.
+    if (!candidate!.candidateAccount) {
+      throw new NotFoundException('Candidate not found');
+    }
+    return {
+      candidate: candidate!,
+      vacancy: vacancy!,
+      candidateAccountId: candidate!.candidateAccount.id,
+    };
   }
 }

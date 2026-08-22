@@ -402,41 +402,33 @@ const en = {
     phone: "Phone",
     added: "First applied",
     documents: "Documents",
-    documentsUploaded: {
-      one: "{count} file submitted",
-      other: "{count} files submitted",
-    } as Plural,
-    noDocumentsYet:
-      "Nothing submitted yet. The files and links an applicant sends with their application appear here.",
 
     // Evidence sources — files and professional links, read-only for HR.
-    evidenceSources: "Evidence sources",
-    evidenceSourceCounts: "{files} files · {links} links submitted",
-    filesCount: {
-      one: "File · {count}",
-      other: "Files · {count}",
-    } as Plural,
-    linksCount: {
-      one: "Professional link · {count}",
-      other: "Professional links · {count}",
-    } as Plural,
+    currentEvidence: "Current candidate evidence",
+    currentEvidenceHint:
+      "The candidate's live profile, files and links — as they are right now, not as submitted.",
+    currentEvidenceEmpty: "The candidate currently has no files or links.",
+    currentDocuments: "Documents",
+    currentLinks: "Professional links",
+    currentEvidenceDocument: "Document",
+    openCurrentFile: "Open",
+    openOriginalLink: "Open original",
     noSource: "No source selected",
     noSourceHint: "Pick a file or a link to see what was submitted.",
     originalUrl: "Original link",
-    submittedContent: "Submitted content",
-    fetchedOn: "Read on {date}",
-    pagesRead: {
-      one: "{count} page read",
-      other: "{count} pages read",
-    } as Plural,
-    snapshotNote:
-      "This is the content as it was when the candidate applied. The live page may have changed since, and the analysis below is based on what was submitted.",
-    sourceIndexingFailed:
-      "This link could not be prepared for analysis, so it does not appear in AI answers.",
     openOriginal: "Open original",
     applications: "Applications",
     applicationsHint:
       "Stage changes are recorded against the person who made them.",
+    profile: "Profile",
+    application: "Application",
+    attempts: "Attempts",
+    appliedAt: "Applied at",
+    currentStatus: "Current status",
+    otherVacancies: "Other vacancies",
+    otherVacanciesHint:
+      "Other pipelines this person is in. Each has its own independent stage.",
+    noApplicationForVacancy: "No application in this vacancy",
     applicationStage: "Application stage",
     notAttached: "Not attached to a vacancy",
     notAttachedHint:
@@ -1019,6 +1011,25 @@ const en = {
     errVacancyRequired: "Select one of your vacancies to add this candidate to.",
   },
 
+  /**
+   * Re-application vocabulary, shared by every HR surface that shows it.
+   *
+   * A candidate may apply to one vacancy several times, so both the vacancy
+   * applicant list and Candidate Detail speak about attempts — in the same
+   * words, from one place, because two copies would drift.
+   */
+  attempts: {
+    count: {
+      one: "{count} application",
+      other: "{count} applications",
+    } as Plural,
+    label: "Attempt {number}",
+    current: "Current",
+    history: "Previous attempt history",
+    viewHistory: "View history",
+    hideHistory: "Hide history",
+  },
+
   vacancyDetail: {
     breadcrumbNew: "New",
     jobDescription: "Job description",
@@ -1249,6 +1260,8 @@ const en = {
     createFailed: "Could not create your profile.",
     resumeUploadFailed: "Could not upload that file.",
     documentDeleteFailed: "Could not delete that document.",
+    retryDocument: "Try again",
+    documentRetryFailed: "Could not retry that document.",
     confirmDeleteTitle: "Delete this document?",
     confirmDeleteQuestion: "“{name}” will be deleted permanently.",
     confirmDeleteConsequence:
@@ -1316,7 +1329,6 @@ const en = {
     emptyHint: "Roles you apply to appear here with their current stage.",
     appliedOn: "Applied {date}",
     updatedOn: "Updated {date}",
-    submittedResume: "Sent {name}",
     withdraw: "Withdraw",
     withdrawing: "Withdrawing",
     withdrawn: "Application withdrawn",

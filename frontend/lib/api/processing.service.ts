@@ -2,7 +2,6 @@ import "server-only";
 
 import { apiFetch, fetchAllPages, type Paginated } from "@/lib/api/http";
 import { summarizeDocumentStatuses, toProcessingJob } from "@/lib/api/adapters";
-import { getAllDocuments } from "@/lib/api/documents.service";
 import { getAllCandidates } from "@/lib/api/candidates.service";
 import type { ProcessingJobResponse } from "@/lib/api/contracts";
 import type {
@@ -31,37 +30,24 @@ export async function getProcessingJobs(
     limit?: number;
   } = {},
 ): Promise<{ jobs: ProcessingJob[]; total: number }> {
-  const [response, documents, candidates] = await Promise.all([
-    apiFetch<Paginated<ProcessingJobResponse>>("/processing-jobs", {
+  // One request: the API resolves each job's document AND its candidate in
+  // the same query. There is no org-wide document list to join against any
+  // more — since the snapshot removal, candidate evidence lives only on the
+  // candidate account and is never copied into the organization.
+  const response = await apiFetch<Paginated<ProcessingJobResponse>>(
+    "/processing-jobs",
+    {
       query: {
         page: query.page ?? 1,
         limit: query.limit ?? 100,
         status: query.status,
         vacancyId: query.vacancyId,
       },
-    }),
-    getAllDocuments(),
-    getAllCandidates(),
-  ]);
-
-  const candidateByDocument = new Map<string, { id: string; fullName: string }>();
-  const candidateById = new Map(candidates.map((c) => [c.id, c]));
-
-  for (const document of documents) {
-    if (!document.candidateId) continue;
-    const candidate = candidateById.get(document.candidateId);
-    if (candidate) {
-      candidateByDocument.set(document.id, {
-        id: candidate.id,
-        fullName: candidate.fullName,
-      });
-    }
-  }
+    },
+  );
 
   return {
-    jobs: response.data.map((job) =>
-      toProcessingJob(job, candidateByDocument.get(job.documentId) ?? null),
-    ),
+    jobs: response.data.map((job) => toProcessingJob(job)),
     total: response.meta.total,
   };
 }
@@ -77,8 +63,16 @@ export async function getAllProcessingJobs(): Promise<ProcessingJob[]> {
   return rows.map((job) => toProcessingJob(job));
 }
 
-/** Pipeline readout across every document in the organization. */
+/**
+ * Pipeline readout across the applicants' CURRENT documents.
+ *
+ * These are the files the organization's AI actually reads. Organization-side
+ * copies no longer exist, so summarising them would report an empty pipeline
+ * while every applicant's resume was being processed normally.
+ */
 export async function getProcessingSummary(): Promise<ProcessingSummary> {
-  const documents = await getAllDocuments();
-  return summarizeDocumentStatuses(documents.map((d) => d.status));
+  const candidates = await getAllCandidates();
+  return summarizeDocumentStatuses(
+    candidates.flatMap((candidate) => candidate.documentStatuses),
+  );
 }

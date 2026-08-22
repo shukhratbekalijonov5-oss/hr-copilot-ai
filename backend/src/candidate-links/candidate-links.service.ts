@@ -34,7 +34,7 @@ import type { UpsertCandidateLinkDto } from './dto/upsert-candidate-link.dto';
  * These links are PERSONAL evidence. They are indexed only into the
  * candidate-scoped Qdrant collection, carry no organizationId anywhere, and
  * are reachable by exactly one AI feature: the candidate's own Job Match. An
- * organization only ever sees ApplicationLinkSource — the frozen copy taken at
+ * organization reads it only through the vacancy-contextual chain, live, at
  * apply time — and there is no recruiter endpoint that writes here at all.
  */
 @Injectable()
@@ -180,7 +180,7 @@ export class CandidateLinksService {
    * Deletes one of the caller's own links — everywhere.
    *
    * The candidate owns this evidence, so removing it removes it: the row, the
-   * personal vectors, every `ApplicationLinkSource` snapshot copied from it in
+   * personal vectors, every stored citation of it in
    * every organization it was submitted to, those snapshots' vectors, the
    * citations built on them, and the requirement mappings those citations were
    * the proof for.
@@ -381,7 +381,9 @@ const PERMANENT_FAILURES = new Set<LinkFailureCode>([
   LinkFailureCode.UNSUPPORTED_CONTENT_TYPE,
   LinkFailureCode.ACCESS_DENIED,
   LinkFailureCode.NO_MEANINGFUL_CONTENT,
-  LinkFailureCode.CONTENT_TOO_LARGE,
+  // CONTENT_TOO_LARGE is deliberately NOT here: page weight is a property of
+  // the site as it is today (and of this service's caps, which have changed),
+  // not of the URL forever — a candidate may retry after either moves.
   LinkFailureCode.TOO_MANY_REDIRECTS,
 ]);
 

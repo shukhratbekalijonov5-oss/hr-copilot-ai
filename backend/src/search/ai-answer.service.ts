@@ -2,11 +2,16 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
 import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
+import {
+  APPLICANT_APPLICATION_SCOPE,
+  APPLICANT_CANDIDATE_SCOPE,
+} from '../common/vacancy-access/applicant-scope';
 import {
   AiServiceClient,
   AiServiceDisabledError,
@@ -35,9 +40,10 @@ import { CandidateEvidenceLifecycleService } from '../candidate-evidence/candida
  *    nothing is cached server-side under the wrong vacancy (no generation
  *    cache exists; every call re-resolves and regenerates).
  *
- * The one deliberately vacancy-less mode is the AI Search page's org-wide
- * grounded answer (no candidateId, no vacancyId): evidence search across the
- * organization remains lawful without a selection.
+ * The one deliberately vacancy-less mode is the AI Search page's grounded
+ * answer (no candidateId, no vacancyId). Since the snapshot removal it reads
+ * CURRENT candidate evidence, and its universe is creator-scoped: the
+ * applicant accounts of the caller's OWN vacancies, resolved server-side.
  */
 @Injectable()
 export class AiAnswerService {
@@ -68,9 +74,9 @@ export class AiAnswerService {
         'vacancyId is required when asking about a candidate',
       );
     }
-    if (input.candidateId) {
-      await this.assertCandidate(organizationId, input.candidateId);
-    }
+    const candidateAccountId = input.candidateId
+      ? await this.requireApplicantAccountId(organizationId, input.candidateId)
+      : null;
     let vacancyContext: AiVacancyContext | null = null;
     if (input.vacancyId) {
       const vacancy = await this.ownedVacancies.requireOwnedWithRequirements(
@@ -88,22 +94,27 @@ export class AiAnswerService {
     }
     const locale = await this.resolveLocale(userId, input.locale);
 
-    // Ask-about-a-candidate is restricted to that candidate's SURVIVING
-    // sources. The org-wide mode has no candidate to scope by and passes null;
-    // its results are filtered against surviving sources by SearchService on
-    // the way back instead.
-    const allowedSourceIds = input.candidateId
-      ? await this.evidence.activeApplicationSourceIds(
-          organizationId,
-          input.candidateId,
-        )
+    // The retrieval universe is the authorization decision, resolved
+    // server-side: ONE account for Candidate Detail's Ask, or every applicant
+    // account of the CALLER'S OWN vacancies for the org-wide mode. Candidate
+    // evidence stays candidate-owned — this list is what makes reading it
+    // lawful, and an account outside it is physically unreachable.
+    const universe = candidateAccountId
+      ? [candidateAccountId]
+      : await this.ownedApplicantAccountIds(organizationId, userId);
+
+    // Ask-about-a-candidate is additionally restricted to that candidate's
+    // CURRENT sources — `[]` retrieves nothing. The org-wide mode has no
+    // single candidate to scope by and passes null; its results are filtered
+    // against surviving current sources on the way back instead.
+    const allowedSourceIds = candidateAccountId
+      ? await this.evidence.activePersonalSourceIds(candidateAccountId)
       : null;
 
     const answer = await this.guard('answer questions', () =>
       this.ai.answerQuestion({
-        organizationId,
+        candidateAccountIds: universe,
         query: input.query,
-        candidateId: input.candidateId ?? null,
         vacancyId: input.vacancyId ?? null,
         vacancy: vacancyContext,
         locale,
@@ -115,8 +126,33 @@ export class AiAnswerService {
     // The org-wide mode had no allowlist, so enforce the rule on the way back
     // instead: a withdrawn source must never be cited.
     return allowedSourceIds === null
-      ? this.dropWithdrawnCitations(organizationId, answer)
+      ? this.dropWithdrawnCitations(universe, answer)
       : answer;
+  }
+
+  /**
+   * Every applicant account reachable through the caller's OWN vacancies —
+   * the org-wide retrieval universe. Creator-scoped exactly like every other
+   * vacancy surface: a colleague's vacancies contribute nothing.
+   */
+  private async ownedApplicantAccountIds(
+    organizationId: string,
+    userId: string,
+  ): Promise<string[]> {
+    const associations = await this.prisma.application.findMany({
+      where: {
+        ...APPLICANT_APPLICATION_SCOPE,
+        vacancy: { organizationId, createdById: userId },
+      },
+      select: { candidate: { select: { candidateAccountId: true } } },
+    });
+    return [
+      ...new Set(
+        associations
+          .map((a) => a.candidate.candidateAccountId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
   }
 
   /**
@@ -137,25 +173,32 @@ export class AiAnswerService {
    * completing; the citations are the part that would be user-visible.)
    */
   private async dropWithdrawnCitations(
-    organizationId: string,
+    candidateAccountIds: string[],
     answer: AiRagResult,
   ): Promise<AiRagResult> {
     if (answer.citations.length === 0) return answer;
 
     const ids = [...new Set(answer.citations.map((c) => c.documentId))];
-    const [documents, linkSources] = await Promise.all([
+    const [documents, links] = await Promise.all([
       this.prisma.document.findMany({
-        where: { id: { in: ids }, organizationId },
+        where: {
+          id: { in: ids },
+          candidateAccountId: { in: candidateAccountIds },
+          organizationId: null,
+        },
         select: { id: true },
       }),
-      this.prisma.applicationLinkSource.findMany({
-        where: { id: { in: ids }, organizationId },
+      this.prisma.candidateLink.findMany({
+        where: {
+          id: { in: ids },
+          candidateAccountId: { in: candidateAccountIds },
+        },
         select: { id: true },
       }),
     ]);
     const surviving = new Set([
       ...documents.map((d) => d.id),
-      ...linkSources.map((s) => s.id),
+      ...links.map((l) => l.id),
     ]);
 
     const kept = answer.citations.filter((c) => surviving.has(c.documentId));
@@ -214,7 +257,10 @@ export class AiAnswerService {
     vacancyId: string,
     locale?: SupportedLocale,
   ) {
-    await this.assertCandidate(organizationId, candidateId);
+    const candidateAccountId = await this.requireApplicantAccountId(
+      organizationId,
+      candidateId,
+    );
     const vacancy = await this.ownedVacancies.requireOwnedWithRequirements(
       userId,
       organizationId,
@@ -222,15 +268,12 @@ export class AiAnswerService {
     );
     await this.ownedVacancies.assertCandidateInVacancy(vacancyId, candidateId);
     const resolved = await this.resolveLocale(userId, locale);
-    const allowedSourceIds = await this.evidence.activeApplicationSourceIds(
-      organizationId,
-      candidateId,
-    );
+    const allowedSourceIds =
+      await this.evidence.activePersonalSourceIds(candidateAccountId);
 
     return this.guard('summarise candidates', () =>
       this.ai.summariseCandidate({
-        organizationId,
-        candidateId,
+        candidateAccountId,
         locale: resolved,
         vacancy: toVacancyContext(vacancy),
         allowedSourceIds,
@@ -245,7 +288,10 @@ export class AiAnswerService {
     vacancyId: string,
     locale?: SupportedLocale,
   ) {
-    await this.assertCandidate(organizationId, candidateId);
+    const candidateAccountId = await this.requireApplicantAccountId(
+      organizationId,
+      candidateId,
+    );
     const vacancy = await this.ownedVacancies.requireOwnedWithRequirements(
       userId,
       organizationId,
@@ -253,15 +299,12 @@ export class AiAnswerService {
     );
     await this.ownedVacancies.assertCandidateInVacancy(vacancyId, candidateId);
     const resolvedLocale = await this.resolveLocale(userId, locale);
-    const allowedSourceIds = await this.evidence.activeApplicationSourceIds(
-      organizationId,
-      candidateId,
-    );
+    const allowedSourceIds =
+      await this.evidence.activePersonalSourceIds(candidateAccountId);
 
     return this.guard('generate interview questions', () =>
       this.ai.interviewQuestions({
-        organizationId,
-        candidateId,
+        candidateAccountId,
         vacancyId,
         requirements: vacancy.requirements.map((r) => ({
           requirementId: r.id,
@@ -295,12 +338,29 @@ export class AiAnswerService {
     }
   }
 
-  private async assertCandidate(organizationId: string, candidateId: string) {
+  /**
+   * Resolves the LIVE account behind an org-side candidate id — tenancy plus
+   * the applicant predicate, so a historical recruiter-made record answers
+   * 404 exactly like a foreign id. Every AI surface reads by the returned
+   * account id, never by anything the client sent.
+   */
+  private async requireApplicantAccountId(
+    organizationId: string,
+    candidateId: string,
+  ): Promise<string> {
     const candidate = await this.prisma.candidate.findFirst({
-      where: { id: candidateId, ...this.tenant.scope(organizationId) },
-      select: { id: true },
+      where: {
+        id: candidateId,
+        ...this.tenant.scope(organizationId),
+        ...APPLICANT_CANDIDATE_SCOPE,
+      },
+      select: { candidateAccount: { select: { id: true } } },
     });
-    return this.tenant.assertFound(candidate, 'Candidate');
+    this.tenant.assertFound(candidate, 'Candidate');
+    if (!candidate!.candidateAccount) {
+      throw new NotFoundException('Candidate not found');
+    }
+    return candidate!.candidateAccount.id;
   }
 }
 

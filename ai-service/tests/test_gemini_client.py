@@ -28,7 +28,7 @@ from app.models.schemas import EvidenceHit
 
 def hit(chunk_id="chunk-1", text="Led a production Kubernetes migration."):
     return EvidenceHit(
-        chunkId=chunk_id, candidateId="cand-1", documentId="doc-1",
+        chunkId=chunk_id, candidateAccountId="cand-1", documentId="doc-1",
         fileName="cv.pdf", section="experience", pageNumber=2, chunkIndex=0,
         text=text, retrievalScore=0.5,
     )

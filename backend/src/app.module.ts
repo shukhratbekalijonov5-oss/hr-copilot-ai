@@ -26,7 +26,6 @@ import { VacanciesModule } from './vacancies/vacancies.module';
 import { CandidatesModule } from './candidates/candidates.module';
 import { ApplicationsModule } from './applications/applications.module';
 import { DocumentsModule } from './documents/documents.module';
-import { EvidenceModule } from './evidence/evidence.module';
 import { SearchModule } from './search/search.module';
 import { EvidenceMapModule } from './evidence-map/evidence-map.module';
 import { ProcessingModule } from './processing/processing.module';
@@ -91,7 +90,6 @@ import { RolesGuard } from './common/guards/roles.guard';
     CandidatesModule,
     ApplicationsModule,
     DocumentsModule,
-    EvidenceModule,
     SearchModule,
     EvidenceMapModule,
     ProcessingModule,

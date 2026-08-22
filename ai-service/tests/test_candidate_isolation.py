@@ -2,11 +2,21 @@
 
 Proves the isolation properties with actual vectors, in BOTH directions:
 
-  * personal resume chunks are invisible to org-scoped recruiter search;
+  * personal resume chunks live in a physically separate collection from the
+    org-scoped one, so no tenant-filtered query can reach them;
   * org-scoped resume chunks are invisible to candidate-side search;
-  * candidate A can never retrieve candidate B's chunks;
+  * candidate A can never retrieve candidate B's chunks, and an empty
+    authorized universe retrieves nothing at all;
   * re-indexing is idempotent; deletes are owner-scoped;
   * the vacancy index only ever serves OPEN vacancies.
+
+Since evidence snapshots were removed the personal collection is ALSO what
+recruiter retrieval reads — scoped to an authorized list of account ids. That
+makes the account key the whole separation between two people's evidence, so
+these are the tests that hold it up.
+
+``candidate_store`` and ``vacancy_store`` are scratch collections from
+conftest, torn down after each test.
 """
 
 from __future__ import annotations
@@ -16,10 +26,9 @@ import uuid
 import pytest
 
 from app.candidate.indexing import index_vacancy, process_candidate_resume
-from app.candidate.store import CandidateResumeStore, VacancyStore
 from app.config import get_settings
 from app.models.schemas import VacancyIndexRequest, VacancyRequirementInput
-from app.retrieval import process_document, search_evidence
+from app.retrieval import process_document
 from tests.fixtures.resumes import JIWOO_HAN_TEXT, build_pdf
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -38,39 +47,20 @@ Maintained PostgreSQL databases for analytics workloads.
 """
 
 
-@pytest.fixture()
-def candidate_store(qdrant_available):
-    if not qdrant_available:
-        pytest.skip("Qdrant is not running")
-    settings = get_settings()
-    store = CandidateResumeStore(
-        settings.qdrant_url,
-        f"test_candidate_chunks_{uuid.uuid4().hex[:8]}",
-        api_key=settings.qdrant_api_key,
-    )
-    yield store
-    store._client.delete_collection(store.collection)
-
-
-@pytest.fixture()
-def vacancy_store(qdrant_available):
-    if not qdrant_available:
-        pytest.skip("Qdrant is not running")
-    settings = get_settings()
-    store = VacancyStore(
-        settings.qdrant_url,
-        f"test_vacancy_chunks_{uuid.uuid4().hex[:8]}",
-        api_key=settings.qdrant_api_key,
-    )
-    yield store
-    store._client.delete_collection(store.collection)
-
-
 class TestPersonalResumeIsolation:
-    def test_personal_chunks_never_reachable_through_org_search(
+    def test_personal_chunks_are_absent_from_the_org_collection(
         self, candidate_store, store, embedder
     ):
-        """The critical direction: recruiter search cannot see personal resumes."""
+        """The two collections are physically separate, and stay that way.
+
+        Recruiter retrieval no longer queries the org collection at all — but
+        that is a routing decision, and routing decisions can be changed by
+        accident. What cannot be changed by accident is that a personal chunk
+        is not IN the tenant collection and carries no organizationId, so no
+        tenant-filtered query has anything to match on. This asserts that,
+        directly against the org store, under any organization id including a
+        hostile guess at the account id.
+        """
         settings = get_settings()
         doc_id = f"personal-{uuid.uuid4()}"
         result = process_candidate_resume(
@@ -84,23 +74,15 @@ class TestPersonalResumeIsolation:
         )
         assert result.vectorsIndexed > 0
 
-        # The org-scoped store (a DIFFERENT collection) has no trace of it —
-        # under any organization id, including a hostile guess.
+        query_vector = embedder.encode_query(MARKER)
         for org in (ORG_X, ACCT_A):
-            response = search_evidence(
-                organization_id=org,
-                query=MARKER,
-                limit=10,
-                candidate_id=None,
-                document_id=None,
-                use_rerank=False,
-                settings=settings,
-                embedder=embedder,
-                store=store,
-                reranker=None,
+            hits = store.search(
+                organization_id=org, query_vector=query_vector, limit=10
             )
-            marker_hits = [h for h in response.hits if MARKER in h.text]
-            assert marker_hits == [], f"personal chunk leaked into org search ({org})"
+            leaked = [
+                h for h in hits if MARKER in str(h.payload.get("text", ""))
+            ]
+            assert leaked == [], f"personal chunk leaked into org search ({org})"
 
     def test_org_chunks_never_reachable_through_candidate_search(
         self, candidate_store, store, embedder
@@ -120,7 +102,7 @@ class TestPersonalResumeIsolation:
         )
 
         hits = candidate_store.search(
-            candidate_account_id=ACCT_A,
+            candidate_account_ids=[ACCT_A],
             query_vector=embedder.encode_query("Kubernetes production"),
             limit=10,
         )
@@ -143,14 +125,14 @@ class TestPersonalResumeIsolation:
         )
 
         hits = candidate_store.search(
-            candidate_account_id=ACCT_A,
+            candidate_account_ids=[ACCT_A],
             query_vector=embedder.encode_query(MARKER),
             limit=10,
         )
         assert hits == [], "candidate A retrieved candidate B's chunks"
 
         own = candidate_store.search(
-            candidate_account_id=ACCT_B,
+            candidate_account_ids=[ACCT_B],
             query_vector=embedder.encode_query(MARKER),
             limit=10,
         )
@@ -158,11 +140,32 @@ class TestPersonalResumeIsolation:
             h.payload["candidateAccountId"] == ACCT_B for h in own
         )
 
-    def test_search_without_account_id_is_impossible(self, candidate_store):
-        with pytest.raises(ValueError):
+    def test_an_empty_universe_retrieves_nothing(self, candidate_store, embedder):
+        """There is still no way to query this store without saying whose.
+
+        The old contract enforced that by rejecting an empty account id. The
+        universe is a LIST now, so the same guarantee is expressed as its
+        boundary case: an empty list is the authorization answer "nobody" and
+        returns nothing, rather than degrading into an unfiltered scan.
+        """
+        process_candidate_resume(
+            data=build_pdf(PERSONAL_TEXT),
+            file_name="jane.pdf",
+            document_id=f"doc-{uuid.uuid4()}",
+            candidate_account_id=ACCT_A,
+            settings=get_settings(),
+            embedder=embedder,
+            store=candidate_store,
+        )
+
+        assert (
             candidate_store.search(
-                candidate_account_id="", query_vector=[0.0] * 384, limit=5
+                candidate_account_ids=[],
+                query_vector=embedder.encode_query(MARKER),
+                limit=10,
             )
+            == []
+        )
 
     def test_reindex_is_idempotent_and_replace_updates(
         self, candidate_store, embedder

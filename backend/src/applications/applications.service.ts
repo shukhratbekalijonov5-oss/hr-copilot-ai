@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DocumentProcessingProducer } from '../queue/document-processing.producer';
+import { StorageService } from '../storage/storage.service';
+import { signAvatarUrl } from '../account/avatar-url';
 import { TenantService } from '../common/tenant/tenant.service';
 import { ChatService } from '../chat/chat.service';
 import { DomainEventsService } from '../common/events/domain-events.service';
@@ -34,11 +35,11 @@ export class ApplicationsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
     private readonly tenant: TenantService,
     private readonly chat: ChatService,
     private readonly events: DomainEventsService,
     private readonly ownedVacancies: OwnedVacancyService,
-    private readonly producer: DocumentProcessingProducer,
   ) {}
 
   async findAll(
@@ -67,6 +68,20 @@ export class ApplicationsService {
               fullName: true,
               email: true,
               currentTitle: true,
+              // The LIVE account identity. Rows must show the person as they
+              // are NOW — current name, current email, current avatar — not
+              // as they were when the org-side record was first written.
+              candidateAccount: {
+                select: {
+                  user: {
+                    select: {
+                      fullName: true,
+                      email: true,
+                      avatarStorageKey: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -74,7 +89,12 @@ export class ApplicationsService {
       this.prisma.application.count({ where }),
     ]);
 
-    return paginated(data, total, query.page, query.limit);
+    return paginated(
+      await Promise.all(data.map((row) => this.withLiveIdentity(row))),
+      total,
+      query.page,
+      query.limit,
+    );
   }
 
   async findOne(organizationId: string, id: string) {
@@ -87,20 +107,24 @@ export class ApplicationsService {
         vacancy: { include: { requirements: true } },
         candidate: {
           include: {
-            documents: {
+            candidateAccount: {
               select: {
-                id: true,
-                type: true,
-                originalFileName: true,
-                status: true,
-                pageCount: true,
+                user: {
+                  select: {
+                    fullName: true,
+                    email: true,
+                    avatarStorageKey: true,
+                  },
+                },
               },
             },
           },
         },
       },
     });
-    return this.tenant.assertFound(application, 'Application');
+    return this.withLiveIdentity(
+      this.tenant.assertFound(application, 'Application'),
+    );
   }
 
   /**
@@ -330,14 +354,6 @@ export class ApplicationsService {
       application.vacancyId,
     );
 
-    // Link snapshots are owned by their application and cascade with it, so
-    // their ids are read BEFORE the delete — afterwards there is nothing left
-    // to tell the index which vectors to evict.
-    const linkSources = await this.prisma.applicationLinkSource.findMany({
-      where: { applicationId: id, organizationId },
-      select: { id: true },
-    });
-
     // One transaction: a failed purge rolls the deletion back, so neither
     // "application gone, chat alive" nor "chat gone, application alive" is
     // observable.
@@ -351,24 +367,6 @@ export class ApplicationsService {
       await tx.application.delete({ where: { id } });
     });
 
-    // Best effort, after commit: the rows are already gone, and a failure here
-    // leaves only stale vectors — surfaced loudly rather than turning a
-    // successful delete into an error.
-    for (const source of linkSources) {
-      try {
-        await this.producer.enqueueApplicationLinkIndexDeletion({
-          linkSourceId: source.id,
-          organizationId,
-          candidateId: application.candidateId,
-        });
-      } catch (error) {
-        this.logger.warn(
-          `Application ${id} deleted, but link source ${source.id} vectors ` +
-            `could not be evicted: ${(error as Error).message}`,
-        );
-      }
-    }
-
     // After commit, and only if a conversation actually existed.
     if (deletedConversationIds.length > 0) {
       this.events.publish('chat.conversations.deleted', {
@@ -379,6 +377,43 @@ export class ApplicationsService {
       });
     }
     return { id, deleted: true };
+  }
+
+  /**
+   * Overlays the LIVE account identity onto an application's candidate and
+   * signs the current avatar. The org-side row's own fields are what a
+   * recruiter may have enriched (phone, title, notes-adjacent data); the
+   * person's name, email and picture are the account's and always current.
+   */
+  private async withLiveIdentity<
+    T extends {
+      candidate: {
+        fullName: string;
+        email: string | null;
+        candidateAccount: {
+          user: {
+            fullName: string;
+            email: string;
+            avatarStorageKey: string | null;
+          };
+        } | null;
+      };
+    },
+  >(application: T) {
+    const { candidateAccount, ...candidate } = application.candidate;
+    const user = candidateAccount?.user;
+    return {
+      ...application,
+      candidate: {
+        ...candidate,
+        fullName: user?.fullName ?? candidate.fullName,
+        email: user?.email ?? candidate.email,
+        avatarUrl: await signAvatarUrl(
+          this.storage,
+          user?.avatarStorageKey ?? null,
+        ),
+      },
+    };
   }
 
   /**

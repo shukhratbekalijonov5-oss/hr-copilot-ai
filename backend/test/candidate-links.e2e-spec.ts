@@ -408,10 +408,12 @@ describe('Professional link evidence (e2e)', () => {
       }
     });
 
-    it('reads submitted link snapshots, and only those', async () => {
-      // The candidate's LIVE personal link…
-      await addLink(seekerToken, 'https://current-private.example.com');
-      // …and a separate frozen copy submitted with an application.
+    it('reads the CURRENT links, only under a vacancy context', async () => {
+      const link = await addLink(
+        seekerToken,
+        'https://current-portfolio.example.com',
+        'Portfolio Website',
+      );
       const vacancy = await prisma.vacancy.create({
         data: {
           organizationId: orgId,
@@ -427,150 +429,134 @@ describe('Professional link evidence (e2e)', () => {
         },
         select: { id: true },
       });
-      const application = await prisma.application.create({
+      await prisma.application.create({
         data: { vacancyId: vacancy.id, candidateId, source: 'DIRECT' },
         select: { id: true },
       });
-      await prisma.applicationLinkSource.create({
-        data: {
-          organizationId: orgId,
-          candidateId,
-          applicationId: application.id,
-          url: 'https://submitted.example.com/',
-          normalizedUrl: 'submitted.example.com',
-          title: 'Portfolio Website',
-          sections: [
-            { name: 'projects', heading: null, text: 'K8s work', url: null },
-          ],
-          charCount: 8,
-          fetchedAt: new Date(),
-          status: 'COMPLETED',
-        },
-      });
 
+      // Candidate Detail itself carries NO evidence: there is no frozen copy
+      // to serve, and a plain candidate id must never become a general-purpose
+      // way to read someone's links.
       const detail = await request(http)
         .get(`/candidates/${candidateId}`)
         .set('Authorization', `Bearer ${ownerToken}`);
-
       expect(detail.status).toBe(200);
-      expect(detail.body.linkSources).toHaveLength(1);
-      expect(detail.body.linkSources[0]).toMatchObject({
-        url: 'https://submitted.example.com/',
+      expect(detail.body.linkSources).toBeUndefined();
+      expect(JSON.stringify(detail.body)).not.toContain('current-portfolio');
+
+      // The evidence is reached only through the vacancy-contextual chain,
+      // and what it returns is the LIVE link.
+      const evidence = await request(http)
+        .get(`/candidates/${candidateId}/current-evidence`)
+        .query({ vacancyId: vacancy.id })
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(evidence.status).toBe(200);
+      expect(evidence.body.professionalLinks).toHaveLength(1);
+      expect(evidence.body.professionalLinks[0]).toMatchObject({
+        id: link.body.id,
         title: 'Portfolio Website',
       });
-      // The candidate's CURRENT personal link is not reachable from here.
-      expect(JSON.stringify(detail.body)).not.toContain('current-private');
-      // Nor is the extracted text dumped into the recruiter payload.
-      expect(detail.body.linkSources[0].sections).toBeUndefined();
+      expect(evidence.body.professionalLinks[0].url).toContain(
+        'current-portfolio.example.com',
+      );
+      // Still no raw extracted text, and no storage identity.
+      expect(evidence.body.professionalLinks[0].sections).toBeUndefined();
+      expect(JSON.stringify(evidence.body)).not.toContain('normalizedUrl');
+
+      // Without the vacancy the request is not even well-formed.
+      await request(http)
+        .get(`/candidates/${candidateId}/current-evidence`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .expect(400);
 
       await prisma.vacancy.delete({ where: { id: vacancy.id } });
     });
   });
 
-  describe('deleting a personal link withdraws it from every application', () => {
-    it('removes the submitted snapshot but KEEPS the application', async () => {
+  describe('deleting a personal link withdraws it from every recruiter', () => {
+    /** A vacancy owned by the fixture recruiter, with this candidate applied. */
+    async function vacancyWithApplication(slug: string, title: string) {
+      const ownerId = (
+        await prisma.user.findUniqueOrThrow({
+          where: { email: ownerEmail },
+          select: { id: true },
+        })
+      ).id;
+      const vacancy = await prisma.vacancy.create({
+        data: {
+          organizationId: orgId,
+          title,
+          publicSlug: slug,
+          status: 'OPEN',
+          createdById: ownerId,
+        },
+        select: { id: true },
+      });
+      const application = await prisma.application.create({
+        data: { vacancyId: vacancy.id, candidateId, source: 'DIRECT' },
+        select: { id: true },
+      });
+      return { vacancyId: vacancy.id, applicationId: application.id };
+    }
+
+    /** What the recruiter can see of this candidate in one vacancy, now. */
+    async function recruiterSeesLinks(vacancyId: string): Promise<string[]> {
+      const response = await request(http)
+        .get(`/candidates/${candidateId}/current-evidence`)
+        .query({ vacancyId })
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(response.status).toBe(200);
+      return response.body.professionalLinks.map(
+        (link: { id: string }) => link.id,
+      );
+    }
+
+    it('takes it away from the recruiter but KEEPS the application', async () => {
       const created = await addLink(
         seekerToken,
         'https://portfolio.example.com',
         'My portfolio',
       );
       const linkId = created.body.id;
+      const { vacancyId, applicationId } = await vacancyWithApplication(
+        `e2e-links-snap-${run}`,
+        'Platform Engineer',
+      );
 
-      const vacancy = await prisma.vacancy.create({
-        data: {
-          organizationId: orgId,
-          title: 'Platform Engineer',
-          publicSlug: `e2e-links-snap-${run}`,
-          status: 'OPEN',
-          createdById: (
-            await prisma.user.findUniqueOrThrow({
-              where: { email: ownerEmail },
-              select: { id: true },
-            })
-          ).id,
-        },
-        select: { id: true },
-      });
-      const application = await prisma.application.create({
-        data: { vacancyId: vacancy.id, candidateId, source: 'DIRECT' },
-        select: { id: true },
-      });
-      const snapshot = await prisma.applicationLinkSource.create({
-        data: {
-          organizationId: orgId,
-          candidateId,
-          applicationId: application.id,
-          // A plain column, NOT a foreign key — this is what lets the personal
-          // link disappear without cascading into the organization's record.
-          sourceLinkId: linkId,
-          url: 'https://portfolio.example.com/',
-          normalizedUrl: 'portfolio.example.com',
-          title: 'My portfolio',
-          sections: [
-            {
-              name: 'projects',
-              heading: 'Projects',
-              text: 'Kubernetes deployment, forty nodes.',
-              url: 'https://portfolio.example.com/projects',
-            },
-          ],
-          contentHash: 'v1-hash',
-          charCount: 35,
-          fetchedAt: new Date(),
-          status: 'COMPLETED',
-        },
-        select: { id: true },
-      });
+      expect(await recruiterSeesLinks(vacancyId)).toContain(linkId);
 
       const deleted = await request(http)
         .delete(`/candidate-account/me/links/${linkId}`)
         .set('Authorization', `Bearer ${seekerToken}`);
       expect(deleted.status).toBe(200);
 
-      // The personal source is gone…
+      // The one and only copy is gone…
       expect(
         await prisma.candidateLink.findUnique({ where: { id: linkId } }),
       ).toBeNull();
 
-      // …and so is the copy the organization was given. The candidate owns
-      // this evidence: withdrawing it withdraws it from the recruiters they
-      // sent it to, not just from their own profile page.
-      expect(
-        await prisma.applicationLinkSource.findUnique({
-          where: { id: snapshot.id },
-        }),
-      ).toBeNull();
+      // …so the recruiter it was offered to loses it in the same instant.
+      // The candidate owns this evidence: withdrawing it withdraws it from
+      // the recruiters they sent it to, not just from their own profile page.
+      expect(await recruiterSeesLinks(vacancyId)).not.toContain(linkId);
 
       // The APPLICATION itself survives — status, vacancy association and all.
       // An application whose evidence was withdrawn is an application with no
       // current evidence, never a deleted application.
-      const survivingApplication = await prisma.application.findUnique({
-        where: { id: application.id },
-        select: { id: true, status: true, vacancyId: true },
-      });
-      expect(survivingApplication).toMatchObject({
-        id: application.id,
-        status: 'NEW',
-        vacancyId: vacancy.id,
-      });
-
-      // And the recruiter no longer sees the withdrawn source.
-      const detail = await request(http)
-        .get(`/candidates/${candidateId}`)
-        .set('Authorization', `Bearer ${ownerToken}`);
       expect(
-        detail.body.linkSources.some(
-          (source: { id: string }) => source.id === snapshot.id,
-        ),
-      ).toBe(false);
+        await prisma.application.findUnique({
+          where: { id: applicationId },
+          select: { id: true, status: true, vacancyId: true },
+        }),
+      ).toMatchObject({ id: applicationId, status: 'NEW', vacancyId });
 
-      await prisma.vacancy.delete({ where: { id: vacancy.id } });
+      await prisma.vacancy.delete({ where: { id: vacancyId } });
     });
 
-    it('withdraws it from EVERY application, and touches no other source', async () => {
-      // Lineage has to be exact: the same link submitted to two vacancies is
-      // withdrawn from both, while an unrelated link submitted alongside it
-      // stays exactly where it is.
+    it('withdraws it from EVERY vacancy, and touches no other source', async () => {
+      // The same person applied to two of the recruiter's vacancies. Deleting
+      // one link must clear it from both views, while an unrelated link they
+      // also hold stays exactly where it is.
       const target = await addLink(
         seekerToken,
         'https://target.example.com',
@@ -581,94 +567,31 @@ describe('Professional link evidence (e2e)', () => {
         'https://bystander.example.com',
         'Bystander link',
       );
-      const ownerId = (
-        await prisma.user.findUniqueOrThrow({
-          where: { email: ownerEmail },
-          select: { id: true },
-        })
-      ).id;
 
-      const snapshotIds: string[] = [];
-      const applicationIds: string[] = [];
-      const vacancyIds: string[] = [];
-
-      for (const index of [1, 2]) {
-        const vacancy = await prisma.vacancy.create({
-          data: {
-            organizationId: orgId,
-            title: `Multi Application ${index}`,
-            publicSlug: `e2e-links-multi-${run}-${index}`,
-            status: 'OPEN',
-            createdById: ownerId,
-          },
-          select: { id: true },
-        });
-        vacancyIds.push(vacancy.id);
-
-        const application = await prisma.application.create({
-          data: { vacancyId: vacancy.id, candidateId, source: 'DIRECT' },
-          select: { id: true },
-        });
-        applicationIds.push(application.id);
-
-        const snapshot = await prisma.applicationLinkSource.create({
-          data: {
-            organizationId: orgId,
-            candidateId,
-            applicationId: application.id,
-            sourceLinkId: target.body.id,
-            url: 'https://target.example.com/',
-            normalizedUrl: 'target.example.com',
-            title: 'Target link',
-            sections: [
-              { name: 'projects', heading: 'Projects', text: 'Work.' },
-            ],
-            charCount: 5,
-            fetchedAt: new Date(),
-            status: 'COMPLETED',
-          },
-          select: { id: true },
-        });
-        snapshotIds.push(snapshot.id);
+      const contexts = [
+        await vacancyWithApplication(`e2e-links-multi-${run}-1`, 'Multi 1'),
+        await vacancyWithApplication(`e2e-links-multi-${run}-2`, 'Multi 2'),
+      ];
+      for (const context of contexts) {
+        const visible = await recruiterSeesLinks(context.vacancyId);
+        expect(visible).toEqual(
+          expect.arrayContaining([target.body.id, bystander.body.id]),
+        );
       }
-
-      // The bystander's snapshot sits in the SAME application as one of them.
-      const bystanderSnapshot = await prisma.applicationLinkSource.create({
-        data: {
-          organizationId: orgId,
-          candidateId,
-          applicationId: applicationIds[0],
-          sourceLinkId: bystander.body.id,
-          url: 'https://bystander.example.com/',
-          normalizedUrl: 'bystander.example.com',
-          title: 'Bystander link',
-          sections: [{ name: 'about', heading: 'About', text: 'Unrelated.' }],
-          charCount: 9,
-          fetchedAt: new Date(),
-          status: 'COMPLETED',
-        },
-        select: { id: true },
-      });
 
       const deleted = await request(http)
         .delete(`/candidate-account/me/links/${target.body.id}`)
         .set('Authorization', `Bearer ${seekerToken}`);
       expect(deleted.status).toBe(200);
 
-      // Gone from BOTH applications.
-      expect(
-        await prisma.applicationLinkSource.count({
-          where: { id: { in: snapshotIds } },
-        }),
-      ).toBe(0);
-
-      // The unrelated source is untouched — deletion is by lineage, not by
-      // candidate, so it can never become a blanket wipe.
-      expect(
-        await prisma.applicationLinkSource.findUnique({
-          where: { id: bystanderSnapshot.id },
-        }),
-      ).not.toBeNull();
+      for (const context of contexts) {
+        const visible = await recruiterSeesLinks(context.vacancyId);
+        // Gone from BOTH vacancies…
+        expect(visible).not.toContain(target.body.id);
+        // …and the unrelated source is untouched: a delete names ONE row, so
+        // it can never become a blanket wipe of the person's evidence.
+        expect(visible).toContain(bystander.body.id);
+      }
       expect(
         await prisma.candidateLink.findUnique({
           where: { id: bystander.body.id },
@@ -678,11 +601,13 @@ describe('Professional link evidence (e2e)', () => {
       // Both applications survive.
       expect(
         await prisma.application.count({
-          where: { id: { in: applicationIds } },
+          where: { id: { in: contexts.map((c) => c.applicationId) } },
         }),
       ).toBe(2);
 
-      await prisma.vacancy.deleteMany({ where: { id: { in: vacancyIds } } });
+      await prisma.vacancy.deleteMany({
+        where: { id: { in: contexts.map((c) => c.vacancyId) } },
+      });
     });
 
     it('invalidates the requirement mappings that cited the withdrawn source', async () => {
@@ -712,24 +637,8 @@ describe('Professional link evidence (e2e)', () => {
         },
         select: { id: true, requirements: { select: { id: true } } },
       });
-      const application = await prisma.application.create({
+      await prisma.application.create({
         data: { vacancyId: vacancy.id, candidateId, source: 'DIRECT' },
-        select: { id: true },
-      });
-      const snapshot = await prisma.applicationLinkSource.create({
-        data: {
-          organizationId: orgId,
-          candidateId,
-          applicationId: application.id,
-          sourceLinkId: link.body.id,
-          url: 'https://mapped.example.com/',
-          normalizedUrl: 'mapped.example.com',
-          title: 'Mapped link',
-          sections: [{ name: 'projects', heading: 'Projects', text: 'K8s.' }],
-          charCount: 4,
-          fetchedAt: new Date(),
-          status: 'COMPLETED',
-        },
         select: { id: true },
       });
       const map = await prisma.requirementEvidenceMap.create({
@@ -739,7 +648,7 @@ describe('Professional link evidence (e2e)', () => {
           vacancyId: vacancy.id,
           requirementId: vacancy.requirements[0].id,
           status: 'EVIDENCE_FOUND',
-          reason: 'Kubernetes appears in the submitted link.',
+          reason: 'Kubernetes appears in the candidate’s link.',
           matchedTerms: ['Kubernetes'],
           missingTerms: [],
           evidence: {
@@ -749,7 +658,10 @@ describe('Professional link evidence (e2e)', () => {
                 candidateId,
                 vacancyId: vacancy.id,
                 requirementId: vacancy.requirements[0].id,
-                linkSourceId: snapshot.id,
+                // The citation names the CURRENT link, with a real foreign
+                // key behind it — which is what makes the withdrawal
+                // automatic rather than something a cleanup has to remember.
+                candidateLinkId: link.body.id,
                 text: 'K8s.',
               },
             ],
@@ -769,9 +681,10 @@ describe('Professional link evidence (e2e)', () => {
           where: { id: map.id },
         }),
       ).toBeNull();
+      // And the citation went with the row it pointed at.
       expect(
         await prisma.candidateEvidence.count({
-          where: { linkSourceId: snapshot.id },
+          where: { candidateLinkId: link.body.id },
         }),
       ).toBe(0);
 

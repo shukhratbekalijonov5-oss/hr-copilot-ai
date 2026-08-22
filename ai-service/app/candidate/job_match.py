@@ -580,7 +580,7 @@ def _profile_pseudo_hits(profile) -> list[EvidenceHit]:
     return [
         EvidenceHit(
             chunkId=f"profile:{name}",
-            candidateId=None,
+            candidateAccountId=None,
             documentId="profile",
             fileName="Profile",
             section=name,
@@ -604,7 +604,7 @@ def _to_hit(payload: dict, score: float) -> EvidenceHit:
     file_name = payload.get("fileName")
     return EvidenceHit(
         chunkId=str(payload.get("chunkId", "")),
-        candidateId=None,
+        candidateAccountId=payload.get("candidateAccountId"),
         documentId=str(payload.get("documentId", "")),
         fileName=file_name,
         section=payload.get("section"),

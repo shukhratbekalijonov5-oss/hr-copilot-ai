@@ -121,7 +121,7 @@ def hits_for(text: str) -> list[EvidenceHit]:
     return [
         EvidenceHit(
             chunkId="c-1",
-            candidateId=None,
+            candidateAccountId=None,
             documentId="doc-1",
             fileName="resume.pdf",
             section="experience",

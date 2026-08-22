@@ -343,9 +343,13 @@ export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 export const EVIDENCE_SOURCE_TYPES = ["FILE", "URL"] as const;
 export type EvidenceSourceType = (typeof EVIDENCE_SOURCE_TYPES)[number];
 
+/**
+ * One CURRENT document of a candidate, as recruiters see it. Since the
+ * snapshot removal there are no application-time copies: this is the
+ * candidate's own live file, read behind the owned-vacancy + applicant chain.
+ */
 export interface CandidateDocument {
   id: ID;
-  candidateId: ID | null;
   type: DocumentType;
   originalFileName: string;
   mimeType: string | null;
@@ -353,34 +357,9 @@ export interface CandidateDocument {
   status: DocumentStatus;
   /** null until the AI service has parsed the file. */
   pageCount: number | null;
-  /** The application this copy was submitted with, when the API reports one. */
-  applicationId: ID | null;
-  createdAt: ISODateString;
+  uploadedAt: ISODateString;
 }
 
-/**
- * One professional link a candidate SUBMITTED with an application, as the
- * recruiter sees it.
- *
- * Read-only by construction: there is no recruiter endpoint that creates,
- * edits, deletes or refreshes one. It is a frozen copy — the URL, title and
- * content are what was submitted, and they do not change when the candidate
- * later edits or removes the link from their own profile.
- */
-export interface CandidateLinkSource {
-  id: ID;
-  url: string;
-  title: string;
-  detectedType: string | null;
-  /** Indexing lifecycle — the same vocabulary documents use. */
-  status: DocumentStatus;
-  charCount: number | null;
-  pagesFetched: number | null;
-  /** When the submitted content was fetched from the web. */
-  fetchedAt: ISODateString;
-  applicationId: ID | null;
-  createdAt: ISODateString;
-}
 
 export const PROCESSING_JOB_STATUSES = [
   "PENDING",
@@ -481,7 +460,9 @@ export interface Application {
   createdAt: ISODateString;
   updatedAt: ISODateString;
   vacancy?: Pick<Vacancy, "id" | "title" | "status">;
-  candidate?: Pick<Candidate, "id" | "fullName" | "currentTitle">;
+  candidate?: Pick<Candidate, "id" | "fullName" | "currentTitle"> & {
+    avatarUrl?: string | null;
+  };
 }
 
 export interface Candidate {
@@ -501,15 +482,14 @@ export interface Candidate {
   totalExperienceYears: number | null;
   createdAt: ISODateString;
   updatedAt: ISODateString;
-  /** Present on the detail endpoint. */
-  documents: CandidateDocument[];
-  /**
-   * The professional links this person submitted with an application, frozen
-   * as submitted. Read-only: there is no recruiter mutation for them anywhere.
-   */
-  linkSources: CandidateLinkSource[];
+  /** The LIVE account avatar, signed server-side. Null → initials fallback. */
+  avatarUrl: string | null;
+  /** How many CURRENT personal documents the person holds right now. */
+  documentCount: number;
+  /** The current documents' statuses — the inputs of `processingStatus`. */
+  documentStatuses: DocumentStatus[];
   applications: Application[];
-  /** Derived from the documents' statuses — the worst-case pipeline state. */
+  /** Derived from the current documents' statuses — worst-case state. */
   processingStatus: DocumentStatus | null;
   /** Derived from the first application. */
   primaryVacancyId: ID | null;
@@ -995,6 +975,44 @@ export interface PersonalDocumentCollection {
 /* Professional links (the other half of personal evidence)                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The applicant's CURRENT profile and evidence, as the vacancy-contextual HR
+ * Candidate Detail reads it. Live account data — never application-time
+ * copies — behind the owned-vacancy + legitimate-applicant chain.
+ */
+export interface CandidateCurrentEvidence {
+  candidate: {
+    id: string;
+    fullName: string;
+    email: string;
+    avatarUrl: string | null;
+  };
+  documents: CurrentEvidenceDocument[];
+  professionalLinks: CurrentEvidenceLink[];
+}
+
+export interface CurrentEvidenceDocument {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number | null;
+  sourceType: DocumentType;
+  status: DocumentStatus;
+  pageCount: number | null;
+  uploadedAt: string;
+  updatedAt: string;
+}
+
+export interface CurrentEvidenceLink {
+  id: string;
+  title: string | null;
+  url: string;
+  sourceType: string | null;
+  status: LinkStatus;
+  analysedAt: string | null;
+  updatedAt: string;
+}
+
 export const LINK_STATUSES = [
   "PENDING",
   "FETCHING",
@@ -1141,9 +1159,7 @@ export interface MyApplication {
     employmentType: string | null;
     organizationName: string;
   };
-  /** The resume snapshot actually submitted, not the current profile resume. */
-  submittedFileName: string | null;
-}
+  }
 
 export interface MyApplicationPage {
   applications: MyApplication[];

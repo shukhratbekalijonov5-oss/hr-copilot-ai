@@ -339,34 +339,32 @@ const ko: Dictionary = {
     phone: "전화번호",
     added: "최초 지원일",
     documents: "문서",
-    documentsUploaded: { other: "제출된 파일 {count}개" },
-    noDocumentsYet:
-      "아직 제출된 문서가 없습니다. 지원자가 지원 시 보낸 이력서가 여기에 표시됩니다.",
 
     // 근거 소스 — 파일과 전문 링크. HR은 읽기 전용입니다.
-    evidenceSources: "근거 소스",
-    evidenceSourceCounts: "제출된 파일 {files}개 · 링크 {links}개",
-    filesCount: {
-      other: "파일 · {count}",
-    } as Plural,
-    linksCount: {
-      other: "전문 링크 · {count}",
-    } as Plural,
+    currentEvidence: "현재 후보자 자료",
+    currentEvidenceHint:
+      "후보자의 실시간 프로필·파일·링크 — 제출 당시가 아닌 현재 상태입니다.",
+    currentEvidenceEmpty: "후보자에게 현재 파일이나 링크가 없습니다.",
+    currentDocuments: "문서",
+    currentLinks: "프로페셔널 링크",
+    currentEvidenceDocument: "문서",
+    openCurrentFile: "열기",
+    openOriginalLink: "원본 열기",
     noSource: "선택된 소스가 없습니다",
     noSourceHint: "제출된 내용을 보려면 파일이나 링크를 선택하세요.",
     originalUrl: "원본 링크",
-    submittedContent: "제출된 내용",
-    fetchedOn: "{date}에 읽음",
-    pagesRead: {
-      other: "{count}개 페이지를 읽음",
-    } as Plural,
-    snapshotNote:
-      "지원 시점의 내용입니다. 실제 페이지는 그 이후 변경되었을 수 있으며, 아래 분석은 제출된 내용을 기준으로 합니다.",
-    sourceIndexingFailed:
-      "이 링크는 분석용으로 준비하지 못해 AI 답변에 나타나지 않습니다.",
     openOriginal: "원본 열기",
     applications: "지원 현황",
     applicationsHint: "단계 변경은 변경한 담당자와 함께 기록됩니다.",
+    profile: "프로필",
+    application: "지원",
+    attempts: "지원 횟수",
+    appliedAt: "지원일",
+    currentStatus: "현재 상태",
+    otherVacancies: "다른 공고",
+    otherVacanciesHint:
+      "이 사람이 참여 중인 다른 채용 절차입니다. 각각 독립된 단계를 가집니다.",
+    noApplicationForVacancy: "이 공고에 지원 내역이 없습니다",
     applicationStage: "지원 단계",
     notAttached: "연결된 채용 공고 없음",
     notAttachedHint:
@@ -913,6 +911,22 @@ const ko: Dictionary = {
     errVacancyRequired: "이 지원자를 추가할 내 채용 공고를 선택하세요.",
   },
 
+  /**
+   * Re-application vocabulary, shared by every HR surface that shows it.
+   *
+   * A candidate may apply to one vacancy several times, so both the vacancy
+   * applicant list and Candidate Detail speak about attempts — in the same
+   * words, from one place, because two copies would drift.
+   */
+  attempts: {
+    count: { other: "지원 {count}회" },
+    label: "{number}차 지원",
+    current: "현재",
+    history: "이전 지원 이력",
+    viewHistory: "이력 보기",
+    hideHistory: "이력 숨기기",
+  },
+
   vacancyDetail: {
     breadcrumbNew: "신규",
     jobDescription: "직무 설명",
@@ -1127,6 +1141,8 @@ const ko: Dictionary = {
     createFailed: "프로필을 만들지 못했습니다.",
     resumeUploadFailed: "파일을 업로드하지 못했습니다.",
     documentDeleteFailed: "문서를 삭제하지 못했습니다.",
+    retryDocument: "다시 시도",
+    documentRetryFailed: "문서 처리를 다시 시도하지 못했습니다.",
     confirmDeleteTitle: "이 문서를 삭제할까요?",
     confirmDeleteQuestion: "“{name}”이(가) 영구적으로 삭제됩니다.",
     confirmDeleteConsequence:
@@ -1189,7 +1205,6 @@ const ko: Dictionary = {
     emptyHint: "지원한 공고가 현재 단계와 함께 여기에 표시됩니다.",
     appliedOn: "{date} 지원",
     updatedOn: "{date} 업데이트",
-    submittedResume: "{name} 제출",
     withdraw: "지원 철회",
     withdrawing: "철회 중",
     withdrawn: "지원이 철회되었습니다",

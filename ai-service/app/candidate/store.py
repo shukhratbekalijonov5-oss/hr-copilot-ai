@@ -210,29 +210,35 @@ class CandidateResumeStore(_BaseStore):
     def search(
         self,
         *,
-        candidate_account_id: str,
+        candidate_account_ids: list[str],
         query_vector: list[float],
         limit: int,
+        document_id: str | None = None,
         allowed_source_ids: list[str] | None = None,
     ) -> list[SearchHit]:
-        """The ONLY read path — and it requires the owning candidate account.
+        """The ONLY read path — and it requires the owning candidate accounts.
 
         Mirrors QdrantStore.search's mandatory-tenant invariant: there is no
-        way to query personal resumes without saying whose they are.
+        way to query personal resumes without saying whose they are. The list
+        is the AUTHORIZED universe the backend resolved — one account for a
+        candidate-scoped surface, the caller's own applicants for a search —
+        and an empty list means "nothing is retrievable", not "everything".
 
-        The account key stops one candidate reading another's evidence. It does
-        NOT stop a candidate's own DELETED evidence coming back, because a
-        deleted source's chunks still carry their owner's account id until the
-        eviction lands. ``allowed_source_ids`` is what closes that: an empty
-        list means "this account currently has no evidence" and returns
-        nothing, which is the whole point and not an edge case to skip.
+        The account filter stops one candidate reading another's evidence. It
+        does NOT stop a candidate's own DELETED evidence coming back, because
+        a deleted source's chunks still carry their owner's account id until
+        the eviction lands. ``allowed_source_ids`` is what closes that: an
+        empty list means "no evidence currently exists" and returns nothing,
+        which is the whole point and not an edge case to skip.
         """
-        if not candidate_account_id:
-            raise ValueError("candidate_account_id is required for every search")
+        if len(candidate_account_ids) == 0:
+            return []
         if allowed_source_ids is not None and len(allowed_source_ids) == 0:
             return []
 
-        must = [_match("candidateAccountId", candidate_account_id)]
+        must = [_match_any("candidateAccountId", list(candidate_account_ids))]
+        if document_id:
+            must.append(_match("documentId", document_id))
         if allowed_source_ids:
             must.append(_match_any("documentId", allowed_source_ids))
         return self._query(query_vector, must, limit)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  documentPreviewPath,
+  currentDocumentPreviewPath,
+  currentDocumentUrlPath,
   isPdfMimeType,
   isSameDocumentPreview,
   pdfFrameSource,
@@ -8,8 +9,18 @@ import {
 
 describe("PDF document preview helpers", () => {
   it("uses a same-origin preview route instead of a signed storage URL", () => {
-    expect(documentPreviewPath("abc 123")).toBe(
-      "/api/documents/abc%20123/preview",
+    expect(currentDocumentPreviewPath("cand 1", "vac 1", "abc 123")).toBe(
+      "/api/candidates/cand%201/current-documents/abc%20123/preview" +
+        "?vacancyId=vac%201",
+    );
+  });
+
+  it("addresses a CURRENT document by candidate AND vacancy", () => {
+    // A bare document id would be a general-purpose file lookup. The route
+    // carries the whole relationship so the backend can re-verify it: owned
+    // vacancy -> legitimate applicant -> document the account owns NOW.
+    expect(currentDocumentUrlPath("c1", "v1", "d1")).toBe(
+      "/api/candidates/c1/current-documents/d1/url?vacancyId=v1",
     );
   });
 

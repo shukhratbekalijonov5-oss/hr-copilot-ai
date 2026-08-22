@@ -15,7 +15,7 @@ export function CandidateCard({ candidate }: { candidate: Candidate }) {
   return (
     <Card className="flex flex-col p-4 transition-colors hover:border-line-strong">
       <div className="flex items-start gap-3">
-        <Avatar name={candidate.fullName} />
+        <Avatar name={candidate.fullName} src={candidate.avatarUrl} />
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[15px] font-semibold tracking-tight text-ink">
             <Link
@@ -46,7 +46,7 @@ export function CandidateCard({ candidate }: { candidate: Candidate }) {
         <span className="truncate">
           {candidate.primaryVacancyTitle ?? d.tables.noVacancyAssigned}
         </span>
-        <Chip>{p(d.common.documents, candidate.documents.length)}</Chip>
+        <Chip>{p(d.common.documents, candidate.documentCount)}</Chip>
       </div>
     </Card>
   );

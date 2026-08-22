@@ -28,10 +28,8 @@ import type {
   EvidenceMapResponse,
   EvidenceSearchResponse,
   CandidateLinkResponse,
-  CandidateLinkSourceResponse,
   CandidateResumeResponse,
   CandidateResponse,
-  DocumentResponse,
   EvidenceResponse,
   InviteToInterviewResponse,
   JobRequirementResponse,
@@ -66,9 +64,7 @@ import type {
   InterviewQuestionSet,
   RequirementMapping,
   EvidenceSearchResult,
-  CandidateDocument,
   CandidateLink,
-  CandidateLinkSource,
   Citation,
   DocumentStatus,
   Evidence,
@@ -200,7 +196,10 @@ export function toVacancy(response: VacancyResponse): Vacancy {
     updatedAt: response.updatedAt,
     requirements,
     // The list endpoint returns counts instead of the nested collections.
-    candidateCount: response._count?.applications ?? 0,
+    // `candidateCount` counts people; `_count.applications` counts attempts,
+    // and a re-applicant makes those differ — so the explicit field wins and
+    // the attempt count is only a fallback for a payload without it.
+    candidateCount: response.candidateCount ?? response._count?.applications ?? 0,
     requirementCount: response._count?.requirements ?? requirements.length,
   };
 }
@@ -209,62 +208,8 @@ export function toVacancy(response: VacancyResponse): Vacancy {
 /* Documents & processing                                                      */
 /* -------------------------------------------------------------------------- */
 
-/**
- * The candidate detail endpoint returns documents without `mimeType`, so it is
- * derived from the filename there. This only decides how the file is displayed —
- * the backend validates the real format by magic number at upload time.
- */
-const MIME_BY_EXTENSION: Record<string, string> = {
-  pdf: "application/pdf",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-};
 
-function mimeTypeFor(fileName: string): string | null {
-  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
-  return MIME_BY_EXTENSION[extension] ?? null;
-}
 
-export function toDocument(
-  response: DocumentResponse,
-  candidateId: string | null = null,
-): CandidateDocument {
-  return {
-    id: response.id,
-    candidateId: response.candidateId ?? candidateId,
-    type: response.type,
-    originalFileName: response.originalFileName,
-    mimeType: response.mimeType ?? mimeTypeFor(response.originalFileName),
-    fileSize: response.fileSize ?? null,
-    status: response.status,
-    pageCount: response.pageCount ?? null,
-    applicationId: response.applicationId ?? null,
-    createdAt: response.createdAt,
-  };
-}
-
-/**
- * One submitted professional link, as the recruiter sees it.
- *
- * The title falls back to the hostname so a source is never rendered as a
- * blank row, and the URL is passed through untouched — it is the candidate's
- * own public link and the thing a recruiter may want to open.
- */
-export function toCandidateLinkSource(
-  response: CandidateLinkSourceResponse,
-): CandidateLinkSource {
-  return {
-    id: response.id,
-    url: response.url,
-    title: response.title ?? hostnameOf(response.url),
-    detectedType: response.detectedType,
-    status: response.status,
-    charCount: response.charCount ?? null,
-    pagesFetched: response.pagesFetched ?? null,
-    fetchedAt: response.fetchedAt,
-    applicationId: response.applicationId ?? null,
-    createdAt: response.createdAt,
-  };
-}
 
 /** The caller's own professional links. */
 export function toCandidateLink(response: CandidateLinkResponse): CandidateLink {
@@ -300,8 +245,14 @@ export function hostnameOf(url: string): string {
 
 export function toProcessingJob(
   response: ProcessingJobResponse,
+  /**
+   * Overrides the candidate the API resolved. Defaults to the response's own
+   * join — since the snapshot removal there is no org-wide document list to
+   * resolve names against on the client.
+   */
   candidate: { id: string; fullName: string } | null = null,
 ): ProcessingJob {
+  const person = candidate ?? response.document?.candidate ?? null;
   return {
     id: response.id,
     organizationId: response.organizationId,
@@ -314,8 +265,8 @@ export function toProcessingJob(
     createdAt: response.createdAt,
     updatedAt: response.updatedAt,
     document: response.document ?? null,
-    candidateId: candidate?.id ?? null,
-    candidateName: candidate?.fullName ?? null,
+    candidateId: person?.id ?? null,
+    candidateName: person?.fullName ?? null,
   };
 }
 
@@ -399,15 +350,16 @@ export function aggregateDocumentStatus(
 export type AiReadiness = "ready" | "no_documents" | "processing" | "failed";
 
 export function aiReadiness(
-  documents: { status: DocumentStatus }[],
   /**
-   * Submitted professional links. They are evidence exactly like files, so a
-   * candidate whose only indexed source is a portfolio is READY — gating the
-   * AI panels on files alone would hide answers the model can genuinely give.
+   * The applicant's CURRENT sources, files and links together. Links are
+   * evidence exactly like files, so a candidate whose only indexed source is
+   * a portfolio is READY — gating the AI panels on files alone would hide
+   * answers the model can genuinely give. File statuses and link statuses use
+   * different vocabularies, but the two states that matter here — COMPLETED
+   * and FAILED — are shared.
    */
-  linkSources: { status: DocumentStatus }[] = [],
+  sources: { status: string }[],
 ): AiReadiness {
-  const sources = [...documents, ...linkSources];
   if (sources.length === 0) return "no_documents";
   if (sources.some((source) => source.status === "COMPLETED")) {
     return "ready";
@@ -439,8 +391,12 @@ export function toApplication(response: ApplicationResponse): Application {
     candidate: response.candidate
       ? {
           id: response.candidate.id,
+          // The LIVE account identity the API resolved — an applicant row
+          // shows who the person is now, not who they were when the org-side
+          // record was first written.
           fullName: response.candidate.fullName,
           currentTitle: response.candidate.currentTitle ?? null,
+          avatarUrl: response.candidate.avatarUrl ?? null,
         }
       : undefined,
   };
@@ -504,12 +460,9 @@ export function toInviteToInterviewResult(
 }
 
 export function toCandidate(response: CandidateResponse): Candidate {
-  const documents = (response.documents ?? []).map((document) =>
-    toDocument(document, response.id),
-  );
-  const linkSources = (response.linkSources ?? []).map(toCandidateLinkSource);
   const applications = (response.applications ?? []).map(toApplication);
   const primary = applications[0];
+  const documentStatuses = response.documentStatuses ?? [];
 
   return {
     id: response.id,
@@ -523,10 +476,13 @@ export function toCandidate(response: CandidateResponse): Candidate {
     totalExperienceYears: response.totalExperienceYears,
     createdAt: response.createdAt,
     updatedAt: response.updatedAt,
-    documents,
-    linkSources,
+    avatarUrl: response.avatarUrl ?? null,
+    documentCount: response.documentCount ?? documentStatuses.length,
+    documentStatuses,
     applications,
-    processingStatus: aggregateDocumentStatus(documents),
+    processingStatus: aggregateDocumentStatus(
+      documentStatuses.map((status) => ({ status })),
+    ),
     primaryVacancyId: primary?.vacancyId ?? null,
     primaryVacancyTitle: primary?.vacancy?.title ?? null,
   };
@@ -910,9 +866,6 @@ export function toMyApplication(
       employmentType: response.vacancy.employmentType,
       organizationName: response.vacancy.organization.name,
     },
-    // The snapshot actually submitted, which may differ from the profile
-    // resume the candidate has since replaced.
-    submittedFileName: response.submittedDocument?.originalFileName ?? null,
   };
 }
 

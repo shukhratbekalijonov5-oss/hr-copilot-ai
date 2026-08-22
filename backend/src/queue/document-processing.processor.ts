@@ -2,16 +2,14 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job, UnrecoverableError } from 'bullmq';
 import {
-  DELETE_APPLICATION_LINK_INDEX_JOB,
   DELETE_CANDIDATE_LINK_INDEX_JOB,
   DELETE_PERSONAL_RESUME_INDEX_JOB,
   PROCESSING_PROGRESS,
-  PROCESS_APPLICATION_LINK_JOB,
   PROCESS_CANDIDATE_LINK_JOB,
+  PROCESS_DOCUMENT_JOB,
   PROCESS_PERSONAL_RESUME_JOB,
   RESUME_PROCESSING_QUEUE,
   SYNC_VACANCY_INDEX_JOB,
-  type ApplicationLinkJobData,
   type CandidateLinkJobData,
   type PersonalResumeJobData,
   type ProcessDocumentJobData,
@@ -34,7 +32,6 @@ import {
   linkFailureIsRetryable,
 } from '../web-ingestion/web-ingestion.errors';
 import {
-  fromJsonSections,
   toAiSections,
   toJsonSections,
 } from '../web-ingestion/stored-sections';
@@ -86,16 +83,18 @@ export class DocumentProcessingProcessor extends WorkerHost {
         return this.processCandidateLink(job.data as CandidateLinkJobData);
       case DELETE_CANDIDATE_LINK_INDEX_JOB:
         return this.deleteCandidateLinkIndex(job.data as CandidateLinkJobData);
-      case PROCESS_APPLICATION_LINK_JOB:
-        return this.processApplicationLink(job.data as ApplicationLinkJobData);
-      case DELETE_APPLICATION_LINK_INDEX_JOB:
-        return this.deleteApplicationLinkIndex(
-          job.data as ApplicationLinkJobData,
-        );
       case SYNC_VACANCY_INDEX_JOB:
         return this.syncVacancyIndex(job.data as SyncVacancyIndexJobData);
-      default:
+      case PROCESS_DOCUMENT_JOB:
         return this.processOrgDocument(job as Job<ProcessDocumentJobData>);
+      default:
+        // Named explicitly rather than falling through to document
+        // processing. Removing a job type (PROCESS_APPLICATION_LINK, when
+        // application evidence snapshots were removed) can leave a job
+        // already queued in Redis, and handing its payload to a handler that
+        // expects a different shape would fail confusingly — or, worse,
+        // half-succeed. Unrecoverable: retrying cannot make the name known.
+        throw new UnrecoverableError(`Unknown job type: ${job.name}`);
     }
   }
 
@@ -286,82 +285,6 @@ export class DocumentProcessingProcessor extends WorkerHost {
     await this.ai.deletePersonalWebSource(data.candidateAccountId, data.linkId);
     this.logger.log(
       `Candidate link ${data.linkId} removed from the personal index`,
-    );
-  }
-
-  /**
-   * ORG-scoped application link snapshot → tenant index.
-   *
-   * Deliberately performs NO network request. The content was frozen when the
-   * candidate applied and lives on the row; re-fetching here would silently
-   * replace an application's evidence with whatever the site says today, which
-   * is the exact failure the snapshot model exists to prevent.
-   */
-  private async processApplicationLink(
-    data: ApplicationLinkJobData,
-  ): Promise<void> {
-    const { linkSourceId, organizationId, candidateId } = data;
-
-    if (!this.ai.enabled) {
-      throw new UnrecoverableError('AI service is not configured');
-    }
-
-    const source = await this.prisma.applicationLinkSource.findFirst({
-      where: { id: linkSourceId, organizationId },
-    });
-    if (!source) {
-      await this.ai.deleteApplicationWebSource(organizationId, linkSourceId);
-      throw new UnrecoverableError(
-        `Application link source ${linkSourceId} no longer exists`,
-      );
-    }
-
-    try {
-      const result = await this.ai.indexApplicationWebSource({
-        organizationId,
-        candidateId,
-        applicationId: source.applicationId,
-        sourceId: source.id,
-        title: source.title ?? hostnameOf(source.url),
-        url: source.url,
-        detectedType: source.detectedType,
-        sections: toAiSections(fromJsonSections(source.sections)),
-      });
-      if (result.vectorsIndexed <= 0) {
-        throw new Error('AI service indexed no vectors');
-      }
-    } catch (error) {
-      await this.prisma.applicationLinkSource.updateMany({
-        where: { id: linkSourceId, organizationId },
-        data: {
-          status: DocumentStatus.FAILED,
-          errorMessage: (error as Error).message.slice(0, 500),
-        },
-      });
-      throw error;
-    }
-
-    const updated = await this.prisma.applicationLinkSource.updateMany({
-      where: { id: linkSourceId, organizationId },
-      data: { status: DocumentStatus.COMPLETED, errorMessage: null },
-    });
-    if (updated.count === 0) {
-      await this.ai.deleteApplicationWebSource(organizationId, linkSourceId);
-      return;
-    }
-    this.logger.log(`Application link source ${linkSourceId} indexed`);
-  }
-
-  private async deleteApplicationLinkIndex(
-    data: ApplicationLinkJobData,
-  ): Promise<void> {
-    if (!this.ai.enabled) return;
-    await this.ai.deleteApplicationWebSource(
-      data.organizationId,
-      data.linkSourceId,
-    );
-    this.logger.log(
-      `Application link source ${data.linkSourceId} removed from the tenant index`,
     );
   }
 

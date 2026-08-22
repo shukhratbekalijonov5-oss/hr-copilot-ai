@@ -52,6 +52,10 @@ export const DOCUMENT_ERROR_CODES = {
   FILE_TOO_LARGE: 'FILE_TOO_LARGE',
   UNSUPPORTED_FILE_TYPE: 'UNSUPPORTED_FILE_TYPE',
   PERSONAL_DOCUMENT_LIMIT_REACHED: 'PERSONAL_DOCUMENT_LIMIT_REACHED',
+  /** 409 — retry requested for a document that is not in FAILED state. */
+  DOCUMENT_NOT_RETRYABLE: 'DOCUMENT_NOT_RETRYABLE',
+  /** 409 — retry requested while an indexing job is already live. */
+  DOCUMENT_BUSY: 'DOCUMENT_BUSY',
 } as const;
 
 export type DocumentErrorCode =

@@ -3,6 +3,17 @@
 This is the suite that proves the product principle: the system reports what
 evidence it actually found, and does not fabricate evidence it did not.
 
+Two pipelines are exercised here, and they are deliberately different shapes:
+
+  * INDEXING of an organization document (``process_document`` → QdrantStore)
+    is unchanged and still tenant-keyed;
+  * RETRIEVAL reads the CANDIDATE personal collection. Application-time
+    evidence snapshots were removed, so a recruiter's search is scoped by an
+    authorized list of candidate ACCOUNT ids — resolved by the backend from
+    that recruiter's own vacancies' applicant relationships — and not by a
+    tenant key. The isolation property is unchanged in strength; only the key
+    it is expressed in has moved.
+
 Fixtures are entirely fictional. Ji-woo Han HAS NestJS, Redis Pub/Sub and
 production Kubernetes; Ji-woo Han does NOT have AWS production experience.
 """
@@ -13,6 +24,7 @@ import uuid
 
 import pytest
 
+from app.candidate.indexing import process_candidate_resume
 from app.config import get_settings
 from app.retrieval import process_document, search_evidence
 from tests.fixtures.resumes import (
@@ -27,10 +39,18 @@ pytestmark = [pytest.mark.integration, pytest.mark.slow]
 ORG_A = "org-aaaa-1111"
 ORG_B = "org-bbbb-2222"
 
+# Candidate ACCOUNT ids — the key retrieval is scoped by now.
+ACCT_JIWOO = "acct-jiwoo-1111"
+ACCT_MARCUS = "acct-marcus-2222"
+
 
 @pytest.fixture()
 def indexed(store, embedder):
-    """Indexes the two fictional resumes into two different organizations."""
+    """Indexes the two fictional resumes into two different organizations.
+
+    The org-side ingestion path, which the backend still uses and which still
+    filters by organizationId.
+    """
     settings = get_settings()
     doc_a = f"doc-{uuid.uuid4()}"
     doc_b = f"doc-{uuid.uuid4()}"
@@ -62,16 +82,49 @@ def indexed(store, embedder):
     store.delete_document(ORG_B, doc_b)
 
 
+@pytest.fixture()
+def personal(candidate_store, embedder):
+    """The same two resumes as PERSONAL evidence, owned by two accounts.
+
+    This is what recruiter retrieval actually reads: one shared collection
+    holding every candidate's own current evidence, where separation between
+    people is the account key rather than a tenant key.
+    """
+    settings = get_settings()
+    doc_a = f"doc-{uuid.uuid4()}"
+    doc_b = f"doc-{uuid.uuid4()}"
+
+    result_a = process_candidate_resume(
+        data=build_pdf(JIWOO_HAN_TEXT),
+        file_name="jiwoo-han.pdf",
+        document_id=doc_a,
+        candidate_account_id=ACCT_JIWOO,
+        settings=settings,
+        embedder=embedder,
+        store=candidate_store,
+    )
+    process_candidate_resume(
+        data=build_pdf(MARCUS_OSEI_TEXT),
+        file_name="marcus-osei.pdf",
+        document_id=doc_b,
+        candidate_account_id=ACCT_MARCUS,
+        settings=settings,
+        embedder=embedder,
+        store=candidate_store,
+    )
+
+    return {"docA": doc_a, "docB": doc_b, "resultA": result_a}
+
+
 def _search(
-    store, embedder, *, org, query, limit=10, candidate_id=None,
+    store, embedder, *, accounts, query, limit=10, document_id=None,
     rerank=False, reranker=None,
 ):
     return search_evidence(
-        organization_id=org,
+        candidate_account_ids=accounts,
         query=query,
         limit=limit,
-        candidate_id=candidate_id,
-        document_id=None,
+        document_id=document_id,
         use_rerank=rerank,
         settings=get_settings(),
         embedder=embedder,
@@ -130,18 +183,22 @@ class TestEvidenceFound:
             ("NestJS backend services", "nestjs"),
         ],
     )
-    def test_finds_real_evidence(self, store, embedder, indexed, query, expected_term):
-        response = _search(store, embedder, org=ORG_A, query=query)
+    def test_finds_real_evidence(
+        self, candidate_store, embedder, personal, query, expected_term
+    ):
+        response = _search(
+            candidate_store, embedder, accounts=[ACCT_JIWOO], query=query
+        )
 
         assert response.hits, f"expected evidence for {query!r}"
         combined = " ".join(hit.text for hit in response.hits).lower()
         assert expected_term in combined
 
     def test_top_hit_for_kubernetes_mentions_kubernetes(
-        self, store, embedder, reranker, indexed
+        self, candidate_store, embedder, reranker, personal
     ):
         response = _search(
-            store, embedder, org=ORG_A,
+            candidate_store, embedder, accounts=[ACCT_JIWOO],
             query="production Kubernetes experience", rerank=True, reranker=reranker,
         )
         assert "kubernetes" in response.hits[0].text.lower()
@@ -150,8 +207,13 @@ class TestEvidenceFound:
 class TestEvidenceNotFabricated:
     """The candidate has no AWS experience; nothing may invent it."""
 
-    def test_aws_query_returns_no_aws_evidence(self, store, embedder, indexed):
-        response = _search(store, embedder, org=ORG_A, query="AWS production experience")
+    def test_aws_query_returns_no_aws_evidence(
+        self, candidate_store, embedder, personal
+    ):
+        response = _search(
+            candidate_store, embedder, accounts=[ACCT_JIWOO],
+            query="AWS production experience",
+        )
 
         # Vector search always returns nearest neighbours, so hits may come
         # back — but none of them may actually contain AWS evidence, because
@@ -161,7 +223,7 @@ class TestEvidenceNotFabricated:
             assert "amazon web services" not in hit.text.lower()
 
     def test_reranker_separates_present_evidence_from_absent(
-        self, store, embedder, reranker, indexed
+        self, candidate_store, embedder, reranker, personal
     ):
         """The cross-encoder is what can actually tell presence from absence.
 
@@ -171,11 +233,11 @@ class TestEvidenceNotFabricated:
         passage) pair jointly separates them by roughly an order of magnitude.
         """
         present = _search(
-            store, embedder, org=ORG_A,
+            candidate_store, embedder, accounts=[ACCT_JIWOO],
             query="production Kubernetes experience", rerank=True, reranker=reranker,
         )
         absent = _search(
-            store, embedder, org=ORG_A,
+            candidate_store, embedder, accounts=[ACCT_JIWOO],
             query="AWS production experience", rerank=True, reranker=reranker,
         )
 
@@ -183,62 +245,123 @@ class TestEvidenceNotFabricated:
         assert present.hits[0].rerankScore > absent.hits[0].rerankScore
 
     def test_absent_skill_scores_far_below_present_skill(
-        self, store, embedder, reranker, indexed
+        self, candidate_store, embedder, reranker, personal
     ):
         """The gap must be large enough for a UI to say "evidence not found"."""
         present = _search(
-            store, embedder, org=ORG_A,
+            candidate_store, embedder, accounts=[ACCT_JIWOO],
             query="Redis Pub/Sub event fan-out", rerank=True, reranker=reranker,
         )
         absent = _search(
-            store, embedder, org=ORG_A,
+            candidate_store, embedder, accounts=[ACCT_JIWOO],
             query="AWS production experience", rerank=True, reranker=reranker,
         )
 
         assert present.hits[0].rerankScore > absent.hits[0].rerankScore * 3
 
-    def test_retrieved_text_is_verbatim_from_the_resume(self, store, embedder, indexed):
+    def test_retrieved_text_is_verbatim_from_the_resume(
+        self, candidate_store, embedder, personal
+    ):
         """Passages are quoted from the document, never generated."""
         source = JIWOO_HAN_TEXT.lower().replace("\n", " ")
         source = " ".join(source.split())
 
-        response = _search(store, embedder, org=ORG_A, query="Kubernetes")
+        response = _search(
+            candidate_store, embedder, accounts=[ACCT_JIWOO], query="Kubernetes"
+        )
         snippet = " ".join(response.hits[0].text.lower().split())[:60]
 
         assert snippet in source
 
 
-class TestTenantIsolation:
-    """Cross-tenant evidence leakage is unacceptable."""
+class TestAccountIsolation:
+    """Cross-candidate evidence leakage is unacceptable.
 
-    def test_other_organization_gets_zero_results(self, store, embedder, indexed):
+    The tenant boundary that used to hold here is now the AUTHORIZED UNIVERSE:
+    the list of candidate accounts the backend resolved for this caller. Every
+    property that mattered under organizationId is asserted again against it.
+    """
+
+    def test_an_account_outside_the_universe_gets_zero_results(
+        self, candidate_store, embedder, personal
+    ):
         response = _search(
-            store, embedder, org=ORG_B, query="production Kubernetes experience"
+            candidate_store, embedder, accounts=[ACCT_MARCUS],
+            query="production Kubernetes experience",
         )
 
         doc_ids = {hit.documentId for hit in response.hits}
-        assert indexed["docA"] not in doc_ids
+        assert personal["docA"] not in doc_ids
 
-    def test_every_hit_belongs_to_the_querying_organization(self, store, embedder, indexed):
-        response = _search(store, embedder, org=ORG_A, query="engineer")
+    def test_every_hit_belongs_to_the_authorized_universe(
+        self, candidate_store, embedder, personal
+    ):
+        response = _search(
+            candidate_store, embedder, accounts=[ACCT_JIWOO], query="engineer"
+        )
 
         assert response.hits
-        assert all(hit.documentId == indexed["docA"] for hit in response.hits)
+        assert all(hit.documentId == personal["docA"] for hit in response.hits)
+        assert all(hit.candidateAccountId == ACCT_JIWOO for hit in response.hits)
 
-    def test_unknown_organization_retrieves_nothing(self, store, embedder, indexed):
-        response = _search(store, embedder, org="org-does-not-exist", query="Kubernetes")
+    def test_an_unknown_account_retrieves_nothing(
+        self, candidate_store, embedder, personal
+    ):
+        response = _search(
+            candidate_store, embedder, accounts=["acct-does-not-exist"],
+            query="Kubernetes",
+        )
         assert response.hits == []
 
-    def test_candidate_filter_narrows_within_the_tenant(self, store, embedder, indexed):
-        response = _search(
-            store, embedder, org=ORG_A, query="engineer", candidate_id="cand-jiwoo"
-        )
-        assert all(hit.candidateId == "cand-jiwoo" for hit in response.hits)
+    def test_an_EMPTY_universe_retrieves_nothing(
+        self, candidate_store, embedder, personal
+    ):
+        """An empty list is the authorization ANSWER "nobody", not "no filter".
 
-    def test_candidate_filter_cannot_cross_tenants(self, store, embedder, indexed):
-        """Naming another tenant's candidate must not reach their data."""
+        A recruiter with no applicants of their own resolves to exactly this,
+        and treating it as falsy would turn the least-privileged caller into
+        the most privileged one.
+        """
         response = _search(
-            store, embedder, org=ORG_A, query="Spark pipelines", candidate_id="cand-marcus"
+            candidate_store, embedder, accounts=[], query="Kubernetes"
+        )
+        assert response.hits == []
+        assert response.totalCandidatesConsidered == 0
+
+    def test_a_multi_account_universe_reaches_every_member(
+        self, candidate_store, embedder, personal
+    ):
+        """A recruiter searching across their applicants sees all of them."""
+        response = _search(
+            candidate_store, embedder,
+            accounts=[ACCT_JIWOO, ACCT_MARCUS], query="engineer", limit=20,
+        )
+
+        accounts = {hit.candidateAccountId for hit in response.hits}
+        assert accounts == {ACCT_JIWOO, ACCT_MARCUS}
+
+    def test_document_filter_narrows_within_the_universe(
+        self, candidate_store, embedder, personal
+    ):
+        response = _search(
+            candidate_store, embedder,
+            accounts=[ACCT_JIWOO, ACCT_MARCUS], query="engineer",
+            document_id=personal["docA"],
+        )
+        assert response.hits
+        assert all(hit.documentId == personal["docA"] for hit in response.hits)
+
+    def test_document_filter_cannot_reach_outside_the_universe(
+        self, candidate_store, embedder, personal
+    ):
+        """Naming another account's document must not reach their data.
+
+        The document id is a NARROWING filter applied on top of the universe,
+        never a way around it.
+        """
+        response = _search(
+            candidate_store, embedder, accounts=[ACCT_JIWOO],
+            query="Spark pipelines", document_id=personal["docB"],
         )
         assert response.hits == []
 
@@ -317,8 +440,12 @@ class TestIdempotency:
 
 
 class TestProvenance:
-    def test_every_hit_carries_citation_metadata(self, store, embedder, indexed):
-        response = _search(store, embedder, org=ORG_A, query="Kubernetes")
+    def test_every_hit_carries_citation_metadata(
+        self, candidate_store, embedder, personal
+    ):
+        response = _search(
+            candidate_store, embedder, accounts=[ACCT_JIWOO], query="Kubernetes"
+        )
 
         for hit in response.hits:
             assert hit.documentId
@@ -327,7 +454,11 @@ class TestProvenance:
             assert hit.chunkIndex >= 0
             assert hit.text.strip()
 
-    def test_retrieval_score_is_present_and_bounded(self, store, embedder, indexed):
-        response = _search(store, embedder, org=ORG_A, query="Kubernetes")
+    def test_retrieval_score_is_present_and_bounded(
+        self, candidate_store, embedder, personal
+    ):
+        response = _search(
+            candidate_store, embedder, accounts=[ACCT_JIWOO], query="Kubernetes"
+        )
         for hit in response.hits:
             assert -1.01 <= hit.retrievalScore <= 1.01

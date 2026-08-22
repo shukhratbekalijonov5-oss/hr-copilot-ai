@@ -60,9 +60,14 @@ export interface ProcessDocumentResult {
 }
 
 export interface EvidenceSearchFilters {
-  /** Always the authenticated user's organization. Never client-supplied. */
-  organizationId: string;
-  candidateId?: string;
+  /**
+   * The AUTHORIZED retrieval universe: candidate accounts the caller may
+   * read, resolved server-side from the applicant relationships of the
+   * caller's OWN vacancies. Never client-supplied. An empty list means
+   * "nothing is retrievable" and short-circuits to zero hits.
+   */
+  candidateAccountIds: string[];
+  /** Narrow to ONE current source (a personal document or link id). */
   documentId?: string;
   limit?: number;
   rerank?: boolean;
@@ -76,11 +81,11 @@ export interface EvidenceSearchFilters {
  * success, and neither may be presented as one.
  */
 export interface EvidenceSearchHit {
-  candidateId: string | null;
+  candidateAccountId: string | null;
   /**
-   * Storage key of the source this passage came from — a Document id for a
-   * FILE, an ApplicationLinkSource id for a URL. One key space, so deletion
-   * and idempotent re-indexing work identically for both.
+   * Id of the CURRENT source this passage came from — a personal Document id
+   * for a FILE, a CandidateLink id for a URL. One key space, so deletion and
+   * idempotent re-indexing work identically for both.
    */
   documentId: string;
   fileName: string | null;
@@ -427,7 +432,11 @@ export class AiServiceClient {
     );
   }
 
-  /** Semantic evidence search, always scoped to one organization. */
+  /**
+   * Semantic evidence search over CURRENT candidate evidence, scoped to the
+   * authorized applicant accounts the backend resolved. Reads the candidate
+   * collection only — the tenant collection is no longer a retrieval surface.
+   */
   async searchEvidence(
     query: string,
     filters: EvidenceSearchFilters,
@@ -435,9 +444,8 @@ export class AiServiceClient {
     this.assertEnabled('search evidence');
 
     return this.request<EvidenceSearchResult>('/internal/search', {
-      organizationId: filters.organizationId,
+      candidateAccountIds: filters.candidateAccountIds,
       query,
-      candidateId: filters.candidateId ?? null,
       documentId: filters.documentId ?? null,
       limit: filters.limit ?? 10,
       rerank: filters.rerank ?? true,
@@ -467,9 +475,13 @@ export class AiServiceClient {
    * context — a fabricated chunk id never reaches this method.
    */
   async answerQuestion(input: {
-    organizationId: string;
+    /**
+     * The authorized retrieval universe. One element for Candidate Detail's
+     * Ask; every applicant account of the caller's own vacancies for the
+     * org-wide mode. Resolved server-side, never client-supplied.
+     */
+    candidateAccountIds: string[];
     query: string;
-    candidateId?: string | null;
     vacancyId?: string | null;
     /** Selected-vacancy grounding for the generated answer. */
     vacancy?: AiVacancyContext | null;
@@ -493,9 +505,8 @@ export class AiServiceClient {
   }): Promise<AiRagResult> {
     this.assertEnabled('answer a question');
     return this.request<AiRagResult>('/internal/rag', {
-      organizationId: input.organizationId,
+      candidateAccountIds: input.candidateAccountIds,
       query: input.query,
-      candidateId: input.candidateId ?? null,
       vacancyId: input.vacancyId ?? null,
       vacancy: input.vacancy ?? null,
       locale: input.locale,
@@ -511,8 +522,8 @@ export class AiServiceClient {
    * — instead of a generic profile summary.
    */
   async summariseCandidate(input: {
-    organizationId: string;
-    candidateId: string;
+    /** The applicant's account — resolved through the authorization chain. */
+    candidateAccountId: string;
     locale: SupportedLocale;
     vacancy?: AiVacancyContext | null;
     limit?: number;
@@ -523,8 +534,7 @@ export class AiServiceClient {
     return this.request<AiCandidateSummaryResult>(
       '/internal/candidates/summary',
       {
-        organizationId: input.organizationId,
-        candidateId: input.candidateId,
+        candidateAccountId: input.candidateAccountId,
         locale: input.locale,
         vacancy: input.vacancy ?? null,
         limit: input.limit ?? 12,
@@ -540,8 +550,8 @@ export class AiServiceClient {
    * generation is unconfigured or the provider is down.
    */
   async mapEvidence(input: {
-    organizationId: string;
-    candidateId: string;
+    /** The applicant's account — resolved through the authorization chain. */
+    candidateAccountId: string;
     vacancyId: string;
     requirements: AiRequirementInput[];
     locale?: SupportedLocale;
@@ -550,8 +560,7 @@ export class AiServiceClient {
   }): Promise<AiEvidenceMapResult> {
     this.assertEnabled('map requirement evidence');
     return this.request<AiEvidenceMapResult>('/internal/evidence-map', {
-      organizationId: input.organizationId,
-      candidateId: input.candidateId,
+      candidateAccountId: input.candidateAccountId,
       vacancyId: input.vacancyId,
       requirements: input.requirements,
       locale: input.locale ?? 'en',
@@ -561,8 +570,8 @@ export class AiServiceClient {
 
   /** Interview prompts drawn from present and missing evidence. */
   async interviewQuestions(input: {
-    organizationId: string;
-    candidateId: string;
+    /** The applicant's account — resolved through the authorization chain. */
+    candidateAccountId: string;
     vacancyId: string;
     requirements: AiRequirementInput[];
     locale: SupportedLocale;
@@ -573,8 +582,7 @@ export class AiServiceClient {
     return this.request<AiInterviewQuestionsResult>(
       '/internal/interview-questions',
       {
-        organizationId: input.organizationId,
-        candidateId: input.candidateId,
+        candidateAccountId: input.candidateAccountId,
         vacancyId: input.vacancyId,
         requirements: input.requirements,
         locale: input.locale,
@@ -592,50 +600,6 @@ export class AiServiceClient {
     await this.request('/internal/documents/delete', {
       organizationId,
       documentId,
-    });
-  }
-
-  /**
-   * Indexes one ORG-scoped web evidence snapshot — the URL counterpart of an
-   * application's document copy. Lands in the same tenant collection as file
-   * chunks so every recruiter AI surface retrieves both without knowing the
-   * difference. Idempotent per sourceId.
-   */
-  async indexApplicationWebSource(
-    input: IndexWebSourceInput & {
-      organizationId: string;
-      candidateId: string;
-      applicationId: string;
-    },
-  ): Promise<IndexWebSourceResult> {
-    this.assertEnabled('index application web evidence');
-    return this.request<IndexWebSourceResult>('/internal/web-sources/index', {
-      organizationId: input.organizationId,
-      candidateId: input.candidateId,
-      applicationId: input.applicationId,
-      sourceId: input.sourceId,
-      title: input.title,
-      url: input.url,
-      detectedType: input.detectedType ?? null,
-      sections: input.sections,
-    });
-  }
-
-  /**
-   * Removes an application web snapshot's vectors.
-   *
-   * Shares the document deletion route because a source id and a document id
-   * occupy the same key space in the tenant collection — one eviction path,
-   * one thing to get right.
-   */
-  async deleteApplicationWebSource(
-    organizationId: string,
-    sourceId: string,
-  ): Promise<void> {
-    this.assertEnabled('delete application web evidence vectors');
-    await this.request('/internal/documents/delete', {
-      organizationId,
-      documentId: sourceId,
     });
   }
 

@@ -25,6 +25,17 @@ export const WEB_INGESTION_LIMITS = {
 
   /** Per response. Aborted mid-stream the moment it is exceeded. */
   maxResponseBytes: 2 * 1024 * 1024,
+  /**
+   * Per fetched PAGE, overriding maxResponseBytes for the documents this
+   * pipeline exists to read. A modern single-file SPA build routinely ships
+   * megabytes of inline JavaScript around a few kilobytes of perfectly good
+   * static markup; refusing the whole page over bundle weight throws away
+   * real evidence (the extractor keeps at most maxExtractedChars of TEXT and
+   * drops every script byte, so the big buffer lives only for the moments
+   * between fetch and extraction). Anything beyond this is genuinely
+   * excessive and still fails as CONTENT_TOO_LARGE.
+   */
+  maxPageBytes: 10 * 1024 * 1024,
   /** Per hop chain. A redirect loop dies here rather than at the socket limit. */
   maxRedirects: 3,
 

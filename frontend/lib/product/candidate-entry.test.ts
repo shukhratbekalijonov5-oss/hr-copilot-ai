@@ -92,13 +92,19 @@ describe("HR file upload is gone from the product", () => {
     await expect(stat(path.join(root, "app/api/uploads"))).rejects.toThrow();
   });
 
-  it("exposes no uploadDocument client call", async () => {
-    const [, documents] = (
-      await read([path.join(root, "lib/api/documents.service.ts")])
-    )[0];
+  it("exposes no recruiter document client at all", async () => {
+    // The whole service is gone, not merely its upload function: since the
+    // snapshot removal recruiters have no organization-side document surface
+    // to read or write. Candidate evidence is reached only through the
+    // vacancy-contextual current-evidence calls.
+    await expect(
+      stat(path.join(root, "lib/api/documents.service.ts")),
+    ).rejects.toThrow();
+
     const [, apiIndex] = (await read([path.join(root, "lib/api/index.ts")]))[0];
-    expect(documents).not.toContain("export async function uploadDocument");
     expect(apiIndex).not.toContain("uploadDocument:");
+    expect(apiIndex).not.toContain("getDocumentDownloadUrl:");
+    expect(apiIndex).toContain("getCandidateCurrentEvidence:");
   });
 
   it("has no recruiter surface referencing the upload proxy or uploader", async () => {

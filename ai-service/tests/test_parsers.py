@@ -159,6 +159,60 @@ class TestPdfExtractionQuality:
         parsed = parse_document(build_pdf(JIWOO_HAN_TEXT), "cv.pdf")
         assert "Ji-woo Han" in parsed.full_text
 
+    def test_one_bad_page_falls_back_alone_not_the_whole_document(
+        self, monkeypatch
+    ):
+        from app.parsers import pdf_parser
+
+        # A two-page document where the primary strategy read page 1 cleanly
+        # but produced glyph-soup for page 2. Selection must be PER PAGE: the
+        # good primary page survives untouched while only the degraded page
+        # takes the fallback reading.
+        soup = "x 1 q. 2 z- 3 w 4 v 5 b 6 n 7 m 8 k 9 j 0 " * 4
+        monkeypatch.setattr(
+            pdf_parser,
+            "_extract_pdfminer",
+            lambda data: ["Clean primary page about Ji-woo Han.", soup],
+        )
+        monkeypatch.setattr(
+            pdf_parser,
+            "_extract_pypdf",
+            lambda data: [
+                "Different fallback reading of page one.",
+                "Readable fallback for the second page.",
+            ],
+        )
+        parsed = pdf_parser.parse_pdf(b"%PDF-fake")
+        assert parsed.page_count == 2
+        assert parsed.pages[0].text == "Clean primary page about Ji-woo Han."
+        assert parsed.pages[1].text == "Readable fallback for the second page."
+
+    def test_page_unreadable_by_one_strategy_takes_the_other_reading(
+        self, monkeypatch
+    ):
+        from app.parsers import pdf_parser
+
+        # Page 2 is EMPTY in the primary reading (an image-only page whose
+        # layout analysis found nothing) but readable via the fallback. The
+        # empty side must lose outright, and the document must not fail.
+        soup = "x 1 q. 2 z- 3 w 4 v 5 b 6 n 7 m 8 k 9 j 0 " * 4
+        monkeypatch.setattr(
+            pdf_parser,
+            "_extract_pdfminer",
+            lambda data: [soup, ""],
+        )
+        monkeypatch.setattr(
+            pdf_parser,
+            "_extract_pypdf",
+            lambda data: ["", "Text only the fallback recovered."],
+        )
+        parsed = pdf_parser.parse_pdf(b"%PDF-fake")
+        assert parsed.page_count == 2
+        # Page 1: fallback is empty, so even the degraded primary is kept —
+        # degraded text a human can partially read beats losing the page.
+        assert parsed.pages[0].text == soup
+        assert parsed.pages[1].text == "Text only the fallback recovered."
+
 
 class TestDocxParsing:
     def test_extracts_paragraphs_and_tables(self):

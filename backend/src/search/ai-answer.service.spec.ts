@@ -10,6 +10,8 @@ import {
 const ORG_A = 'org-a';
 const ORG_B = 'org-b';
 const CAND = 'cand-1';
+/** The candidate account behind CAND — where the evidence actually lives. */
+const ACCOUNT = 'acct-1';
 const USER = 'user-1';
 const VAC = 'vac-1';
 
@@ -62,7 +64,13 @@ describe('AiAnswerService', () => {
       user: {
         findUnique: jest.fn().mockResolvedValue({ preferredLocale: 'en' }),
       },
-      candidate: { findFirst: jest.fn().mockResolvedValue({ id: CAND }) },
+      // An org-side applicant record always resolves to the LIVE account that
+      // owns the evidence; every AI surface reads by that account id.
+      candidate: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: CAND, candidateAccount: { id: ACCOUNT } }),
+      },
       vacancy: {
         findFirst: jest.fn().mockResolvedValue({
           id: VAC,
@@ -78,12 +86,19 @@ describe('AiAnswerService', () => {
         // The candidate HAS applied to the vacancy by default (the applicant
         // association is what every candidate-in-vacancy AI path requires).
         findFirst: jest.fn().mockResolvedValue({ id: 'assoc-1' }),
+        // The org-wide universe: the applicant accounts of the caller's OWN
+        // vacancies, resolved server-side.
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ candidate: { candidateAccountId: ACCOUNT } }]),
       },
       // The org-wide Ask has no candidate to scope by, so it checks the
       // citations it got back against the sources that still exist. By default
       // the cited source DOES still exist — the ordinary case.
       document: { findMany: jest.fn().mockResolvedValue([{ id: 'd1' }]) },
-      applicationLinkSource: { findMany: jest.fn().mockResolvedValue([]) },
+      // A citation may name a professional link instead of a file; both source
+      // kinds share one key space, so both tables are consulted.
+      candidateLink: { findMany: jest.fn().mockResolvedValue([]) },
     };
     evidence = evidenceLifecycleMock();
     service = new AiAnswerService(
@@ -95,18 +110,118 @@ describe('AiAnswerService', () => {
     );
   });
 
-  describe('tenant identity', () => {
-    it('always sends the organization from auth', async () => {
+  /**
+   * The retrieval universe IS the authorization decision.
+   *
+   * Since the snapshot removal there is nothing org-owned to retrieve from:
+   * every candidate's evidence lives once, in their own account-scoped
+   * collection. What makes reading it lawful is no longer an organizationId
+   * stamped on a copy, but the list of candidate accounts the backend resolved
+   * from the caller's OWN applicant relationships. These tests hold that list
+   * to the same standard the old organizationId was held to: it is derived
+   * server-side from auth, never from anything the client sent, and an account
+   * outside it is physically unreachable.
+   */
+  describe('authorized retrieval universe', () => {
+    it('sends the applicant accounts of the CALLER’S OWN vacancies', async () => {
       await service.answer(ORG_A, USER, { query: 'Kubernetes?' });
-      expect(ai.answerQuestion.mock.calls[0][0].organizationId).toBe(ORG_A);
+
+      expect(ai.answerQuestion.mock.calls[0][0].candidateAccountIds).toEqual([
+        ACCOUNT,
+      ]);
+      // Derived from auth on both axes: the active organization and personal
+      // creation. A same-org colleague's applicants contribute nothing.
+      expect(prisma.application.findMany.mock.calls[0][0].where).toMatchObject({
+        source: 'DIRECT',
+        vacancy: { organizationId: ORG_A, createdById: USER },
+      });
     });
 
-    it('ignores any organizationId in the payload', async () => {
+    it('cannot be redirected by anything in the payload', async () => {
+      // The DTO declares no organizationId and the global ValidationPipe
+      // rejects unknown properties; this asserts the service itself also
+      // ignores a stray value rather than passing it on.
       await service.answer(ORG_A, USER, {
         query: 'x',
         organizationId: ORG_B,
       } as never);
-      expect(ai.answerQuestion.mock.calls[0][0].organizationId).toBe(ORG_A);
+
+      expect(prisma.application.findMany.mock.calls[0][0].where).toMatchObject({
+        vacancy: { organizationId: ORG_A, createdById: USER },
+      });
+      // Nothing tenant-shaped travels to the AI service any more: the account
+      // list is the whole filter.
+      const payload = ai.answerQuestion.mock.calls[0][0];
+      expect(payload).not.toHaveProperty('organizationId');
+      expect(payload).not.toHaveProperty('candidateId');
+      expect(payload.candidateAccountIds).toEqual([ACCOUNT]);
+    });
+
+    it('an account outside the universe is unreachable, whatever the client sends', async () => {
+      // The caller's own vacancies have exactly one applicant. Even though
+      // other accounts exist in the index, the filter sent to the AI service
+      // names only this one.
+      prisma.application.findMany.mockResolvedValue([
+        { candidate: { candidateAccountId: 'acct-mine' } },
+      ]);
+
+      await service.answer(ORG_A, USER, {
+        query: 'x',
+        candidateAccountIds: ['acct-someone-else'],
+      } as never);
+
+      expect(ai.answerQuestion.mock.calls[0][0].candidateAccountIds).toEqual([
+        'acct-mine',
+      ]);
+    });
+
+    it('an empty universe still asks a well-formed, empty-scoped question', async () => {
+      // Nobody has applied to any of my vacancies. The filter is `[]`, which
+      // retrieves nothing — the AI service refuses rather than improvising.
+      prisma.application.findMany.mockResolvedValue([]);
+
+      await service.answer(ORG_A, USER, { query: 'x' });
+
+      expect(ai.answerQuestion.mock.calls[0][0].candidateAccountIds).toEqual(
+        [],
+      );
+    });
+
+    it('dedupes accounts and drops applicants with no account row', async () => {
+      // One person applying to three of my vacancies is one retrieval scope,
+      // and a historical recruiter-made record (no account) is not part of the
+      // universe at all.
+      prisma.application.findMany.mockResolvedValue([
+        { candidate: { candidateAccountId: ACCOUNT } },
+        { candidate: { candidateAccountId: ACCOUNT } },
+        { candidate: { candidateAccountId: 'acct-2' } },
+        { candidate: { candidateAccountId: null } },
+      ]);
+
+      await service.answer(ORG_A, USER, { query: 'x' });
+
+      expect(ai.answerQuestion.mock.calls[0][0].candidateAccountIds).toEqual([
+        ACCOUNT,
+        'acct-2',
+      ]);
+    });
+
+    it('narrows to exactly ONE account when asking about a candidate', async () => {
+      await service.answer(ORG_A, USER, {
+        query: 'x',
+        candidateId: CAND,
+        vacancyId: VAC,
+      });
+
+      expect(ai.answerQuestion.mock.calls[0][0].candidateAccountIds).toEqual([
+        ACCOUNT,
+      ]);
+      // Resolved from the org-side record, never taken from the request.
+      expect(prisma.candidate.findFirst.mock.calls[0][0].where).toMatchObject({
+        id: CAND,
+        organizationId: ORG_A,
+        candidateAccountId: { not: null },
+      });
     });
 
     it('rejects a candidate filter from another organization', async () => {
@@ -116,6 +231,25 @@ describe('AiAnswerService', () => {
         service.answer(ORG_A, USER, {
           query: 'x',
           candidateId: 'foreign',
+          vacancyId: VAC,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(ai.answerQuestion).not.toHaveBeenCalled();
+    });
+
+    it('rejects a candidate whose account no longer exists', async () => {
+      // The applicant predicate guarantees a candidateAccountId, but the
+      // account row itself can be gone. No account means no evidence to read,
+      // and a 404 rather than an unscoped retrieval.
+      prisma.candidate.findFirst.mockResolvedValue({
+        id: CAND,
+        candidateAccount: null,
+      });
+
+      await expect(
+        service.answer(ORG_A, USER, {
+          query: 'x',
+          candidateId: CAND,
           vacancyId: VAC,
         }),
       ).rejects.toBeInstanceOf(NotFoundException);
@@ -138,6 +272,20 @@ describe('AiAnswerService', () => {
         service.summariseCandidate(ORG_A, USER, 'foreign', VAC),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(ai.summariseCandidate).not.toHaveBeenCalled();
+    });
+
+    it('summary and interview questions address the ACCOUNT, not the org record', async () => {
+      await service.summariseCandidate(ORG_A, USER, CAND, VAC);
+      await service.interviewQuestions(ORG_A, USER, CAND, VAC);
+
+      for (const payload of [
+        ai.summariseCandidate.mock.calls[0][0],
+        ai.interviewQuestions.mock.calls[0][0],
+      ]) {
+        expect(payload.candidateAccountId).toBe(ACCOUNT);
+        expect(payload).not.toHaveProperty('organizationId');
+        expect(payload).not.toHaveProperty('candidateId');
+      }
     });
   });
 
@@ -316,8 +464,10 @@ describe('AiAnswerService', () => {
   });
 
   describe('withdrawn evidence can never be cited', () => {
-    it('sends the surviving source ids when asking about ONE candidate', async () => {
-      evidence.activeApplicationSourceIds.mockResolvedValue(['d1', 'src-9']);
+    it('sends the candidate’s surviving PERSONAL source ids when asking about one candidate', async () => {
+      // The allowlist is now the candidate's own current files and links —
+      // there are no application-time copies to enumerate instead.
+      evidence.activePersonalSourceIds.mockResolvedValue(['d1', 'link-9']);
 
       await service.answer(ORG_A, USER, {
         query: 'Kubernetes?',
@@ -325,15 +475,17 @@ describe('AiAnswerService', () => {
         vacancyId: VAC,
       });
 
+      expect(evidence.activePersonalSourceIds).toHaveBeenCalledWith(ACCOUNT);
       expect(ai.answerQuestion.mock.calls[0][0].allowedSourceIds).toEqual([
         'd1',
-        'src-9',
+        'link-9',
       ]);
     });
 
     it('sends NO allowlist for the organization-wide question', async () => {
-      // There is no candidate to scope by, and an allowlist of every source an
-      // organization owns would be an unbounded filter that degrades silently.
+      // There is no candidate to scope by, and an allowlist of every source
+      // every applicant owns would be an unbounded filter that degrades
+      // silently.
       await service.answer(ORG_A, USER, { query: 'Who knows Kubernetes?' });
 
       expect(ai.answerQuestion.mock.calls[0][0].allowedSourceIds).toBeNull();
@@ -395,6 +547,46 @@ describe('AiAnswerService', () => {
       expect(result.status).toBe('NEEDS_HUMAN_REVIEW');
     });
 
+    it('a citation naming a live professional LINK survives too', async () => {
+      // Files and links share one key space, so survival is asked of both
+      // tables; a link-backed citation must not be dropped as "unknown".
+      prisma.document.findMany.mockResolvedValue([]);
+      prisma.candidateLink.findMany.mockResolvedValue([{ id: 'd1' }]);
+
+      const result = await service.answer(ORG_A, USER, {
+        query: 'Who knows Kubernetes?',
+      });
+
+      expect(result.status).toBe('GROUNDED');
+      expect(result.citations).toHaveLength(1);
+    });
+
+    it('asks for survival only within the caller’s universe, and only of PERSONAL rows', async () => {
+      // The isolation property, restated for the account-scoped world: a
+      // source that exists but belongs to an account outside the universe
+      // cannot vouch for a citation, so a leaked chunk id cannot be laundered
+      // into a legitimate-looking answer. `organizationId: null` keeps the
+      // question about the candidate's own copy — the only one there is.
+      prisma.application.findMany.mockResolvedValue([
+        { candidate: { candidateAccountId: ACCOUNT } },
+        { candidate: { candidateAccountId: 'acct-2' } },
+      ]);
+
+      await service.answer(ORG_A, USER, { query: 'Who knows Kubernetes?' });
+
+      expect(prisma.document.findMany.mock.calls[0][0].where).toMatchObject({
+        id: { in: ['d1'] },
+        candidateAccountId: { in: [ACCOUNT, 'acct-2'] },
+        organizationId: null,
+      });
+      expect(
+        prisma.candidateLink.findMany.mock.calls[0][0].where,
+      ).toMatchObject({
+        id: { in: ['d1'] },
+        candidateAccountId: { in: [ACCOUNT, 'acct-2'] },
+      });
+    });
+
     it('leaves a clean organization-wide answer untouched', async () => {
       prisma.document.findMany.mockResolvedValue([{ id: 'd1' }]);
 
@@ -408,8 +600,13 @@ describe('AiAnswerService', () => {
   });
 });
 
+/**
+ * The lifecycle service as a collaborator. `activePersonalSourceIds` is the
+ * surviving-source allowlist every candidate-scoped AI call must carry — these
+ * tests check it is SENT for the right account, not what it contains (that is
+ * the lifecycle service's own spec).
+ */
 const evidenceLifecycleMock = () => ({
-  activeApplicationSourceIds: jest.fn().mockResolvedValue(['doc-1', 'src-1']),
   activePersonalSourceIds: jest.fn().mockResolvedValue([]),
   activeSourceCounts: jest
     .fn()

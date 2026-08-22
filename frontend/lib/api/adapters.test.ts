@@ -95,6 +95,19 @@ describe("toVacancy", () => {
     expect(vacancy.requirementCount).toBe(2);
   });
 
+  it("counts people, not attempts, when the API says how many people", () => {
+    // Since reapply-after-rejection the two differ: five applications by three
+    // people. `candidateCount` is the people number and must win — a card
+    // labelled "5 candidates" over a list of three is the same bug the
+    // applicant grouping fixes, one screen earlier.
+    const vacancy = toVacancy({
+      ...base,
+      candidateCount: 3,
+      _count: { applications: 5, requirements: 2 },
+    });
+    expect(vacancy.candidateCount).toBe(3);
+  });
+
   it("falls back to the nested requirements when no counts are present", () => {
     const vacancy = toVacancy({
       ...base,
@@ -148,22 +161,32 @@ describe("toCandidate", () => {
     ).toBe("account-1");
   });
 
-  it("infers a document's mime type when the endpoint omits it", () => {
+  it("reports the CURRENT evidence facts, not application-time copies", () => {
+    // A row describes the person as they are now: their live avatar and the
+    // documents their account holds. Applying copies nothing, so there is no
+    // per-application document list to count.
     const candidate = toCandidate({
       ...base,
-      documents: [
-        {
-          id: "d1",
-          type: "RESUME",
-          originalFileName: "aziz.pdf",
-          status: "COMPLETED",
-          createdAt: "2026-08-20T00:00:00.000Z",
-        },
-      ],
+      avatarUrl: "https://files.example.test/avatar.png?sig=abc",
+      documentCount: 2,
+      documentStatuses: ["COMPLETED", "EMBEDDING"],
     });
 
-    expect(candidate.documents[0].mimeType).toBe("application/pdf");
-    expect(candidate.processingStatus).toBe("COMPLETED");
+    expect(candidate.avatarUrl).toBe(
+      "https://files.example.test/avatar.png?sig=abc",
+    );
+    expect(candidate.documentCount).toBe(2);
+    // Worst-case across the current documents, so a row never reads "ready"
+    // while one of the person's files is still being processed.
+    expect(candidate.processingStatus).toBe("EMBEDDING");
+  });
+
+  it("falls back to initials and no documents when the account has neither", () => {
+    const candidate = toCandidate(base);
+
+    expect(candidate.avatarUrl).toBeNull();
+    expect(candidate.documentCount).toBe(0);
+    expect(candidate.processingStatus).toBeNull();
   });
 });
 

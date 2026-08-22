@@ -101,13 +101,20 @@ describe("the API client offers no candidate-creation surface", () => {
   it("exports neither createCandidate nor an application-association call", async () => {
     const candidates = await import("@/lib/api/candidates.service");
     const applications = await import("@/lib/api/applications.service");
-    const documents = await import("@/lib/api/documents.service");
 
     // The backend routes are gone; a client function for them would only ever
     // produce a 404, and would keep the removed feature alive in the UI.
     expect("createCandidate" in candidates).toBe(false);
     expect("createApplication" in applications).toBe(false);
-    expect("uploadDocument" in documents).toBe(false);
+    // Recruiters have no document surface at all any more: there is nothing
+    // to upload onto, and candidate evidence is read exclusively through the
+    // vacancy-contextual current-evidence calls. The module specifier is
+    // built at runtime because a static one would not compile — which is
+    // itself the point.
+    const removed = ["@/lib/api", "documents.service"].join("/");
+    await expect(import(/* @vite-ignore */ removed)).rejects.toThrow();
+    expect("getCandidateCurrentEvidence" in candidates).toBe(true);
+    expect("getCandidateCurrentDocumentUrl" in candidates).toBe(true);
   });
 });
 

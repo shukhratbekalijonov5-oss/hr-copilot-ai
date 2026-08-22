@@ -113,6 +113,15 @@ export class CandidateAccountController {
     return this.service.getPersonalDocumentDownload(userId, id);
   }
 
+  /** Re-queues indexing for a FAILED own document; 409 when not retryable. */
+  @Post('me/documents/:id/reprocess')
+  reprocessDocument(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.reprocessPersonalDocument(userId, id);
+  }
+
   /** Permanent delete of ONE own document: bytes, rows and vectors. */
   @Delete('me/documents/:id')
   deleteDocument(

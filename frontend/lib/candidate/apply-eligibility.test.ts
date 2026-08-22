@@ -31,7 +31,6 @@ function attempt(
       employmentType: "Full-time",
       organizationName: "Northwind Labs",
     },
-    submittedFileName: "resume.pdf",
   };
 }
 

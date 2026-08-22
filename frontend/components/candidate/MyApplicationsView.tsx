@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { AlertIcon, BriefcaseIcon, FileIcon } from "@/components/ui/icons";
+import { AlertIcon, BriefcaseIcon } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
 import type { ApplicationStatus, MyApplication } from "@/lib/types";
 
@@ -126,14 +126,6 @@ export function MyApplicationsView({
                     date: date(application.createdAt),
                   })}
                 </span>
-                {application.submittedFileName ? (
-                  <span className="inline-flex items-center gap-1">
-                    <FileIcon className="size-3.5" />
-                    {f(d.applications.submittedResume, {
-                      name: application.submittedFileName,
-                    })}
-                  </span>
-                ) : null}
 
                 {WITHDRAWABLE.includes(application.status) ? (
                   <Button

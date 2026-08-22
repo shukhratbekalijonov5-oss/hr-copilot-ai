@@ -1,54 +1,35 @@
 import "server-only";
 
 import { apiFetch, fetchAllPages, type Paginated } from "@/lib/api/http";
-import {
-  aggregateDocumentStatus,
-  toApplication,
-  toCandidate,
-  toDocument,
-} from "@/lib/api/adapters";
+import { toApplication, toCandidate } from "@/lib/api/adapters";
 import type {
   ApplicationResponse,
   CandidateResponse,
-  DocumentResponse,
 } from "@/lib/api/contracts";
 import type {
+  CandidateCurrentEvidence,
   Candidate,
   CandidateQuery,
   UpdateCandidateInput,
 } from "@/lib/types";
 
 /**
- * Attaches documents and applications to candidates from a list response.
+ * Attaches applications to candidates from a list response.
  *
- * `GET /candidates` returns only `_count` for the nested collections — no
- * documents and no applications — while `GET /candidates/:id` returns both.
- * Screens built on the list therefore had no processing status and no vacancy
- * to filter by, which silently emptied the compare picker and left every row's
- * processing badge blank.
- *
- * The gap is closed with two extra list calls rather than one detail call per
- * candidate: `/documents` and `/applications` are both organization-scoped and
- * carry `candidateId`, so a page of candidates costs three requests instead of
- * N + 1.
+ * `GET /candidates` rows already carry the LIVE identity (name, email,
+ * avatar) and the CURRENT document count/statuses; what they lack is the
+ * application list, which screens use for the primary-vacancy column and the
+ * compare picker. One org-scoped `/applications` call closes that for the
+ * whole page instead of one detail call per candidate.
  */
 async function withNestedCollections(
   candidates: Candidate[],
 ): Promise<Candidate[]> {
   if (candidates.length === 0) return candidates;
 
-  const [documentRows, applicationRows] = await Promise.all([
-    fetchAllPages<DocumentResponse>("/documents"),
-    fetchAllPages<ApplicationResponse>("/applications"),
-  ]);
-
-  const documentsByCandidate = new Map<string, DocumentResponse[]>();
-  for (const row of documentRows) {
-    if (!row.candidateId) continue;
-    const bucket = documentsByCandidate.get(row.candidateId);
-    if (bucket) bucket.push(row);
-    else documentsByCandidate.set(row.candidateId, [row]);
-  }
+  const applicationRows = await fetchAllPages<ApplicationResponse>(
+    "/applications",
+  );
 
   const applicationsByCandidate = new Map<string, ApplicationResponse[]>();
   for (const row of applicationRows) {
@@ -58,19 +39,13 @@ async function withNestedCollections(
   }
 
   return candidates.map((candidate) => {
-    const documents = (documentsByCandidate.get(candidate.id) ?? []).map(
-      (document) => toDocument(document, candidate.id),
-    );
-    const applications = (applicationsByCandidate.get(candidate.id) ?? []).map(
-      toApplication,
-    );
+    const source = applicationsByCandidate.get(candidate.id) ?? [];
+    const applications = source.map(toApplication);
     const primary = applications[0];
 
     return {
       ...candidate,
-      documents,
       applications,
-      processingStatus: aggregateDocumentStatus(documents),
       primaryVacancyId: primary?.vacancyId ?? null,
       primaryVacancyTitle: primary?.vacancy?.title ?? null,
     };
@@ -113,6 +88,31 @@ export async function getAllCandidates(): Promise<Candidate[]> {
 
 export async function getCandidate(id: string): Promise<Candidate> {
   return toCandidate(await apiFetch<CandidateResponse>(`/candidates/${id}`));
+}
+
+/**
+ * GET /candidates/:id/current-evidence — the applicant's LIVE profile,
+ * documents and professional links, authorized through the caller's own
+ * vacancy. The response shape is already display-ready; no adapter needed.
+ */
+export async function getCandidateCurrentEvidence(
+  candidateId: string,
+  vacancyId: string,
+): Promise<CandidateCurrentEvidence> {
+  return apiFetch<CandidateCurrentEvidence>(
+    `/candidates/${candidateId}/current-evidence?vacancyId=${encodeURIComponent(vacancyId)}`,
+  );
+}
+
+/** Signed URL for one of the applicant's CURRENT documents. */
+export async function getCandidateCurrentDocumentUrl(
+  candidateId: string,
+  vacancyId: string,
+  documentId: string,
+): Promise<{ url: string; originalFileName: string; mimeType: string }> {
+  return apiFetch(
+    `/candidates/${candidateId}/current-documents/${documentId}/download-url?vacancyId=${encodeURIComponent(vacancyId)}`,
+  );
 }
 
 /**

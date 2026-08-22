@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   inviteToInterviewAction,
   setApplicationStatusAction,
@@ -23,25 +23,26 @@ import {
   DocumentStatusBadge,
 } from "@/components/ui/StatusBadge";
 import { MyVacancySelector } from "@/components/vacancies/MyVacancySelector";
+import { CurrentEvidenceCard } from "@/components/candidates/CurrentEvidenceCard";
+import { CurrentLinkView } from "@/components/candidates/CurrentLinkView";
 import { DocumentViewer } from "@/components/candidates/DocumentViewer";
-import { LinkSourceView } from "@/components/candidates/LinkSourceView";
 import {
   AlertIcon,
-  FileIcon,
-  GlobeIcon,
-  MailIcon,
   MapPinIcon,
   MessageIcon,
 } from "@/components/ui/icons";
 import { aiReadiness } from "@/lib/api/adapters";
+import { openableOtherVacancies } from "@/lib/vacancy/applicants";
+import { VACANCY_PARAM } from "@/lib/vacancy/selection";
 import { useI18n } from "@/lib/i18n/context";
-import { displayUrl } from "@/lib/utils";
 import { APPLICATION_STATUSES } from "@/lib/types";
 import type {
   AiFailureReason,
   Application,
   ApplicationStatus,
   Candidate,
+  CandidateCurrentEvidence,
+  CandidateDocument,
   Citation,
   EvidenceMap,
   MyVacancy,
@@ -59,9 +60,21 @@ interface CandidateWorkspaceProps {
   activeVacancy: MyVacancy | null;
   /** True when the URL asked for a vacancy that is not selectable. */
   invalidSelection: boolean;
-  /** The application in the ACTIVE vacancy — the stage shown in Overview. */
+  /** The CURRENT attempt in the ACTIVE vacancy — the stage shown in Overview. */
   activeApplication: Application | null;
+  /**
+   * Every attempt in the active vacancy, newest first, `attempts[0]` being
+   * `activeApplication`. Resolved server-side by the same grouping the vacancy
+   * applicant list uses.
+   */
+  attempts: Application[];
   applicationConversationId: string | null;
+  /**
+   * The applicant's LIVE profile/evidence for the ACTIVE vacancy context.
+   * Null when no vacancy is selected or the read failed — the card simply
+   * does not render then.
+   */
+  currentEvidence: CandidateCurrentEvidence | null;
   /** Stored requirement mapping, read server-side. Null when never run. */
   evidenceMap: EvidenceMap | null;
   evidenceMapFailure: AiFailureReason | null;
@@ -92,7 +105,9 @@ export function CandidateWorkspace({
   activeVacancy,
   invalidSelection,
   activeApplication,
+  attempts,
   applicationConversationId,
+  currentEvidence,
   evidenceMap,
   evidenceMapFailure,
   role,
@@ -108,19 +123,55 @@ export function CandidateWorkspace({
    * (they are the primary submission), falling back to a link when a candidate
    * somehow has only links.
    */
+  /**
+   * The applicant's CURRENT sources — the only evidence there is. Account
+   * level and never per-attempt, so an id is stable across vacancy switches
+   * and re-applications, and a deleted file is simply not in the list.
+   */
+  const currentDocuments = useMemo(
+    () => currentEvidence?.documents ?? [],
+    [currentEvidence],
+  );
+  const currentLinks = useMemo(
+    () => currentEvidence?.professionalLinks ?? [],
+    [currentEvidence],
+  );
+  /** The viewer's shape of the same current files. */
+  const viewerDocuments = useMemo<CandidateDocument[]>(
+    () =>
+      currentDocuments.map((document) => ({
+        id: document.id,
+        type: document.sourceType,
+        originalFileName: document.fileName,
+        mimeType: document.mimeType,
+        fileSize: document.fileSize,
+        status: document.status,
+        pageCount: document.pageCount,
+        uploadedAt: document.uploadedAt,
+      })),
+    [currentDocuments],
+  );
+
   const [activeSource, setActiveSource] = useState<ActiveSource>(() =>
-    candidate.documents[0]
-      ? { type: "FILE", id: candidate.documents[0].id }
-      : candidate.linkSources[0]
-        ? { type: "URL", id: candidate.linkSources[0].id }
+    currentDocuments[0]
+      ? { type: "FILE", id: currentDocuments[0].id }
+      : currentLinks[0]
+        ? { type: "URL", id: currentLinks[0].id }
         : { type: "FILE", id: null },
   );
+  // Resolve the selection against what exists RIGHT NOW: a stale id (a file
+  // deleted since selection, a citation into a withdrawn source) falls back
+  // to the first current file instead of resurrecting anything.
   const activeDocumentId =
-    activeSource.type === "FILE" ? activeSource.id : null;
-  const activeLinkSource =
+    activeSource.type === "FILE"
+      ? activeSource.id &&
+        viewerDocuments.some((document) => document.id === activeSource.id)
+        ? activeSource.id
+        : (viewerDocuments[0]?.id ?? null)
+      : null;
+  const activeLink =
     activeSource.type === "URL"
-      ? (candidate.linkSources.find((source) => source.id === activeSource.id) ??
-        null)
+      ? (currentLinks.find((link) => link.id === activeSource.id) ?? null)
       : null;
   const [page, setPage] = useState(1);
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
@@ -221,7 +272,7 @@ export function CandidateWorkspace({
    * intentionally more permissive than the headline status badge, which reports
    * the worst-case state across every file.
    */
-  const readiness = aiReadiness(candidate.documents, candidate.linkSources);
+  const readiness = aiReadiness([...currentDocuments, ...currentLinks]);
   const analysisReady = readiness === "ready";
 
   /**
@@ -246,10 +297,76 @@ export function CandidateWorkspace({
               description: d.ai.stillProcessingHint,
             };
 
+  /**
+   * The applicant's identity, preferring the LIVE account over the
+   * application-time copy.
+   *
+   * A candidate who corrects their name or changes their email after applying
+   * should be reachable under the value that is true now — the frozen copy is
+   * evidence about the application, not a current address. Falls back to the
+   * org-side record when there is no vacancy context to read live data under.
+   */
+  /**
+   * Every OTHER vacancy this person is in THAT THIS RECRUITER MAY OPEN.
+   *
+   * `candidate.applications` is organization-scoped: it carries every vacancy
+   * the person applied to anywhere in the org, including a colleague's. HR
+   * vacancy workflows are creator-scoped, so those are rows the backend will
+   * refuse — offering them as links is offering a dead end.
+   *
+   * The filter is therefore an INTERSECTION with `eligibleVacancies`, which
+   * the server already resolved as "this candidate's applications AND the
+   * caller's own vacancies". Nothing is authorized here; this list is a
+   * projection of a set the backend already agreed to. Matching is on vacancy
+   * id — several vacancies legitimately share a title, so a title match would
+   * both hide and expose the wrong ones.
+   *
+   * The list is attempt-level, so a re-applicant's vacancy appears once per
+   * attempt; grouping by vacancy — with the same recency rule the active
+   * block uses — collapses that to one row per pipeline. The active vacancy is
+   * excluded: it already has the section above.
+   */
+  const otherVacancies = useMemo(
+    () =>
+      openableOtherVacancies(
+        candidate.applications,
+        eligibleVacancies.map((vacancy) => vacancy.id),
+        selectedVacancyId,
+      ),
+    [candidate.applications, eligibleVacancies, selectedVacancyId],
+  );
+
+  const identity = {
+    fullName: currentEvidence?.candidate.fullName ?? candidate.fullName,
+    email: currentEvidence?.candidate.email ?? candidate.email,
+    avatarUrl: currentEvidence?.candidate.avatarUrl ?? null,
+  };
+
   const overview = (
     <div className="flex flex-col gap-4">
+      {/* PROFILE — who this person is, right now. */}
       <Card>
-        <CardHeader title={d.candidates.overview} />
+        <CardHeader title={d.candidates.profile} />
+        <CardBody className="flex items-center gap-3 border-b border-line">
+          <Avatar name={identity.fullName} src={identity.avatarUrl} size="md" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13.5px] font-medium text-ink">
+              {identity.fullName}
+            </p>
+            {identity.email ? (
+              <a
+                href={`mailto:${identity.email}`}
+                className="block truncate text-[12.5px] text-ink-muted hover:text-brand"
+              >
+                {identity.email}
+              </a>
+            ) : (
+              <p className="text-[12.5px] text-ink-muted">
+                {d.common.notRecorded}
+              </p>
+            )}
+          </div>
+        </CardBody>
         <CardBody>
           <dl className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
             <div>
@@ -279,24 +396,6 @@ export function CandidateWorkspace({
                 {candidate.location ?? d.common.notRecorded}
               </dd>
             </div>
-            <div>
-              <dt className="text-[12px] text-ink-muted">
-                {d.candidates.email}
-              </dt>
-              <dd className="flex items-center gap-1.5 truncate text-[13.5px] text-ink">
-                <MailIcon className="size-3.5 shrink-0 text-ink-subtle" />
-                {candidate.email ? (
-                  <a
-                    href={`mailto:${candidate.email}`}
-                    className="truncate hover:text-brand"
-                  >
-                    {candidate.email}
-                  </a>
-                ) : (
-                  d.common.notRecorded
-                )}
-              </dd>
-            </div>
             {candidate.phone ? (
               <div>
                 <dt className="text-[12px] text-ink-muted">
@@ -318,127 +417,175 @@ export function CandidateWorkspace({
       </Card>
 
       {/*
-        Every source the candidate submitted, of both kinds, in one list.
-        There are no add/edit/remove controls anywhere in here and no API
-        behind one: files and links alike are the applicant's own submissions.
+        The applicant's CURRENT evidence — live account data resolved fresh by
+        the backend for the active owned vacancy. Renders only with a vacancy
+        context, because the authorization chain requires one.
+      */}
+      {currentEvidence && selectedVacancy ? (
+        <CurrentEvidenceCard
+          candidateId={candidate.id}
+          vacancyId={selectedVacancy.id}
+          evidence={currentEvidence}
+          onSelectDocument={(documentId) =>
+            selectSource({ type: "FILE", id: documentId })
+          }
+          onSelectLink={(linkId) => selectSource({ type: "URL", id: linkId })}
+        />
+      ) : null}
+
+      {/*
+        APPLICATION — historical by nature, and kept visually apart from the
+        live evidence above so the two are never read as one thing. The stage
+        and the date are the CURRENT attempt's; the earlier attempts are
+        history, unchanged and undeleted.
       */}
       <Card>
         <CardHeader
-          title={d.candidates.evidenceSources}
-          description={f(d.candidates.evidenceSourceCounts, {
-            files: candidate.documents.length,
-            links: candidate.linkSources.length,
-          })}
+          title={d.candidates.application}
+          description={d.candidates.applicationsHint}
         />
-        {candidate.documents.length + candidate.linkSources.length > 0 ? (
-          <div>
-            {candidate.documents.length > 0 ? (
-              <>
-                <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
-                  {p(d.candidates.filesCount, candidate.documents.length)}
-                </p>
-                <ul className="divide-y divide-[var(--line)]">
-                  {candidate.documents.map((document) => (
-                    <li
-                      key={document.id}
-                      className="flex items-center gap-3 px-4 py-3"
-                    >
-                      <FileIcon className="size-4 shrink-0 text-ink-subtle" />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          selectSource({ type: "FILE", id: document.id })
-                        }
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <span className="block truncate text-[13.5px] font-medium text-ink hover:text-brand">
-                          {document.originalFileName}
-                        </span>
-                        <span className="block text-[12px] text-ink-muted">
-                          {d.status.documentType[document.type]} ·{" "}
-                          {date(document.createdAt)}
-                        </span>
-                      </button>
-                      <DocumentStatusBadge status={document.status} />
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-
-            {candidate.linkSources.length > 0 ? (
-              <>
-                <p className="border-t border-line px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
-                  {p(d.candidates.linksCount, candidate.linkSources.length)}
-                </p>
-                <ul className="divide-y divide-[var(--line)]">
-                  {candidate.linkSources.map((source) => (
-                    <li
-                      key={source.id}
-                      className="flex items-center gap-3 px-4 py-3"
-                    >
-                      <GlobeIcon className="size-4 shrink-0 text-ink-subtle" />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          selectSource({ type: "URL", id: source.id })
-                        }
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <span className="block truncate text-[13.5px] font-medium text-ink hover:text-brand">
-                          {source.title}
-                        </span>
-                        <span className="block truncate text-[12px] text-ink-muted">
-                          {displayUrl(source.url, 40)} · {date(source.fetchedAt)}
-                        </span>
-                      </button>
-                      <DocumentStatusBadge status={source.status} />
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-          </div>
+        {!primaryApplication ? (
+          <EmptyState
+            title={
+              selectedVacancy
+                ? d.candidates.noApplicationForVacancy
+                : d.candidates.notAttached
+            }
+            description={d.candidates.notAttachedHint}
+          />
         ) : (
-          <CardBody>
-            <p className="text-[13px] leading-relaxed text-ink-muted">
-              {d.candidates.noDocumentsYet}
-            </p>
+          <CardBody className="flex flex-col gap-3">
+            <dl className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+              <div>
+                <dt className="text-[12px] text-ink-muted">
+                  {d.candidates.appliedAt}
+                </dt>
+                <dd className="text-[13.5px] text-ink">
+                  {date(primaryApplication.createdAt)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[12px] text-ink-muted">
+                  {d.candidates.currentStatus}
+                </dt>
+                <dd>
+                  <ApplicationStatusBadge status={primaryApplication.status} />
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[12px] text-ink-muted">
+                  {d.candidates.attempts}
+                </dt>
+                <dd className="text-[13.5px] tabular-nums text-ink">
+                  {Math.max(attempts.length, 1)}
+                </dd>
+              </div>
+            </dl>
+
+            {/*
+              Earlier attempts. A plain <details> — no client state to keep in
+              sync, and it collapses away entirely for the common single-attempt
+              case.
+            */}
+            {attempts.length > 1 ? (
+              <details className="group border-t border-line pt-3">
+                <summary className="w-fit cursor-pointer list-none text-[12.5px] font-medium text-brand hover:underline">
+                  <span className="group-open:hidden">
+                    {d.attempts.viewHistory}
+                  </span>
+                  <span className="hidden group-open:inline">
+                    {d.attempts.hideHistory}
+                  </span>
+                </summary>
+                <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+                  {d.attempts.history}
+                </p>
+                <ol className="mt-1.5 flex flex-col gap-1.5">
+                  {attempts.map((attempt, index) => (
+                    <li
+                      key={attempt.id}
+                      className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-muted"
+                    >
+                      <span className="text-ink">
+                        {f(d.attempts.label, {
+                          number: attempts.length - index,
+                        })}
+                      </span>
+                      {/*
+                        The current attempt's stage can have just been changed
+                        in this session; the props behind `attempts` only catch
+                        up on the refresh. Reading it from the live value keeps
+                        the history row and the summary above from disagreeing
+                        for a beat.
+                      */}
+                      <ApplicationStatusBadge
+                        status={
+                          attempt.id === primaryApplication.id
+                            ? primaryApplication.status
+                            : attempt.status
+                        }
+                      />
+                      <span>
+                        {f(d.candidates.appliedOn, {
+                          date: date(attempt.createdAt),
+                        })}
+                      </span>
+                      {attempt.id === primaryApplication.id ? (
+                        <Badge>{d.attempts.current}</Badge>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            ) : null}
           </CardBody>
         )}
       </Card>
 
-      <Card>
-        <CardHeader
-          title={d.candidates.applications}
-          description={d.candidates.applicationsHint}
-        />
-        {candidate.applications.length === 0 ? (
-          <EmptyState
-            title={d.candidates.notAttached}
-            description={d.candidates.notAttachedHint}
+      {/*
+        The OTHER pipelines this person is in — one row per vacancy, not per
+        attempt, so a re-applicant's vacancy is listed once with its count.
+      */}
+      {otherVacancies.length > 0 ? (
+        <Card>
+          <CardHeader
+            title={d.candidates.otherVacancies}
+            description={d.candidates.otherVacanciesHint}
           />
-        ) : (
           <ul className="divide-y divide-[var(--line)]">
-            {candidate.applications.map((item) => (
-              <li key={item.id} className="flex items-center gap-3 px-4 py-3">
+            {otherVacancies.map((row) => (
+              <li
+                key={row.vacancyId}
+                className="flex items-center gap-3 px-4 py-3"
+              >
                 <div className="min-w-0 flex-1">
+                  {/*
+                    Switches this candidate into that vacancy's context rather
+                    than leaving the person — the whole page is "this
+                    candidate, in this vacancy", and the target is a vacancy
+                    the caller owns.
+                  */}
                   <Link
-                    href={`/vacancies/${item.vacancyId}`}
+                    href={`/candidates/${candidate.id}?${VACANCY_PARAM}=${row.vacancyId}`}
                     className="block truncate text-[13.5px] font-medium text-ink hover:text-brand"
                   >
-                    {item.vacancy?.title ?? d.candidates.vacancy}
+                    {row.vacancy?.title ?? d.candidates.vacancy}
                   </Link>
                   <span className="block text-[12px] text-ink-muted">
-                    {f(d.candidates.appliedOn, { date: date(item.createdAt) })}
+                    {f(d.candidates.appliedOn, {
+                      date: date(row.current.createdAt),
+                    })}
+                    {row.attemptCount > 1
+                      ? ` · ${p(d.attempts.count, row.attemptCount)}`
+                      : ""}
                   </span>
                 </div>
-                <ApplicationStatusBadge status={item.status} />
+                <ApplicationStatusBadge status={row.current.status} />
               </li>
             ))}
           </ul>
-        )}
-      </Card>
+        </Card>
+      ) : null}
     </div>
   );
 
@@ -455,7 +602,7 @@ export function CandidateWorkspace({
         description={d.evidence.noVacancyHint}
       />
     </Card>
-  ) : candidate.documents.length + candidate.linkSources.length === 0 ? (
+  ) : currentDocuments.length + currentLinks.length === 0 ? (
     <Card>
       <EmptyState
         title={d.evidence.noDocuments}
@@ -562,10 +709,14 @@ export function CandidateWorkspace({
 
       <Card className="p-4">
         <div className="flex flex-wrap items-start gap-3">
-          <Avatar name={candidate.fullName} size="lg" />
+          <Avatar
+            name={identity.fullName}
+            src={identity.avatarUrl}
+            size="lg"
+          />
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-semibold tracking-tight text-ink">
-              {candidate.fullName}
+              {identity.fullName}
             </h1>
             <p className="text-[13.5px] text-ink-muted">
               {candidate.currentTitle ?? d.common.notSet}
@@ -655,14 +806,16 @@ export function CandidateWorkspace({
           kind gets the view that tells the truth about it.
         */}
         {activeSource.type === "URL" ? (
-          <LinkSourceView
-            source={activeLinkSource}
+          <CurrentLinkView
+            link={activeLink}
             activeCitation={activeCitation}
             className="min-w-0 lg:sticky lg:top-18 lg:h-[calc(100dvh-7rem)]"
           />
         ) : (
           <DocumentViewer
-            documents={candidate.documents}
+            documents={viewerDocuments}
+            candidateId={candidate.id}
+            vacancyId={selectedVacancyId ?? ""}
             activeDocumentId={activeDocumentId}
             page={page}
             activeCitation={activeCitation}

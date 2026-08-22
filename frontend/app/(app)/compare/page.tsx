@@ -9,6 +9,7 @@ import {
   resolveVacancySelection,
   selectedVacancyId,
 } from "@/lib/vacancy/selection";
+import { dedupeVacancyCandidates } from "@/lib/vacancy/applicants";
 import type { ComparisonResult, VacancyCandidate } from "@/lib/types";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -48,7 +49,11 @@ export default async function ComparePage(props: PageProps<"/compare">) {
     const page = await api
       .getVacancyCandidates(vacancy.id, { limit: 100 })
       .catch(() => null);
-    rows = page?.rows ?? [];
+    // One row per PERSON. The endpoint is attempt-level, so a candidate who
+    // re-applied after a rejection arrives several times — which would key
+    // three picker rows on one candidate id and make the default selection
+    // "compare Clara with Clara and Clara".
+    rows = dedupeVacancyCandidates(page?.rows ?? []);
   }
 
   // Comparable = in this vacancy with something indexed to compare.

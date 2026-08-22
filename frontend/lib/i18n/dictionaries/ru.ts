@@ -385,48 +385,32 @@ const ru: Dictionary = {
     phone: "Телефон",
     added: "Первый отклик",
     documents: "Документы",
-    noDocumentsYet:
-      "Пока ничего не прислано. Здесь появится резюме, которое кандидат приложил к отклику.",
 
     // Источники данных — файлы и профессиональные ссылки. Для HR только чтение.
-    evidenceSources: "Источники данных",
-    evidenceSourceCounts: "прислано файлов: {files} · ссылок: {links}",
-    filesCount: {
-      one: "Файл · {count}",
-      few: "Файлы · {count}",
-      many: "Файлы · {count}",
-      other: "Файлы · {count}",
-    } as Plural,
-    linksCount: {
-      one: "Профессиональная ссылка · {count}",
-      few: "Профессиональные ссылки · {count}",
-      many: "Профессиональные ссылки · {count}",
-      other: "Профессиональные ссылки · {count}",
-    } as Plural,
+    currentEvidence: "Текущие данные кандидата",
+    currentEvidenceHint:
+      "Актуальные профиль, файлы и ссылки кандидата — как сейчас, а не на момент подачи.",
+    currentEvidenceEmpty: "У кандидата сейчас нет файлов и ссылок.",
+    currentDocuments: "Документы",
+    currentLinks: "Профессиональные ссылки",
+    currentEvidenceDocument: "Документ",
+    openCurrentFile: "Открыть",
+    openOriginalLink: "Открыть оригинал",
     noSource: "Источник не выбран",
     noSourceHint: "Выберите файл или ссылку, чтобы увидеть, что было прислано.",
     originalUrl: "Исходная ссылка",
-    submittedContent: "Присланное содержимое",
-    fetchedOn: "Прочитано {date}",
-    pagesRead: {
-      one: "прочитана {count} страница",
-      few: "прочитано {count} страницы",
-      many: "прочитано {count} страниц",
-      other: "прочитано {count} страниц",
-    } as Plural,
-    snapshotNote:
-      "Это содержимое на момент отклика. С тех пор страница могла измениться; анализ ниже основан на том, что было прислано.",
-    sourceIndexingFailed:
-      "Эту ссылку не удалось подготовить к анализу, поэтому она не участвует в ответах ИИ.",
     openOriginal: "Открыть оригинал",
-    documentsUploaded: {
-      one: "прислан {count} файл",
-      few: "прислано {count} файла",
-      many: "прислано {count} файлов",
-      other: "загружено {count} файла",
-    },
     applications: "Отклики",
     applicationsHint: "Смена этапа записывается вместе с тем, кто её сделал.",
+    profile: "Профиль",
+    application: "Отклик",
+    attempts: "Попыток",
+    appliedAt: "Дата отклика",
+    currentStatus: "Текущий статус",
+    otherVacancies: "Другие вакансии",
+    otherVacanciesHint:
+      "Другие процессы найма с участием этого человека. У каждого свой независимый этап.",
+    noApplicationForVacancy: "Отклика на эту вакансию нет",
     applicationStage: "Этап отклика",
     notAttached: "Не привязан к вакансии",
     notAttachedHint:
@@ -1014,6 +998,27 @@ const ru: Dictionary = {
     errVacancyRequired: "Выберите свою вакансию, в которую добавить кандидата.",
   },
 
+  /**
+   * Re-application vocabulary, shared by every HR surface that shows it.
+   *
+   * A candidate may apply to one vacancy several times, so both the vacancy
+   * applicant list and Candidate Detail speak about attempts — in the same
+   * words, from one place, because two copies would drift.
+   */
+  attempts: {
+    count: {
+      one: "{count} отклик",
+      few: "{count} отклика",
+      many: "{count} откликов",
+      other: "{count} отклика",
+    },
+    label: "Попытка {number}",
+    current: "Текущая",
+    history: "История прошлых откликов",
+    viewHistory: "Показать историю",
+    hideHistory: "Скрыть историю",
+  },
+
   vacancyDetail: {
     breadcrumbNew: "Новая",
     jobDescription: "Описание вакансии",
@@ -1238,6 +1243,8 @@ const ru: Dictionary = {
     createFailed: "Не удалось создать профиль.",
     resumeUploadFailed: "Не удалось загрузить файл.",
     documentDeleteFailed: "Не удалось удалить документ.",
+    retryDocument: "Повторить",
+    documentRetryFailed: "Не удалось повторить обработку документа.",
     confirmDeleteTitle: "Удалить этот документ?",
     confirmDeleteQuestion: "«{name}» будет удалён безвозвратно.",
     confirmDeleteConsequence:
@@ -1305,7 +1312,6 @@ const ru: Dictionary = {
     emptyHint: "Вакансии, куда вы откликнетесь, появятся здесь с текущим этапом.",
     appliedOn: "Отклик {date}",
     updatedOn: "Обновлено {date}",
-    submittedResume: "Отправлено {name}",
     withdraw: "Отозвать",
     withdrawing: "Отзываем",
     withdrawn: "Отклик отозван",

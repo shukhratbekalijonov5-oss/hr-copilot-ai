@@ -41,8 +41,7 @@ def _thresholds(settings: Settings) -> MappingThresholds:
 
 def map_requirements(
     *,
-    organization_id: str,
-    candidate_id: str,
+    candidate_account_id: str,
     vacancy_id: str,
     requirements: list[RequirementInput],
     settings: Settings,
@@ -66,12 +65,11 @@ def map_requirements(
 
     for requirement in requirements:
         retrieval = search_evidence(
-            organization_id=organization_id,
+            # Candidate-scoped: a requirement is judged against THIS person's
+            # CURRENT documents and links, never against the corpus at large.
+            candidate_account_ids=[candidate_account_id],
             query=requirement.text,
             limit=settings.mapping_candidate_pool,
-            # Candidate-scoped: a requirement is judged against THIS person's
-            # documents, never against the corpus at large.
-            candidate_id=candidate_id,
             document_id=None,
             use_rerank=True,
             settings=settings,
@@ -103,8 +101,6 @@ def map_requirements(
     logger.info(
         "Requirement mapping completed",
         extra={
-            "organizationId": organization_id,
-            "candidateId": candidate_id,
             "vacancyId": vacancy_id,
             "stage": "jd_mapping",
             "requirementCount": len(requirements),
@@ -117,7 +113,7 @@ def map_requirements(
         metrics.JD_MAPPING_DURATION, (time.perf_counter() - started) * 1000
     )
     return EvidenceMapResponse(
-        candidateId=candidate_id,
+        candidateAccountId=candidate_account_id,
         vacancyId=vacancy_id,
         requirements=mapped,
         durationMs=int((time.perf_counter() - started) * 1000),
@@ -126,8 +122,7 @@ def map_requirements(
 
 def generate_interview_questions(
     *,
-    organization_id: str,
-    candidate_id: str,
+    candidate_account_id: str,
     vacancy_id: str,
     requirements: list[RequirementInput],
     locale: str,
@@ -146,8 +141,7 @@ def generate_interview_questions(
     """
     started = time.perf_counter()
     mapping = map_requirements(
-        organization_id=organization_id,
-        candidate_id=candidate_id,
+        candidate_account_id=candidate_account_id,
         vacancy_id=vacancy_id,
         requirements=requirements,
         settings=settings,
@@ -161,7 +155,7 @@ def generate_interview_questions(
 
     for requirement, mapped in zip(requirements, mapping.requirements):
         evidence_found = mapped.status == EVIDENCE_FOUND
-        context = _citations_to_hits(mapped.evidence, candidate_id)
+        context = _citations_to_hits(mapped.evidence, candidate_account_id)
 
         generated = generator.generate_interview_questions(
             requirement=requirement.text,
@@ -174,8 +168,7 @@ def generate_interview_questions(
             outcome = validate_citations(
                 item.cited_chunk_ids,
                 context,
-                organization_id=organization_id,
-                candidate_id=candidate_id,
+                allowed_account_ids={candidate_account_id},
             )
             questions.append(
                 InterviewQuestion(
@@ -188,7 +181,7 @@ def generate_interview_questions(
             )
 
     return InterviewQuestionsResponse(
-        candidateId=candidate_id,
+        candidateAccountId=candidate_account_id,
         vacancyId=vacancy_id,
         questions=questions,
         locale=locale,
@@ -217,14 +210,14 @@ def _to_citation(hit) -> Citation:
     )
 
 
-def _citations_to_hits(citations: list[Citation], candidate_id: str):
+def _citations_to_hits(citations: list[Citation], candidate_account_id: str):
     """Re-wraps stored citations as hits so validation can check against them."""
     from app.models.schemas import EvidenceHit
 
     return [
         EvidenceHit(
             chunkId=c.chunkId,
-            candidateId=candidate_id,
+            candidateAccountId=candidate_account_id,
             documentId=c.documentId,
             fileName=c.fileName,
             section=c.section,

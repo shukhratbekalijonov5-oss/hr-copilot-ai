@@ -2,9 +2,8 @@ import "server-only";
 
 import { apiFetch } from "@/lib/api/http";
 import { toOrganization } from "@/lib/api/adapters";
-import { getAllDocuments } from "@/lib/api/documents.service";
 import { getVacancies } from "@/lib/api/vacancies.service";
-import { getCandidates } from "@/lib/api/candidates.service";
+import { getAllCandidates, getCandidates } from "@/lib/api/candidates.service";
 import { getProcessingJobs } from "@/lib/api/processing.service";
 import { summarizeDocumentStatuses } from "@/lib/api/adapters";
 import type {
@@ -23,22 +22,25 @@ import type { DashboardData, Organization } from "@/lib/types";
  * invented numbers.
  */
 export async function getDashboard(): Promise<DashboardData> {
-  const [stats, vacancyPage, candidatePage, documents, jobs] =
+  const [stats, vacancyPage, candidatePage, allCandidates, jobs] =
     await Promise.all([
       apiFetch<OrganizationStatsResponse>("/organizations/current/stats"),
       getVacancies({ page: 1, limit: 4 }),
       getCandidates({ page: 1, limit: 5 }),
-      getAllDocuments(),
+      getAllCandidates(),
       getProcessingJobs({ page: 1, limit: 6 }),
     ]);
 
-  const processing = summarizeDocumentStatuses(
-    documents.map((document) => document.status),
+  // Since the snapshot removal there are no org-side document copies: the
+  // documents that exist are the candidates' CURRENT ones, and their statuses
+  // arrive on the candidate rows.
+  const statuses = allCandidates.flatMap(
+    (candidate) => candidate.documentStatuses,
   );
+  const processing = summarizeDocumentStatuses(statuses);
 
-  const inFlight = documents.filter(
-    (document) =>
-      document.status !== "COMPLETED" && document.status !== "FAILED",
+  const inFlight = statuses.filter(
+    (status) => status !== "COMPLETED" && status !== "FAILED",
   ).length;
 
   return {
@@ -47,7 +49,7 @@ export async function getDashboard(): Promise<DashboardData> {
       totalCandidates: stats.candidates,
       activeVacancies: stats.openVacancies,
       resumesProcessing: inFlight,
-      completedAnalyses: documents.filter((d) => d.status === "COMPLETED")
+      completedAnalyses: statuses.filter((status) => status === "COMPLETED")
         .length,
     },
     recentVacancies: vacancyPage.vacancies,

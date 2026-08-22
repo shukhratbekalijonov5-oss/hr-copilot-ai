@@ -11,51 +11,67 @@ import {
   VacancyStatus,
 } from '../generated/prisma/enums';
 import type { PrismaService } from '../prisma/prisma.service';
-import type { StorageService } from '../storage/storage.service';
-import type { ProcessingService } from '../processing/processing.service';
-import type { DocumentProcessingProducer } from '../queue/document-processing.producer';
 import type { CandidateAccountService } from '../candidate-account/candidate-account.service';
 
 const ORG_A = 'org-a';
+const ORG_B = 'org-b';
 const SLUG = 'senior-backend-engineer-northwind-abc123';
 const ME = 'user-me';
 const MY_ACCOUNT = 'acct-me';
 
-/** One personal file as apply sees it. */
-const personalDocument = (id: string, name: string) => ({
-  id,
-  storageKey: `candidate/${MY_ACCOUNT}/documents/${id}.pdf`,
-  originalFileName: name,
-  mimeType: 'application/pdf',
-  type: 'RESUME',
-});
+/**
+ * The profile resume as apply sees it: a LIVE personal row (organizationId
+ * null, owned by the account). It is only ever READ — never copied.
+ */
+const LIVE_RESUME = { id: 'personal-doc-1' };
 
-/** One COMPLETED personal link as apply sees it. */
-const personalLink = (id: string, url: string) => ({
-  id,
-  url,
-  normalizedUrl: url.replace(/^https:\/\//, '').replace(/\/$/, ''),
-  title: 'Portfolio Website',
-  detectedType: 'WEBSITE',
-  sections: [
-    { name: 'projects', heading: 'Projects', text: 'Kubernetes work', url },
-  ],
-  contentHash: 'hash-1',
-  charCount: 800,
-  pagesFetched: 2,
-  fetchMode: 'STATIC',
-  lastFetchedAt: new Date('2026-08-20T00:00:00Z'),
-});
-
-function createPrismaMock() {
-  const tx = {
+/**
+ * The apply transaction.
+ *
+ * Every write the snapshot model used to perform is still mocked here on
+ * purpose — `document.create`, `document.updateMany`, `candidateLink.create`.
+ * "Applying copies nothing" is only provable if the copying writes remain
+ * reachable and are observably never reached; a mock that simply omitted them
+ * would prove nothing at all. (`applicationLinkSource` is absent because the
+ * model no longer exists on the Prisma client: re-adding that write would not
+ * even compile.)
+ */
+function createTxMock() {
+  return {
     candidate: { upsert: jest.fn() },
-    document: { create: jest.fn(), updateMany: jest.fn() },
+    document: {
+      create: jest.fn(),
+      updateMany: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    candidateLink: { create: jest.fn(), updateMany: jest.fn() },
     // update/delete exist only so the history test can assert they are never
     // called: the apply path must append an attempt, never rewrite an old one.
     application: { create: jest.fn(), update: jest.fn(), delete: jest.fn() },
-    applicationLinkSource: { create: jest.fn() },
   };
+}
+
+/**
+ * Which `model.method` writes the apply transaction actually performed.
+ *
+ * One assertion over this set is the whole regression guard of the snapshot
+ * removal: an application is pure metadata, so the only rows it may write are
+ * the org-side candidate association and the application itself.
+ */
+function txWrites(tx: ReturnType<typeof createTxMock>): string[] {
+  return Object.entries(tx)
+    .flatMap(([model, methods]) =>
+      Object.entries(methods)
+        .filter(([, fn]) => fn.mock.calls.length > 0)
+        .map(([method]) => `${model}.${method}`),
+    )
+    .sort();
+}
+
+const ONLY_METADATA_WRITES = ['application.create', 'candidate.upsert'];
+
+function createPrismaMock() {
+  const tx = createTxMock();
   return {
     tx,
     vacancy: {
@@ -65,8 +81,11 @@ function createPrismaMock() {
     },
     candidate: { findUnique: jest.fn() },
     application: { findUnique: jest.fn(), findFirst: jest.fn() },
-    document: { findUnique: jest.fn(), findMany: jest.fn() },
-    applicationLinkSource: { updateMany: jest.fn() },
+    // findFirst is the resume liveness probe. findMany is mocked but must never
+    // be called: apply has no reason to enumerate a candidate's files now that
+    // it copies none of them.
+    document: { findFirst: jest.fn(), findMany: jest.fn() },
+    candidateLink: { findMany: jest.fn() },
     user: { findUniqueOrThrow: jest.fn() },
     $transaction: jest.fn((arg: unknown) =>
       Array.isArray(arg)
@@ -78,46 +97,16 @@ function createPrismaMock() {
 
 describe('PublicJobsService', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
-  let storage: {
-    getObject: jest.Mock;
-    upload: jest.Mock;
-    delete: jest.Mock;
-  };
-  let processing: {
-    createJob: jest.Mock;
-    markQueued: jest.Mock;
-    markFailed: jest.Mock;
-  };
-  let producer: {
-    enqueueDocument: jest.Mock;
-    enqueueApplicationLink: jest.Mock;
-  };
   let accounts: { requireAccount: jest.Mock };
-  let links: { listSubmittableLinks: jest.Mock };
   let service: PublicJobsService;
   let events: { publish: jest.Mock };
 
   beforeEach(() => {
     prisma = createPrismaMock();
-    storage = {
-      getObject: jest.fn().mockResolvedValue(Buffer.from('%PDF-fake')),
-      upload: jest.fn().mockResolvedValue({ storageKey: 'k', size: 9 }),
-      delete: jest.fn().mockResolvedValue(undefined),
-    };
-    processing = {
-      createJob: jest.fn().mockResolvedValue({ id: 'pj-1' }),
-      markQueued: jest.fn(),
-      markFailed: jest.fn(),
-    };
-    producer = {
-      enqueueDocument: jest.fn().mockResolvedValue('bull-1'),
-      enqueueApplicationLink: jest.fn().mockResolvedValue('bull-link-1'),
-    };
-    links = { listSubmittableLinks: jest.fn().mockResolvedValue([]) };
     accounts = {
       requireAccount: jest.fn().mockResolvedValue({
         id: MY_ACCOUNT,
-        resumeDocumentId: 'personal-doc-1',
+        resumeDocumentId: LIVE_RESUME.id,
         phone: '+998900000000',
         location: 'Tashkent',
         headline: 'Backend Engineer',
@@ -126,11 +115,7 @@ describe('PublicJobsService', () => {
     events = { publish: jest.fn() };
     service = new PublicJobsService(
       prisma as unknown as PrismaService,
-      storage as unknown as StorageService,
-      processing as unknown as ProcessingService,
-      producer as unknown as DocumentProcessingProducer,
       accounts as unknown as CandidateAccountService,
-      links as never,
       events as never,
     );
 
@@ -138,13 +123,10 @@ describe('PublicJobsService', () => {
       fullName: 'Jasur Toshmatov',
       email: 'jasur@example.test',
     });
-    prisma.document.findMany.mockResolvedValue([
-      personalDocument('personal-doc-1', 'resume.pdf'),
-    ]);
+    prisma.document.findFirst.mockResolvedValue(LIVE_RESUME);
+    prisma.document.findMany.mockResolvedValue([LIVE_RESUME]);
+    prisma.candidateLink.findMany.mockResolvedValue([]);
     prisma.tx.candidate.upsert.mockResolvedValue({ id: 'cand-1' });
-    prisma.tx.applicationLinkSource.create.mockImplementation(() =>
-      Promise.resolve({ id: `link-src-${Math.random()}` }),
-    );
     prisma.tx.application.create.mockResolvedValue({
       id: 'app-1',
       status: ApplicationStatus.NEW,
@@ -196,7 +178,7 @@ describe('PublicJobsService', () => {
       prisma.application.findFirst.mockResolvedValue(null);
     });
 
-    it('creates candidate + application(source=DIRECT) + resume snapshot in the vacancy organization', async () => {
+    it('creates the org-side candidate and an Application(source=DIRECT) — and nothing else', async () => {
       const result = await service.apply(ME, SLUG);
 
       // Org-side candidate linked to my account, one per org per account.
@@ -208,33 +190,27 @@ describe('PublicJobsService', () => {
       // Reuse must not overwrite recruiter-enriched data.
       expect(upsert.update).toEqual({});
 
-      // The snapshot document is ORG-owned, never the personal document.
-      const doc = prisma.tx.document.create.mock.calls[0][0].data;
-      expect(doc.organizationId).toBe(ORG_A);
-      expect(doc.candidateId).toBe('cand-1');
-      expect(storage.upload.mock.calls[0][0].key).toMatch(`org/${ORG_A}/`);
-
       const app = prisma.tx.application.create.mock.calls[0][0].data;
+      expect(app.vacancyId).toBe('vac-1');
+      expect(app.candidateId).toBe('cand-1');
       expect(app.source).toBe(ApplicationSource.DIRECT);
       expect(app.status).toBe(ApplicationStatus.NEW);
-      expect(app.submittedDocumentId).toBe(doc.id);
 
       expect((result as { id: string }).id).toBe('app-1');
+      expect(txWrites(prisma.tx)).toEqual(ONLY_METADATA_WRITES);
     });
 
-    it('queues AI processing under the VACANCY organization (Qdrant tenancy)', async () => {
+    it('reads the profile resume rather than duplicating it', async () => {
       await service.apply(ME, SLUG);
 
-      // The org-scoped copy is what gets indexed; org B never received a
-      // document, so org B's searches (always org-filtered) cannot see it.
-      expect(producer.enqueueDocument.mock.calls[0][0]).toMatchObject({
-        organizationId: ORG_A,
-        candidateId: 'cand-1',
+      // The liveness probe addresses the PERSONAL row: the candidate's own
+      // copy, the only one that exists.
+      expect(prisma.document.findFirst.mock.calls[0][0].where).toMatchObject({
+        id: LIVE_RESUME.id,
+        candidateAccountId: MY_ACCOUNT,
+        organizationId: null,
       });
-      expect(processing.createJob).toHaveBeenCalledWith(
-        ORG_A,
-        expect.any(String),
-      );
+      expect(prisma.tx.document.create).not.toHaveBeenCalled();
     });
 
     it('404s a non-OPEN or unknown job', async () => {
@@ -253,7 +229,7 @@ describe('PublicJobsService', () => {
       await expect(service.apply(ME, SLUG)).rejects.toBeInstanceOf(
         BadRequestException,
       );
-      expect(storage.upload).not.toHaveBeenCalled();
+      expect(txWrites(prisma.tx)).toEqual([]);
     });
 
     it('requires an uploaded resume', async () => {
@@ -266,9 +242,25 @@ describe('PublicJobsService', () => {
         UnprocessableEntityException,
       );
       expect(prisma.tx.application.create).not.toHaveBeenCalled();
+      // A null pointer is answered without asking the database anything.
+      expect(prisma.document.findFirst).not.toHaveBeenCalled();
     });
 
-    it('still requires a resume even when links are ready to submit', async () => {
+    it('requires the profile resume to still EXIST, not merely be pointed at', async () => {
+      // The account still names a resume, but the row is gone — the candidate
+      // deleted the file after setting it as their profile resume. A dangling
+      // pointer is not evidence: without the document there is nothing for a
+      // recruiter to read, so the application is refused rather than created
+      // empty.
+      prisma.document.findFirst.mockResolvedValue(null);
+
+      await expect(service.apply(ME, SLUG)).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(txWrites(prisma.tx)).toEqual([]);
+    });
+
+    it('still requires a resume even when the candidate has links', async () => {
       // Links SUPPLEMENT evidence; they do not replace the document the
       // product has always required to apply. Changing that is a separate
       // product decision, not a side effect of adding links.
@@ -276,14 +268,14 @@ describe('PublicJobsService', () => {
         id: MY_ACCOUNT,
         resumeDocumentId: null,
       });
-      links.listSubmittableLinks.mockResolvedValue([
-        personalLink('link-1', 'https://portfolio.example.com/'),
+      prisma.candidateLink.findMany.mockResolvedValue([
+        { id: 'link-1', url: 'https://portfolio.example.com/' },
       ]);
 
       await expect(service.apply(ME, SLUG)).rejects.toBeInstanceOf(
         UnprocessableEntityException,
       );
-      expect(prisma.tx.applicationLinkSource.create).not.toHaveBeenCalled();
+      expect(txWrites(prisma.tx)).toEqual([]);
     });
 
     /**
@@ -360,6 +352,20 @@ describe('PublicJobsService', () => {
         expect(prisma.tx.application.delete).not.toHaveBeenCalled();
       });
 
+      it('re-applying after a rejection ALSO copies nothing', async () => {
+        // The old model made a fresh set of copies per attempt, so applying
+        // three times left three duplicates of the same resume in the org. Now
+        // a second attempt is a second row and nothing more — the recruiter
+        // reads the same, single, current evidence they would have read the
+        // first time.
+        prisma.candidate.findUnique.mockResolvedValue(EXISTING_CANDIDATE);
+        prisma.application.findFirst.mockResolvedValue(null);
+
+        await service.apply(ME, SLUG);
+
+        expect(txWrites(prisma.tx)).toEqual(ONLY_METADATA_WRITES);
+      });
+
       it('publishes the normal new-application event for the new attempt', async () => {
         prisma.candidate.findUnique.mockResolvedValue(EXISTING_CANDIDATE);
         prisma.application.findFirst.mockResolvedValue(null);
@@ -375,125 +381,115 @@ describe('PublicJobsService', () => {
       });
     });
 
-    describe('multi-source evidence snapshot', () => {
+    /**
+     * The snapshot removal, stated as behaviour.
+     *
+     * Applying used to COPY the candidate's evidence into the organization: a
+     * new storage object and org-owned Document per personal file, a frozen
+     * ApplicationLinkSource per professional link, and an indexing job for each
+     * of them in the org's Qdrant collection. That model is gone. There is ONE
+     * copy of a candidate's evidence — their own — and a recruiter reads it
+     * through the vacancy-contextual authorization chain instead.
+     *
+     * These are the inverse of the assertions that used to prove the copying
+     * worked, and they are the central regression guard of the migration: any
+     * re-introduction of a copy shows up here first.
+     */
+    describe('applying copies no evidence', () => {
       beforeEach(() => {
+        // A candidate with a full corpus: three files and two links. Under the
+        // old model this produced 3 documents + 2 link snapshots + 5 jobs.
         prisma.document.findMany.mockResolvedValue([
-          personalDocument('personal-doc-2', 'portfolio.pdf'),
-          personalDocument('personal-doc-1', 'resume.pdf'),
-          personalDocument('personal-doc-3', 'certificate.pdf'),
+          { id: 'personal-doc-1' },
+          { id: 'personal-doc-2' },
+          { id: 'personal-doc-3' },
         ]);
-        links.listSubmittableLinks.mockResolvedValue([
-          personalLink('link-1', 'https://portfolio.example.com/'),
-          personalLink('link-2', 'https://github.example.com/jiwoo'),
+        prisma.candidateLink.findMany.mockResolvedValue([
+          { id: 'link-1' },
+          { id: 'link-2' },
         ]);
       });
 
-      it('copies EVERY personal file into the organization', async () => {
+      it('copies NO personal file into the organization', async () => {
         await service.apply(ME, SLUG);
 
-        expect(prisma.tx.document.create).toHaveBeenCalledTimes(3);
-        const names = prisma.tx.document.create.mock.calls.map(
-          (call) => call[0].data.originalFileName,
-        );
-        expect(names).toEqual(
-          expect.arrayContaining([
-            'resume.pdf',
-            'portfolio.pdf',
-            'certificate.pdf',
-          ]),
-        );
-        // Every copy is org-owned; none of them is the personal original.
-        for (const call of prisma.tx.document.create.mock.calls) {
-          expect(call[0].data.organizationId).toBe(ORG_A);
-          expect(call[0].data.candidateId).toBe('cand-1');
-        }
+        expect(prisma.tx.document.create).not.toHaveBeenCalled();
+        // It does not even enumerate them: there is nothing to select from.
+        expect(prisma.document.findMany).not.toHaveBeenCalled();
       });
 
-      it('names the profile resume as the application’s primary document', async () => {
+      it('freezes NO link: the recruiter reads the live CandidateLink', async () => {
         await service.apply(ME, SLUG);
 
-        const primaryCopy = prisma.tx.document.create.mock.calls.find(
-          (call) => call[0].data.originalFileName === 'resume.pdf',
-        )![0].data;
-        const app = prisma.tx.application.create.mock.calls[0][0].data;
-        expect(app.submittedDocumentId).toBe(primaryCopy.id);
+        // Frozen `sections` were what survived a candidate editing or deleting
+        // a link. That was the bug, not the feature: a withdrawn link must
+        // stop being readable everywhere, so nothing is frozen and the link
+        // table is not even consulted at apply time.
+        expect(prisma.tx.candidateLink.create).not.toHaveBeenCalled();
+        expect(prisma.candidateLink.findMany).not.toHaveBeenCalled();
       });
 
-      it('links every copy to the application for auditability', async () => {
+      it('names no submitted document on the application', async () => {
         await service.apply(ME, SLUG);
 
-        const update = prisma.tx.document.updateMany.mock.calls[0][0];
-        expect(update.data.applicationId).toBe('app-1');
-        expect(update.where.id.in).toHaveLength(3);
+        // `submittedDocumentId` pointed at the org-side copy of the resume.
+        // With no copy there is nothing to point at — and nothing needs to,
+        // because the account's current resume is what gets read.
+        const data = prisma.tx.application.create.mock.calls[0][0].data;
+        expect(data).not.toHaveProperty('submittedDocumentId');
       });
 
-      it('freezes each submitted link’s CONTENT, not a reference to it', async () => {
+      it('stamps no applicationId onto any document', async () => {
         await service.apply(ME, SLUG);
 
-        expect(prisma.tx.applicationLinkSource.create).toHaveBeenCalledTimes(2);
-        const snapshot =
-          prisma.tx.applicationLinkSource.create.mock.calls[0][0].data;
-        expect(snapshot.organizationId).toBe(ORG_A);
-        expect(snapshot.applicationId).toBe('app-1');
-        // The content itself is copied — this is what survives the candidate
-        // later editing or deleting the personal link.
-        expect(snapshot.sections).toEqual([
-          expect.objectContaining({ text: 'Kubernetes work' }),
-        ]);
-        expect(snapshot.contentHash).toBe('hash-1');
-        expect(snapshot.fetchedAt).toEqual(new Date('2026-08-20T00:00:00Z'));
-        // A plain column, deliberately not a foreign key.
-        expect(snapshot.sourceLinkId).toBe('link-1');
+        // Document lineage back to an application only existed to audit the
+        // copies. No copies, no lineage write.
+        expect(prisma.tx.document.updateMany).not.toHaveBeenCalled();
       });
 
-      it('queues indexing for every file and every link', async () => {
+      it('queues no indexing: the candidate corpus is already indexed', async () => {
         await service.apply(ME, SLUG);
 
-        expect(producer.enqueueDocument).toHaveBeenCalledTimes(3);
-        expect(producer.enqueueApplicationLink).toHaveBeenCalledTimes(2);
-        expect(producer.enqueueApplicationLink.mock.calls[0][0]).toMatchObject({
-          organizationId: ORG_A,
-          candidateId: 'cand-1',
+        // Structural, not incidental: the service is constructed from exactly
+        // three collaborators (prisma, candidate accounts, domain events).
+        // Storage, the processing tracker and the queue producer are no longer
+        // injectable, so no apply can upload or enqueue anything.
+        expect(PublicJobsService.length).toBe(3);
+        expect(txWrites(prisma.tx)).toEqual(ONLY_METADATA_WRITES);
+      });
+
+      it('keeps exactly one evidence corpus across N applications', async () => {
+        // The point of the migration: applying to twenty vacancies stores one
+        // resume and twenty application rows, not twenty resumes.
+        await service.apply(ME, SLUG);
+        prisma.vacancy.findFirst.mockResolvedValue({
+          id: 'vac-2',
+          organizationId: ORG_B,
         });
-      });
+        await service.apply(ME, 'another-job-slug-def456');
+        prisma.vacancy.findFirst.mockResolvedValue({
+          id: 'vac-3',
+          organizationId: ORG_A,
+        });
+        await service.apply(ME, 'third-job-slug-ghi789');
 
-      it('submits nothing but COMPLETED links', async () => {
-        // The rule lives in CandidateLinksService; apply must not second-guess
-        // it by reaching for the table itself.
-        await service.apply(ME, SLUG);
-        expect(links.listSubmittableLinks).toHaveBeenCalledWith(MY_ACCOUNT);
-      });
-
-      it('cleans up every uploaded copy when the transaction fails', async () => {
-        prisma.tx.application.create.mockRejectedValue({ code: 'P2002' });
-
-        await expect(service.apply(ME, SLUG)).rejects.toBeInstanceOf(
-          ConflictException,
-        );
-        expect(storage.delete).toHaveBeenCalledTimes(3);
-      });
-
-      it('records a link snapshot as FAILED when its indexing cannot be queued', async () => {
-        producer.enqueueApplicationLink.mockRejectedValue(
-          new Error('redis down'),
-        );
-
-        const result = await service.apply(ME, SLUG);
-
-        // The application still stands: rows are durable and recoverable.
-        expect((result as { id: string }).id).toBe('app-1');
-        expect(prisma.applicationLinkSource.updateMany).toHaveBeenCalled();
+        expect(prisma.tx.application.create).toHaveBeenCalledTimes(3);
+        expect(prisma.tx.document.create).not.toHaveBeenCalled();
+        expect(txWrites(prisma.tx)).toEqual(ONLY_METADATA_WRITES);
       });
     });
 
-    it('applies with files only when the candidate has no links', async () => {
-      links.listSubmittableLinks.mockResolvedValue([]);
+    it('applies identically whether or not the candidate has links', async () => {
+      // Links used to change the shape of an apply (extra rows, extra jobs).
+      // Now they are irrelevant to it: the same two rows are written either
+      // way, and HR sees the links because they are the candidate's, not
+      // because the application carried them.
+      prisma.candidateLink.findMany.mockResolvedValue([]);
 
       const result = await service.apply(ME, SLUG);
 
       expect((result as { id: string }).id).toBe('app-1');
-      expect(prisma.tx.applicationLinkSource.create).not.toHaveBeenCalled();
-      expect(producer.enqueueApplicationLink).not.toHaveBeenCalled();
+      expect(txWrites(prisma.tx)).toEqual(ONLY_METADATA_WRITES);
     });
 
     it('409s a duplicate application while a live attempt exists (defined policy)', async () => {
@@ -504,27 +500,39 @@ describe('PublicJobsService', () => {
       await expect(service.apply(ME, SLUG)).rejects.toBeInstanceOf(
         ConflictException,
       );
-      // Rejected BEFORE any storage copy or row creation.
-      expect(storage.upload).not.toHaveBeenCalled();
-      expect(prisma.tx.application.create).not.toHaveBeenCalled();
+      // Rejected BEFORE any row is written.
+      expect(txWrites(prisma.tx)).toEqual([]);
     });
 
-    it('maps a concurrent double-submit (unique violation) to 409 and cleans the copy', async () => {
+    it('maps a concurrent double-submit (unique violation) to 409', async () => {
       prisma.tx.application.create.mockRejectedValue({ code: 'P2002' });
 
       await expect(service.apply(ME, SLUG)).rejects.toBeInstanceOf(
         ConflictException,
       );
-      expect(storage.delete).toHaveBeenCalled();
     });
 
-    it('keeps the application even when queueing fails (marked FAILED, retryable)', async () => {
-      producer.enqueueDocument.mockRejectedValue(new Error('redis down'));
+    it('publishes nothing when the application is not committed', async () => {
+      prisma.tx.application.create.mockRejectedValue({ code: 'P2002' });
 
-      const result = await service.apply(ME, SLUG);
+      await expect(service.apply(ME, SLUG)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      // A rolled-back apply must leave no ghost notification behind. (There is
+      // no storage object to clean up any more — the failed transaction is the
+      // entire cleanup.)
+      expect(events.publish).not.toHaveBeenCalled();
+    });
 
-      expect((result as { id: string }).id).toBe('app-1');
-      expect(processing.markFailed).toHaveBeenCalled();
+    it('notifies the vacancy organization once the application is committed', async () => {
+      await service.apply(ME, SLUG);
+
+      expect(events.publish).toHaveBeenCalledWith('application.created', {
+        organizationId: ORG_A,
+        vacancyId: 'vac-1',
+        applicationId: 'app-1',
+        candidateId: 'cand-1',
+      });
     });
   });
 });

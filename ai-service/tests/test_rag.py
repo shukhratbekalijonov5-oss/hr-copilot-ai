@@ -29,8 +29,9 @@ from app.generation import (
 from app.models.schemas import EvidenceHit
 from app.retrieval.rag import answer_question, summarise_candidate
 
-ORG = "org-a"
-CAND = "cand-1"
+# Recruiter RAG reads the CANDIDATE personal collection now, scoped to the
+# authorized account universe the backend resolved. There is no tenant key.
+ACCT = "acct-rag-1"
 
 
 class ScriptedGenerator(GenerationClient):
@@ -79,32 +80,34 @@ class ExplodingGenerator(ScriptedGenerator):
 
 
 @pytest.fixture()
-def indexed(store, embedder):
-    """A real indexed resume so retrieval is genuine."""
-    from app.retrieval import process_document
+def indexed(candidate_store, embedder):
+    """A real indexed resume so retrieval is genuine.
+
+    Personal evidence in a scratch candidate collection: exactly what a
+    recruiter's question is answered from, once the backend has decided this
+    account is in their authorized universe.
+    """
+    from app.candidate.indexing import process_candidate_resume
     from tests.fixtures.resumes import JIWOO_HAN_TEXT, build_pdf
 
-    org = f"org-{uuid.uuid4()}"
+    account = f"acct-{uuid.uuid4()}"
     doc = f"doc-{uuid.uuid4()}"
-    process_document(
+    process_candidate_resume(
         data=build_pdf(JIWOO_HAN_TEXT),
         file_name="jiwoo-han.pdf",
         document_id=doc,
-        organization_id=org,
-        candidate_id=CAND,
+        candidate_account_id=account,
         settings=get_settings(),
         embedder=embedder,
-        store=store,
+        store=candidate_store,
     )
-    yield {"org": org, "doc": doc}
-    store.delete_document(org, doc)
+    return {"account": account, "doc": doc}
 
 
-def _ask(store, embedder, generator, *, org, query, locale="en", candidate=CAND):
+def _ask(store, embedder, generator, *, accounts, query, locale="en"):
     return answer_question(
-        organization_id=org,
+        candidate_account_ids=accounts,
         query=query,
-        candidate_id=candidate,
         locale=locale,
         limit=8,
         settings=get_settings(),
@@ -120,20 +123,38 @@ def _ask(store, embedder, generator, *, org, query, locale="en", candidate=CAND)
 class TestEmptyRetrievalRefusal:
     """§11: never send an empty context and let the model improvise."""
 
-    def test_unknown_organization_never_calls_the_llm(self, store, embedder):
+    def test_an_unknown_account_never_calls_the_llm(self, candidate_store, embedder):
         response = _ask(
-            store, embedder, ExplodingGenerator(),
-            org=f"org-empty-{uuid.uuid4()}", query="Kubernetes experience",
+            candidate_store, embedder, ExplodingGenerator(),
+            accounts=[f"acct-empty-{uuid.uuid4()}"], query="Kubernetes experience",
         )
         assert response.status == "INSUFFICIENT_EVIDENCE"
         assert response.citations == []
         assert response.evidenceConsidered == 0
 
-    def test_refusal_message_is_localised(self, store, embedder):
+    def test_an_empty_universe_never_calls_the_llm(
+        self, candidate_store, embedder, indexed
+    ):
+        """The authorization boundary reaches all the way to the model.
+
+        Evidence for a real account IS indexed here. A caller authorized for
+        nobody must still get a refusal, and the resume text must never leave
+        the process — so the exploding generator is the assertion, not a prop.
+        """
+        response = _ask(
+            candidate_store, embedder, ExplodingGenerator(),
+            accounts=[], query="Kubernetes experience",
+        )
+        assert response.status == "INSUFFICIENT_EVIDENCE"
+        assert response.citations == []
+        assert response.evidenceConsidered == 0
+
+    def test_refusal_message_is_localised(self, candidate_store, embedder):
         for locale, marker in [("ko", "근거"), ("ru", "кандидата"), ("uz", "dalil")]:
             response = _ask(
-                store, embedder, ExplodingGenerator(),
-                org=f"org-empty-{uuid.uuid4()}", query="Kubernetes", locale=locale,
+                candidate_store, embedder, ExplodingGenerator(),
+                accounts=[f"acct-empty-{uuid.uuid4()}"], query="Kubernetes",
+                locale=locale,
             )
             assert marker in response.answer
             assert response.locale == locale
@@ -142,17 +163,17 @@ class TestEmptyRetrievalRefusal:
 @pytest.mark.integration
 @pytest.mark.slow
 class TestGroundedAnswer:
-    def test_valid_citations_produce_a_grounded_answer(self, store, embedder, indexed):
-        probe = _ask(store, embedder, ScriptedGenerator(), org=indexed["org"],
+    def test_valid_citations_produce_a_grounded_answer(self, candidate_store, embedder, indexed):
+        probe = _ask(candidate_store, embedder, ScriptedGenerator(), accounts=[indexed["account"]],
                      query="Kubernetes experience")
         # Re-run, this time citing a chunk that really was retrieved.
-        chunk_ids = [h.chunkId for h in _retrieved(store, embedder, indexed["org"])]
+        chunk_ids = [h.chunkId for h in _retrieved(candidate_store, embedder, indexed["account"])]
         generator = ScriptedGenerator(
             answer="The documents describe a production Kubernetes migration.",
             cited=[chunk_ids[0]],
             status="GROUNDED",
         )
-        response = _ask(store, embedder, generator, org=indexed["org"],
+        response = _ask(candidate_store, embedder, generator, accounts=[indexed["account"]],
                         query="Kubernetes experience")
 
         assert response.status == "GROUNDED"
@@ -161,36 +182,36 @@ class TestGroundedAnswer:
         assert response.rejectedCitations == []
         assert probe.evidenceConsidered > 0
 
-    def test_citations_carry_provenance_for_the_ui(self, store, embedder, indexed):
-        chunk_ids = [h.chunkId for h in _retrieved(store, embedder, indexed["org"])]
+    def test_citations_carry_provenance_for_the_ui(self, candidate_store, embedder, indexed):
+        chunk_ids = [h.chunkId for h in _retrieved(candidate_store, embedder, indexed["account"])]
         generator = ScriptedGenerator(answer="...", cited=[chunk_ids[0]])
-        response = _ask(store, embedder, generator, org=indexed["org"], query="Kubernetes")
+        response = _ask(candidate_store, embedder, generator, accounts=[indexed["account"]], query="Kubernetes")
 
         citation = response.citations[0]
         assert citation.fileName == "jiwoo-han.pdf"
         assert citation.documentId
         assert citation.text.strip()
 
-    def test_evidence_text_is_never_translated(self, store, embedder, indexed):
+    def test_evidence_text_is_never_translated(self, candidate_store, embedder, indexed):
         """A Korean answer must still cite the original English text."""
-        chunk_ids = [h.chunkId for h in _retrieved(store, embedder, indexed["org"])]
+        chunk_ids = [h.chunkId for h in _retrieved(candidate_store, embedder, indexed["account"])]
         generator = ScriptedGenerator(
             answer="지원자는 프로덕션 쿠버네티스 경험이 있습니다.", cited=[chunk_ids[0]]
         )
-        response = _ask(store, embedder, generator, org=indexed["org"],
+        response = _ask(candidate_store, embedder, generator, accounts=[indexed["account"]],
                         query="쿠버네티스 경험", locale="ko")
 
         assert response.locale == "ko"
         # The citation is verbatim source text, not a translation.
         assert response.citations[0].text.isascii()
 
-    def test_the_model_receives_only_this_candidates_evidence(self, store, embedder, indexed):
+    def test_the_model_receives_only_this_candidates_evidence(self, candidate_store, embedder, indexed):
         generator = ScriptedGenerator(answer="x", cited=[])
-        _ask(store, embedder, generator, org=indexed["org"], query="engineer")
+        _ask(candidate_store, embedder, generator, accounts=[indexed["account"]], query="engineer")
 
         sent = generator.calls[0]["evidence"]
         assert sent
-        assert all(h.candidateId == CAND for h in sent)
+        assert all(h.candidateAccountId == indexed["account"] for h in sent)
 
 
 @pytest.mark.integration
@@ -198,43 +219,47 @@ class TestGroundedAnswer:
 class TestHallucinationGuards:
     """§30: the generator asserting something unsupported must not pass through."""
 
-    def test_invented_citation_is_rejected(self, store, embedder, indexed):
+    def test_invented_citation_is_rejected(self, candidate_store, embedder, indexed):
         generator = ScriptedGenerator(
             answer="The candidate has extensive AWS experience.",
             cited=["totally-invented-chunk-id"],
             status="GROUNDED",
         )
-        response = _ask(store, embedder, generator, org=indexed["org"], query="AWS")
+        response = _ask(candidate_store, embedder, generator, accounts=[indexed["account"]], query="AWS")
 
         assert response.citations == []
         assert "totally-invented-chunk-id" in response.rejectedCitations
         # A confident claim with zero valid citations must not read as grounded.
         assert response.status == "NEEDS_HUMAN_REVIEW"
 
-    def test_a_confident_uncited_answer_is_downgraded(self, store, embedder, indexed):
+    def test_a_confident_uncited_answer_is_downgraded(self, candidate_store, embedder, indexed):
         generator = ScriptedGenerator(
             answer="The candidate has 12 years of AWS experience.",
             cited=[],
             status="GROUNDED",
         )
-        response = _ask(store, embedder, generator, org=indexed["org"], query="AWS")
+        response = _ask(candidate_store, embedder, generator, accounts=[indexed["account"]], query="AWS")
 
         assert response.status == "NEEDS_HUMAN_REVIEW"
         assert response.citations == []
 
-    def test_model_reporting_insufficient_evidence_is_respected(self, store, embedder, indexed):
+    def test_model_reporting_insufficient_evidence_is_respected(self, candidate_store, embedder, indexed):
         generator = ScriptedGenerator(
             answer="The documents do not mention AWS.", cited=[],
             status="INSUFFICIENT_EVIDENCE",
         )
-        response = _ask(store, embedder, generator, org=indexed["org"], query="AWS")
+        response = _ask(candidate_store, embedder, generator, accounts=[indexed["account"]], query="AWS")
 
         assert response.status == "INSUFFICIENT_EVIDENCE"
 
-    def test_citation_from_another_candidate_is_rejected(self, store, embedder, indexed):
-        """Even if the model somehow names a real chunk from someone else."""
+    def test_citation_from_another_account_is_rejected(self, candidate_store, embedder, indexed):
+        """Even if the model somehow names a real chunk from someone else.
+
+        Nothing outside the authorized universe is in the retrieved context,
+        so an id belonging to another account can only ever be rejected.
+        """
         generator = ScriptedGenerator(answer="x", cited=["chunk-of-another-person"])
-        response = _ask(store, embedder, generator, org=indexed["org"], query="Kubernetes")
+        response = _ask(candidate_store, embedder, generator, accounts=[indexed["account"]], query="Kubernetes")
 
         assert response.citations == []
         assert response.rejectedCitations == ["chunk-of-another-person"]
@@ -258,11 +283,11 @@ class TestGenerationDisabled:
             )
 
 
-def _retrieved(store, embedder, org):
+def _retrieved(store, embedder, account):
     from app.retrieval import search_evidence
 
     return search_evidence(
-        organization_id=org, query="Kubernetes", limit=8, candidate_id=CAND,
+        candidate_account_ids=[account], query="Kubernetes", limit=8,
         document_id=None, use_rerank=False, settings=get_settings(),
         embedder=embedder, store=store, reranker=None,
     ).hits
@@ -293,7 +318,11 @@ class TestGenerationFailureIsHonest:
         response = client.post(
             "/internal/rag",
             headers=auth_headers,
-            json={"organizationId": "org-a", "query": "Kubernetes?", "locale": "en"},
+            json={
+                "candidateAccountIds": ["acct-a"],
+                "query": "Kubernetes?",
+                "locale": "en",
+            },
         )
         # Either no evidence (200, refused before the LLM) or a clean 503 —
         # never an opaque internal error.
@@ -309,7 +338,11 @@ class TestGenerationFailureIsHonest:
         response = client.post(
             "/internal/search",
             headers=auth_headers,
-            json={"organizationId": "org-a", "query": "Kubernetes", "rerank": False},
+            json={
+                "candidateAccountIds": ["acct-a"],
+                "query": "Kubernetes",
+                "rerank": False,
+            },
         )
         assert response.status_code == 200
 
@@ -321,7 +354,7 @@ class TestGenerationFailureIsHonest:
             "/internal/evidence-map",
             headers=auth_headers,
             json={
-                "organizationId": "org-a", "candidateId": "c1", "vacancyId": "v1",
+                "candidateAccountId": "acct-a", "vacancyId": "v1",
                 "requirements": [{"requirementId": "r1", "text": "Kubernetes"}],
             },
         )
@@ -344,7 +377,7 @@ class TestAnswerCitationConsistency:
     """
 
     def test_ordinal_citations_map_to_real_chunks_and_stay_grounded(
-        self, store, embedder, indexed
+        self, candidate_store, embedder, indexed
     ):
         generator = ScriptedGenerator(
             answer="The candidate ran production Kubernetes [1].",
@@ -352,7 +385,8 @@ class TestAnswerCitationConsistency:
             status="GROUNDED",
         )
         response = _ask(
-            store, embedder, generator, org=indexed["org"], query="Kubernetes"
+            candidate_store, embedder, generator,
+            accounts=[indexed["account"]], query="Kubernetes",
         )
 
         # Passage 1 of the exact retrieved context, validated normally.
@@ -367,7 +401,7 @@ class TestAnswerCitationConsistency:
         assert "[1]" not in response.answer
 
     def test_rejected_references_leave_no_markers_behind(
-        self, store, embedder, indexed
+        self, candidate_store, embedder, indexed
     ):
         generator = ScriptedGenerator(
             answer="Claims here [1] and there [99] and invented "
@@ -376,7 +410,8 @@ class TestAnswerCitationConsistency:
             status="GROUNDED",
         )
         response = _ask(
-            store, embedder, generator, org=indexed["org"], query="Kubernetes"
+            candidate_store, embedder, generator,
+            accounts=[indexed["account"]], query="Kubernetes",
         )
 
         # Nothing validated -> downgraded, and the prose carries NO markers.
@@ -387,7 +422,7 @@ class TestAnswerCitationConsistency:
         assert "deadbeef" not in response.answer
 
     def test_no_raw_chunk_uuid_without_a_matching_citation(
-        self, store, embedder, indexed
+        self, candidate_store, embedder, indexed
     ):
         # An accepted citation's id MAY appear (the frontend renders it as a
         # numbered reference); any other uuid must not survive.
@@ -395,7 +430,8 @@ class TestAnswerCitationConsistency:
             answer="Kubernetes work [2].", cited=["2"], status="GROUNDED"
         )
         response = _ask(
-            store, embedder, generator, org=indexed["org"], query="Kubernetes"
+            candidate_store, embedder, generator,
+            accounts=[indexed["account"]], query="Kubernetes",
         )
 
         accepted = {c.chunkId for c in response.citations}
@@ -426,17 +462,16 @@ class TestVacancyContextGrounding:
         )
 
     def test_summary_passes_vacancy_context_to_the_generator(
-        self, store, embedder, indexed
+        self, candidate_store, embedder, indexed
     ):
         generator = ScriptedGenerator(answer="ok", status="GROUNDED")
         summarise_candidate(
-            organization_id=indexed["org"],
-            candidate_id=CAND,
+            candidate_account_id=indexed["account"],
             locale="en",
             limit=8,
             settings=get_settings(),
             embedder=embedder,
-            store=store,
+            store=candidate_store,
             reranker=None,
             generator=generator,
             vacancy=self._vacancy(),
@@ -448,18 +483,17 @@ class TestVacancyContextGrounding:
         assert "[nice-to-have] Korean language" in call["vacancy_context"]
 
     def test_answer_passes_vacancy_context_to_the_generator(
-        self, store, embedder, indexed
+        self, candidate_store, embedder, indexed
     ):
         generator = ScriptedGenerator(answer="ok", status="GROUNDED")
         answer_question(
-            organization_id=indexed["org"],
+            candidate_account_ids=[indexed["account"]],
             query="Does this candidate know Kubernetes?",
-            candidate_id=CAND,
             locale="en",
             limit=8,
             settings=get_settings(),
             embedder=embedder,
-            store=store,
+            store=candidate_store,
             reranker=None,
             generator=generator,
             vacancy=self._vacancy(),
@@ -468,16 +502,17 @@ class TestVacancyContextGrounding:
         assert call["kind"] == "answer"
         assert "Senior Backend Engineer" in call["vacancy_context"]
 
-    def test_without_vacancy_the_context_stays_none(self, store, embedder, indexed):
+    def test_without_vacancy_the_context_stays_none(
+        self, candidate_store, embedder, indexed
+    ):
         generator = ScriptedGenerator(answer="ok", status="GROUNDED")
         summarise_candidate(
-            organization_id=indexed["org"],
-            candidate_id=CAND,
+            candidate_account_id=indexed["account"],
             locale="en",
             limit=8,
             settings=get_settings(),
             embedder=embedder,
-            store=store,
+            store=candidate_store,
             reranker=None,
             generator=generator,
         )

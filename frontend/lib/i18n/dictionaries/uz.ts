@@ -375,40 +375,32 @@ const uz: Dictionary = {
     phone: "Telefon",
     added: "Birinchi ariza",
     documents: "Hujjatlar",
-    documentsUploaded: {
-      one: "{count} fayl yuborilgan",
-      other: "{count} fayl yuborilgan",
-    },
-    noDocumentsYet:
-      "Hozircha hujjat yoʻq. Nomzod ariza bilan yuborgan rezyume shu yerda koʻrinadi.",
 
     // Dalil manbalari — fayllar va professional havolalar. HR uchun faqat oʻqish.
-    evidenceSources: "Dalil manbalari",
-    evidenceSourceCounts: "yuborilgan fayllar: {files} · havolalar: {links}",
-    filesCount: {
-      one: "Fayl · {count}",
-      other: "Fayllar · {count}",
-    } as Plural,
-    linksCount: {
-      one: "Professional havola · {count}",
-      other: "Professional havolalar · {count}",
-    } as Plural,
+    currentEvidence: "Nomzodning joriy maʼlumotlari",
+    currentEvidenceHint:
+      "Nomzodning hozirgi profili, fayllari va havolalari — topshirilgan payt emas, ayni hozirgi holat.",
+    currentEvidenceEmpty: "Nomzodda hozircha fayl yoki havola yoʻq.",
+    currentDocuments: "Hujjatlar",
+    currentLinks: "Professional havolalar",
+    currentEvidenceDocument: "Hujjat",
+    openCurrentFile: "Ochish",
+    openOriginalLink: "Asl manbani ochish",
     noSource: "Manba tanlanmagan",
     noSourceHint: "Nima yuborilganini koʻrish uchun fayl yoki havolani tanlang.",
     originalUrl: "Asl havola",
-    submittedContent: "Yuborilgan kontent",
-    fetchedOn: "{date} sanasida oʻqilgan",
-    pagesRead: {
-      one: "{count} sahifa oʻqildi",
-      other: "{count} sahifa oʻqildi",
-    } as Plural,
-    snapshotNote:
-      "Bu — nomzod ariza bergan paytdagi kontent. Jonli sahifa oʻshandan beri oʻzgargan boʻlishi mumkin; quyidagi tahlil yuborilgan nusxaga asoslanadi.",
-    sourceIndexingFailed:
-      "Bu havolani tahlilga tayyorlab boʻlmadi, shuning uchun u AI javoblarida koʻrinmaydi.",
     openOriginal: "Aslini ochish",
     applications: "Arizalar",
     applicationsHint: "Bosqich oʻzgarishi uni bajargan xodim bilan qayd etiladi.",
+    profile: "Profil",
+    application: "Ariza",
+    attempts: "Arizalar soni",
+    appliedAt: "Ariza sanasi",
+    currentStatus: "Joriy holat",
+    otherVacancies: "Boshqa vakansiyalar",
+    otherVacanciesHint:
+      "Bu nomzod ishtirok etayotgan boshqa jarayonlar. Har birining bosqichi mustaqil.",
+    noApplicationForVacancy: "Bu vakansiyaga ariza yoʻq",
     applicationStage: "Ariza bosqichi",
     notAttached: "Vakansiyaga bogʻlanmagan",
     notAttachedHint:
@@ -993,6 +985,25 @@ const uz: Dictionary = {
     errVacancyRequired: "Bu nomzodni qoʻshish uchun oʻz vakansiyangizni tanlang.",
   },
 
+  /**
+   * Re-application vocabulary, shared by every HR surface that shows it.
+   *
+   * A candidate may apply to one vacancy several times, so both the vacancy
+   * applicant list and Candidate Detail speak about attempts — in the same
+   * words, from one place, because two copies would drift.
+   */
+  attempts: {
+    count: {
+      one: "{count} ta ariza",
+      other: "{count} ta ariza",
+    },
+    label: "{number}-ariza",
+    current: "Joriy",
+    history: "Oldingi arizalar tarixi",
+    viewHistory: "Tarixni koʻrsatish",
+    hideHistory: "Tarixni yashirish",
+  },
+
   vacancyDetail: {
     breadcrumbNew: "Yangi",
     jobDescription: "Lavozim tavsifi",
@@ -1213,6 +1224,8 @@ const uz: Dictionary = {
     createFailed: "Profilni yaratib boʻlmadi.",
     resumeUploadFailed: "Faylni yuklab boʻlmadi.",
     documentDeleteFailed: "Hujjatni oʻchirib boʻlmadi.",
+    retryDocument: "Qayta urinish",
+    documentRetryFailed: "Hujjatni qayta ishlashni takrorlab boʻlmadi.",
     confirmDeleteTitle: "Bu hujjat oʻchirilsinmi?",
     confirmDeleteQuestion: "“{name}” butunlay oʻchiriladi.",
     confirmDeleteConsequence:
@@ -1278,7 +1291,6 @@ const uz: Dictionary = {
     emptyHint: "Ariza bergan vakansiyalaringiz joriy bosqichi bilan shu yerda koʻrinadi.",
     appliedOn: "{date} da ariza berilgan",
     updatedOn: "{date} da yangilangan",
-    submittedResume: "{name} yuborilgan",
     withdraw: "Qaytarib olish",
     withdrawing: "Qaytarilmoqda",
     withdrawn: "Ariza qaytarib olindi",

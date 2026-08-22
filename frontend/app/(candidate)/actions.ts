@@ -14,6 +14,7 @@ import type {
   CandidateLinkInput,
   JobMatchResult,
   MyApplication,
+  PersonalDocument,
 } from "@/lib/types";
 
 /**
@@ -97,6 +98,15 @@ export async function deletePersonalDocumentAction(
   id: string,
 ): Promise<CandidateResult<{ id: string }>> {
   const result = await run(() => api.deletePersonalDocument(id));
+  if (result.ok) revalidatePath("/my-profile");
+  return result;
+}
+
+/** Re-queues AI indexing for a FAILED document, without a re-upload. */
+export async function reprocessPersonalDocumentAction(
+  id: string,
+): Promise<CandidateResult<PersonalDocument>> {
+  const result = await run(() => api.reprocessPersonalDocument(id));
   if (result.ok) revalidatePath("/my-profile");
   return result;
 }

@@ -16,6 +16,11 @@ import { buttonStyles } from "@/components/ui/Button";
 import { CompareIcon, MessageIcon, UsersIcon } from "@/components/ui/icons";
 import { VacancyCloseButton } from "@/components/vacancies/VacancyCloseButton";
 import { getI18n } from "@/lib/i18n/server";
+import {
+  attemptNumber,
+  groupApplicantsByCandidate,
+} from "@/lib/vacancy/applicants";
+import { VACANCY_PARAM } from "@/lib/vacancy/selection";
 import { formatDateFor } from "@/lib/i18n/format";
 import { format, plural } from "@/lib/i18n/format";
 import type { Vacancy } from "@/lib/types";
@@ -48,10 +53,21 @@ export default async function VacancyDetailPage(
     throw error;
   }
 
-  const [{ applications }, conversationsPage] = await Promise.all([
-    api.getApplications({ vacancyId: vacancy.id }),
+  const [applications, conversationsPage] = await Promise.all([
+    // Every attempt, all pages: the list below is grouped by candidate, and
+    // grouping only page 1 would both split a person across pages and make
+    // the applicant count report attempts instead of people.
+    api.getAllApplications({ vacancyId: vacancy.id }),
     api.getOrganizationConversations({ vacancyId: vacancy.id, page: 1, limit: 100 }),
   ]);
+  /**
+   * One row per candidate, not per application.
+   *
+   * A candidate who was rejected and re-applied holds several applications to
+   * this vacancy. They are one applicant, so they get one row, driven by their
+   * newest attempt — every earlier attempt stays intact underneath it.
+   */
+  const applicants = groupApplicantsByCandidate(applications);
   const conversationByCandidate = new Map(
     conversationsPage.conversations.map((conversation) => [
       conversation.candidate.id,
@@ -214,7 +230,7 @@ export default async function VacancyDetailPage(
               title={d.candidates.title}
               description={plural(
                 d.vacancyDetail.candidatesAttached,
-                applications.length,
+                applicants.length,
                 locale,
               )}
               action={
@@ -226,7 +242,7 @@ export default async function VacancyDetailPage(
                 </Link>
               }
             />
-            {applications.length === 0 ? (
+            {applicants.length === 0 ? (
               <EmptyState
                 icon={<UsersIcon className="size-5" />}
                 title={d.vacancyDetail.noCandidates}
@@ -234,30 +250,44 @@ export default async function VacancyDetailPage(
               />
             ) : (
               <ul className="divide-y divide-[var(--line)]">
-                {applications.map((application) => {
+                {applicants.map((applicant) => {
                   const conversation = conversationByCandidate.get(
-                    application.candidateId,
+                    applicant.candidateId,
                   );
+                  // Everything operational reads the CURRENT attempt: the
+                  // stage badge, the applied date, and any id an action needs.
+                  const current = applicant.current;
                   return (
-                  <li key={application.id} className="flex items-center gap-3 px-4 py-3">
+                  <li key={applicant.candidateId} className="px-4 py-3">
+                    <div className="flex items-center gap-3">
                     <Link
-                      href={`/candidates/${application.candidateId}`}
+                      href={`/candidates/${applicant.candidateId}?${VACANCY_PARAM}=${vacancy.id}`}
                       className="flex min-w-0 flex-1 items-center gap-3 transition-colors hover:text-brand"
                     >
                       <Avatar
-                        name={application.candidate?.fullName ?? "?"}
+                        name={applicant.candidate?.fullName ?? "?"}
+                        src={applicant.candidate?.avatarUrl ?? null}
                         size="sm"
                       />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[13.5px] font-medium text-ink">
-                          {application.candidate?.fullName ?? d.tables.candidate}
+                          {applicant.candidate?.fullName ?? d.tables.candidate}
                         </p>
                         <p className="truncate text-[12.5px] text-ink-muted">
-                          {application.candidate?.currentTitle ??
+                          {applicant.candidate?.currentTitle ??
                             d.common.notSet}
                         </p>
                       </div>
-                      <ApplicationStatusBadge status={application.status} />
+                      {applicant.attemptCount > 1 ? (
+                        <Badge>
+                          {plural(
+                            d.attempts.count,
+                            applicant.attemptCount,
+                            locale,
+                          )}
+                        </Badge>
+                      ) : null}
+                      <ApplicationStatusBadge status={current.status} />
                     </Link>
                     {conversation ? (
                       <Link
@@ -267,6 +297,51 @@ export default async function VacancyDetailPage(
                         <MessageIcon className="size-4" />
                         {d.chat.openChat}
                       </Link>
+                    ) : null}
+                    </div>
+
+                    {/*
+                      Earlier attempts, read-only. A plain <details> so the
+                      history needs no client bundle and still works with no
+                      JS; only the candidates who actually re-applied get it.
+                    */}
+                    {applicant.attemptCount > 1 ? (
+                      <details className="group mt-2 pl-11">
+                        <summary className="w-fit cursor-pointer list-none text-[12px] font-medium text-brand hover:underline">
+                          <span className="group-open:hidden">
+                            {d.attempts.viewHistory}
+                          </span>
+                          <span className="hidden group-open:inline">
+                            {d.attempts.hideHistory}
+                          </span>
+                        </summary>
+                        <p className="mt-2 text-[11.5px] font-semibold uppercase tracking-wide text-ink-subtle">
+                          {d.attempts.history}
+                        </p>
+                        <ol className="mt-1.5 flex flex-col gap-1.5">
+                          {applicant.attempts.map((attempt, index) => (
+                            <li
+                              key={attempt.id}
+                              className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-muted"
+                            >
+                              <span className="text-ink">
+                                {format(d.attempts.label, {
+                                  number: attemptNumber(applicant, index),
+                                })}
+                              </span>
+                              <ApplicationStatusBadge status={attempt.status} />
+                              <span>
+                                {format(d.candidates.appliedOn, {
+                                  date: formatDateFor(attempt.createdAt, d),
+                                })}
+                              </span>
+                              {attempt.id === current.id ? (
+                                <Badge>{d.attempts.current}</Badge>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ol>
+                      </details>
                     ) : null}
                   </li>
                   );
@@ -286,7 +361,7 @@ export default async function VacancyDetailPage(
                     {d.candidates.title}
                   </dt>
                   <dd className="text-[15px] font-semibold tabular-nums text-ink">
-                    {applications.length}
+                    {applicants.length}
                   </dd>
                 </div>
                 <div className="flex items-center justify-between">

@@ -94,6 +94,9 @@ describe("linkFailureIsRetryable", () => {
     expect(linkFailureIsRetryable("UPSTREAM_ERROR")).toBe(true);
     expect(linkFailureIsRetryable("RENDER_FAILED")).toBe(true);
     expect(linkFailureIsRetryable("INDEXING_FAILED")).toBe(true);
+    // Oversize is a state of the page (and of the backend's caps), not a
+    // verdict on the URL — the backend accepts this retry too.
+    expect(linkFailureIsRetryable("CONTENT_TOO_LARGE")).toBe(true);
   });
 
   it("hides Retry for failures that can never succeed", () => {
@@ -105,7 +108,6 @@ describe("linkFailureIsRetryable", () => {
       "INVALID_URL",
       "ACCESS_DENIED",
       "NO_MEANINGFUL_CONTENT",
-      "CONTENT_TOO_LARGE",
       "TOO_MANY_REDIRECTS",
       "UNSUPPORTED_CONTENT_TYPE",
     ]) {

@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { StorageService } from '../storage/storage.service';
 import { AiServiceClient } from '../ai/ai-service.client';
 import { DocumentProcessingProducer } from '../queue/document-processing.producer';
 
@@ -9,41 +8,30 @@ import { DocumentProcessingProducer } from '../queue/document-processing.produce
  *
  * ## The product rule this enforces
  *
- * A candidate owns their evidence. When they delete a file or a professional
- * link, that evidence stops existing everywhere in HR Copilot — their own AI,
- * every organization they sent it to, every recruiter AI surface and every
- * citation — while the APPLICATION itself survives with its status, its chat
- * and its history intact. An application whose evidence has all been deleted is
- * an application with no current evidence, not a deleted application.
- *
- * This replaces the previous rule, under which an organization's snapshot was
- * preserved forever. Snapshots are still immutable in the sense that matters —
- * nothing rewrites their content, and a live page changing does not change what
- * was submitted — but they no longer outlive the source they were copied from.
- *
- * ## Why one service
- *
- * The cascade touches five systems that have no shared transaction: Postgres
- * rows, object storage, the personal Qdrant collection, one organization
- * collection per recipient, and the derived AI artifacts stored in Postgres.
- * Spreading that across the delete paths guarantees they drift. Here it is one
- * ordered, idempotent sequence, described once.
+ * A candidate owns their evidence, and there is exactly ONE copy of it — the
+ * current one, under their account. Nothing snapshots it at apply time any
+ * more. When they delete a file or a professional link, that evidence stops
+ * existing everywhere in HR Copilot — their own AI, every recruiter surface
+ * of every organization they applied to, and every stored citation — while
+ * the APPLICATION itself survives with its status, its chat and its history
+ * intact. An application whose evidence has all been deleted is an
+ * application with no current evidence, not a deleted application.
  *
  * ## The order, and why
  *
- *  1. **Storage bytes for the personal file first.** If this fails the whole
- *     delete aborts with nothing else changed — success is never reported while
- *     the private bytes provably remain.
- *  2. **One transaction flips the authoritative state**: the personal row, the
- *     derived organization copies, the derived AI artifacts and the evidence
- *     revision all move together. Everything that decides what the AI may read
- *     is read from these rows, so the privacy rule takes effect at commit,
- *     not when the last vector is finally evicted.
- *  3. **Vectors and organization bytes afterwards, best effort and
- *     idempotent.** A Qdrant outage delays physical cleanup; it does not delay
- *     the rule, because retrieval is authorized against step 2's rows (see
- *     `activeApplicationSourceIds` / `activePersonalSourceIds`). A stale vector
- *     is inert, and re-running the delete converges.
+ *  1. **Storage bytes for the personal file first** (the caller's job). If
+ *     that fails the whole delete aborts with nothing else changed — success
+ *     is never reported while the private bytes provably remain.
+ *  2. **One transaction flips the authoritative state**: the personal row
+ *     (whose FK cascades take every stored CandidateEvidence citation with
+ *     it, in every organization), the derived RequirementEvidenceMap verdicts,
+ *     and the evidence revision all move together. Everything that decides
+ *     what the AI may read is read from these rows, so the privacy rule takes
+ *     effect at commit, not when the last vector is finally evicted.
+ *  3. **Vectors afterwards, best effort and idempotent.** A Qdrant outage
+ *     delays physical cleanup; it does not delay the rule, because retrieval
+ *     is authorized against step 2's rows (see `activePersonalSourceIds`).
+ *     A stale vector is inert, and re-running the delete converges.
  */
 @Injectable()
 export class CandidateEvidenceLifecycleService {
@@ -51,7 +39,6 @@ export class CandidateEvidenceLifecycleService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: StorageService,
     private readonly producer: DocumentProcessingProducer,
     private readonly ai: AiServiceClient,
   ) {}
@@ -105,31 +92,6 @@ export class CandidateEvidenceLifecycleService {
     return [...documents.map((d) => d.id), ...links.map((l) => l.id)];
   }
 
-  /**
-   * Every source id ONE organization may currently read for one candidate —
-   * the surviving submitted files and link snapshots.
-   *
-   * Deliberately organization-scoped as well as candidate-scoped: the list is
-   * a retrieval filter, and a filter that leaked ids across tenants would be
-   * worse than no filter at all.
-   */
-  async activeApplicationSourceIds(
-    organizationId: string,
-    candidateId: string,
-  ): Promise<string[]> {
-    const [documents, linkSources] = await Promise.all([
-      this.prisma.document.findMany({
-        where: { organizationId, candidateId },
-        select: { id: true },
-      }),
-      this.prisma.applicationLinkSource.findMany({
-        where: { organizationId, candidateId },
-        select: { id: true },
-      }),
-    ]);
-    return [...documents.map((d) => d.id), ...linkSources.map((s) => s.id)];
-  }
-
   /** The account's current evidence revision. */
   async revision(candidateAccountId: string): Promise<number> {
     const account = await this.prisma.candidateAccount.findUnique({
@@ -169,139 +131,39 @@ export class CandidateEvidenceLifecycleService {
   }
 
   /**
-   * Removes every ORGANIZATION-side copy derived from one personal source, in
-   * every organization it was ever submitted to.
+   * Invalidates the AI artifacts DERIVED from one personal source, inside the
+   * caller's transaction.
    *
-   * Returns the ids that were removed so the caller can evict their vectors
-   * after the transaction commits.
+   * The stored `CandidateEvidence` citations of a deleted row are handled by
+   * their foreign keys (ON DELETE CASCADE from `documents` / `candidate_links`)
+   * — this helper exists for what a foreign key could never do. A
+   * `RequirementEvidenceMap` row that said "Kubernetes — EVIDENCE_FOUND"
+   * would survive with nothing behind it, and a recruiter would read a
+   * verdict whose proof had silently vanished. So the mapping rows for every
+   * org-side record of this account go too, in every organization, and JD
+   * Evidence reports the requirement as un-run until someone re-runs it
+   * against what remains. Compare reads those same rows, so it is invalidated
+   * by the same deletion. Summary, Ask and Interview Questions are generated
+   * per request and cached nowhere — they simply cannot retrieve a source
+   * that no longer exists.
    *
-   * Lineage is what makes this exact rather than approximate: only copies
-   * whose `sourceCandidateDocumentId` / `sourceLinkId` names THIS source are
-   * touched. Another file the same person submitted to the same application is
-   * not related to this one and is left alone.
+   * `citationsOf` covers the one case with no cascade: a link RE-POINTED at a
+   * different URL keeps its row, so its stored citations must go explicitly —
+   * the passages cited came from an address the candidate no longer claims.
    */
-  private async collectDerivedCopies(
+  private async invalidateDerivedArtifacts(
     tx: PrismaTransaction,
-    source: { fileId?: string; linkId?: string },
-  ): Promise<DerivedCopies> {
-    const documents = source.fileId
-      ? await tx.document.findMany({
-          where: {
-            sourceCandidateDocumentId: source.fileId,
-            organizationId: { not: null },
-          },
-          select: {
-            id: true,
-            organizationId: true,
-            candidateId: true,
-            storageKey: true,
-          },
-        })
-      : [];
-    const linkSources = source.linkId
-      ? await tx.applicationLinkSource.findMany({
-          where: { sourceLinkId: source.linkId },
-          select: { id: true, organizationId: true, candidateId: true },
-        })
-      : [];
-
-    return {
-      documents: documents.map((d) => ({
-        id: d.id,
-        organizationId: d.organizationId!,
-        candidateId: d.candidateId,
-        storageKey: d.storageKey,
-      })),
-      linkSources,
-    };
-  }
-
-  /**
-   * Deletes the derived copies inside the caller's transaction and invalidates
-   * the AI artifacts derived FROM them.
-   *
-   * The invalidation is the part a foreign key could never do. Deleting a
-   * `Document` cascades its `CandidateEvidence` citations away, which is
-   * correct but not sufficient: the `RequirementEvidenceMap` row that said
-   * "Kubernetes — EVIDENCE_FOUND" would survive with nothing behind it, and a
-   * recruiter would read a verdict whose proof had silently vanished. So the
-   * mapping rows for every affected candidate go too, and JD Evidence reports
-   * the requirement as un-run until someone re-runs it against what remains.
-   *
-   * Compare reads those same rows, so it is invalidated by the same deletion.
-   * Summary, Ask and Interview Questions are generated per request and cached
-   * nowhere, so there is nothing of theirs to invalidate — they simply cannot
-   * retrieve a source that no longer exists.
-   */
-  private async removeDerivedCopies(
-    tx: PrismaTransaction,
-    derived: DerivedCopies,
+    candidateAccountId: string,
+    citationsOf?: { linkId: string },
   ): Promise<void> {
-    if (derived.documents.length > 0) {
-      await tx.document.deleteMany({
-        where: { id: { in: derived.documents.map((d) => d.id) } },
+    if (citationsOf) {
+      await tx.candidateEvidence.deleteMany({
+        where: { candidateLinkId: citationsOf.linkId },
       });
     }
-    if (derived.linkSources.length > 0) {
-      await tx.applicationLinkSource.deleteMany({
-        where: { id: { in: derived.linkSources.map((s) => s.id) } },
-      });
-    }
-
-    const affectedCandidateIds = [
-      ...new Set([
-        ...derived.documents.map((d) => d.candidateId),
-        ...derived.linkSources.map((s) => s.candidateId),
-      ]),
-    ].filter((id): id is string => Boolean(id));
-
-    if (affectedCandidateIds.length > 0) {
-      // Scoped to the candidates whose evidence actually changed — an
-      // unrelated organization's mapping work is not thrown away.
-      await tx.requirementEvidenceMap.deleteMany({
-        where: { candidateId: { in: affectedCandidateIds } },
-      });
-    }
-  }
-
-  /**
-   * Physical cleanup after the transaction: organization vectors, organization
-   * bytes, and the personal vectors.
-   *
-   * Every step is best effort and idempotent. Nothing here is allowed to throw
-   * — the authoritative deletion already happened, and turning a storage
-   * hiccup into a failed request would tell the candidate their file was not
-   * deleted when it was.
-   */
-  private async evictDerived(derived: DerivedCopies): Promise<void> {
-    for (const document of derived.documents) {
-      await this.storage.delete(document.storageKey).catch(() => {
-        this.logger.warn(
-          `Submitted copy ${document.id} removed but its stored object remains`,
-        );
-      });
-      await this.deleteOrgVectors(document.organizationId, document.id);
-    }
-    for (const source of derived.linkSources) {
-      await this.deleteOrgVectors(source.organizationId, source.id);
-    }
-  }
-
-  private async deleteOrgVectors(
-    organizationId: string,
-    sourceId: string,
-  ): Promise<void> {
-    if (!this.ai.enabled) return;
-    try {
-      await this.ai.deleteDocument(organizationId, sourceId);
-    } catch (error) {
-      // Retrieval is authorized against the rows, which are already gone, so
-      // a surviving vector is unreachable rather than dangerous.
-      this.logger.error(
-        `Source ${sourceId} deleted but its organization vectors could not be ` +
-          `evicted: ${(error as Error).message}`,
-      );
-    }
+    await tx.requirementEvidenceMap.deleteMany({
+      where: { candidate: { candidateAccountId } },
+    });
   }
 
   /**
@@ -309,22 +171,20 @@ export class CandidateEvidenceLifecycleService {
    *
    * Assumes the caller has already verified ownership and removed the personal
    * object bytes — that ordering is the caller's privacy guarantee and is not
-   * duplicated here.
+   * duplicated here. Deleting the row cascades every stored citation of it
+   * (in every organization) at the database level; the derived verdicts are
+   * invalidated explicitly.
    */
   async cascadePersonalFileDeletion(
     candidateAccountId: string,
     documentId: string,
     options: { repointResumeTo?: 'newest' } = {},
   ): Promise<void> {
-    const derived = await this.prisma.$transaction(async (tx) => {
-      const copies = await this.collectDerivedCopies(tx, {
-        fileId: documentId,
-      });
-
+    await this.prisma.$transaction(async (tx) => {
       await tx.document.deleteMany({
         where: { id: documentId, candidateAccountId },
       });
-      await this.removeDerivedCopies(tx, copies);
+      await this.invalidateDerivedArtifacts(tx, candidateAccountId);
 
       if (options.repointResumeTo === 'newest') {
         const newest = await tx.document.findFirst({
@@ -342,18 +202,13 @@ export class CandidateEvidenceLifecycleService {
         where: { id: candidateAccountId },
         data: { evidenceRevision: { increment: 1 } },
       });
-
-      return copies;
     });
 
-    await this.evictDerived(derived);
     await this.evictPersonalFileVectors(candidateAccountId, documentId);
 
     this.logger.log(
-      `Personal file ${documentId} deleted: ${derived.documents.length} ` +
-        `submitted copy/copies removed from ${
-          new Set(derived.documents.map((d) => d.organizationId)).size
-        } organization(s)`,
+      `Personal file ${documentId} deleted; its citations and derived ` +
+        `verdicts are gone from every organization`,
     );
   }
 
@@ -362,55 +217,46 @@ export class CandidateEvidenceLifecycleService {
     candidateAccountId: string,
     linkId: string,
   ): Promise<void> {
-    const derived = await this.prisma.$transaction(async (tx) => {
-      const copies = await this.collectDerivedCopies(tx, { linkId });
-
+    await this.prisma.$transaction(async (tx) => {
       await tx.candidateLink.deleteMany({
         where: { id: linkId, candidateAccountId },
       });
-      await this.removeDerivedCopies(tx, copies);
+      await this.invalidateDerivedArtifacts(tx, candidateAccountId);
       await tx.candidateAccount.update({
         where: { id: candidateAccountId },
         data: { evidenceRevision: { increment: 1 } },
       });
-
-      return copies;
     });
 
-    await this.evictDerived(derived);
     await this.evictPersonalLinkVectors(candidateAccountId, linkId);
 
-    this.logger.log(
-      `Personal link ${linkId} deleted: ${derived.linkSources.length} ` +
-        `submitted snapshot(s) removed`,
-    );
+    this.logger.log(`Personal link ${linkId} deleted with its derived artifacts`);
   }
 
   /**
-   * Removes the organization copies derived from a personal source WITHOUT
-   * deleting the personal source itself.
+   * Invalidation WITHOUT deleting the personal source itself.
    *
    * Used when a link is re-pointed at a different URL. That is a different
-   * source wearing the same row id: the content a recruiter reviewed came from
-   * an address the candidate no longer claims, so the submitted copies of the
-   * OLD address go, exactly as they would on a delete. What is submitted next
-   * is whatever the candidate applies with afterwards.
+   * source wearing the same row id: stored citations of the OLD address are
+   * removed explicitly (the row survives, so no FK fires), the derived
+   * verdicts are reset, and whatever the new URL yields becomes the only
+   * current version once it is re-fetched and re-indexed.
    */
   async cascadeDerivedCopyRemoval(
     candidateAccountId: string,
     source: { fileId?: string; linkId?: string },
   ): Promise<void> {
-    const derived = await this.prisma.$transaction(async (tx) => {
-      const copies = await this.collectDerivedCopies(tx, source);
-      await this.removeDerivedCopies(tx, copies);
+    await this.prisma.$transaction(async (tx) => {
+      await this.invalidateDerivedArtifacts(
+        tx,
+        candidateAccountId,
+        source.linkId ? { linkId: source.linkId } : undefined,
+      );
       await tx.candidateAccount.update({
         where: { id: candidateAccountId },
         data: { evidenceRevision: { increment: 1 } },
       });
-      return copies;
     });
-
-    await this.evictDerived(derived);
   }
 
   /**
@@ -470,21 +316,6 @@ export class CandidateEvidenceLifecycleService {
         });
     }
   }
-}
-
-/** One personal source's organization-side descendants. */
-interface DerivedCopies {
-  documents: {
-    id: string;
-    organizationId: string;
-    candidateId: string | null;
-    storageKey: string;
-  }[];
-  linkSources: {
-    id: string;
-    organizationId: string;
-    candidateId: string;
-  }[];
 }
 
 /**

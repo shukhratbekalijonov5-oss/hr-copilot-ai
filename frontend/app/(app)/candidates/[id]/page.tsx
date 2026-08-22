@@ -10,6 +10,7 @@ import {
   resolveVacancySelection,
   selectedVacancyId,
 } from "@/lib/vacancy/selection";
+import { vacancyAttempts } from "@/lib/vacancy/applicants";
 import type {
   AiFailureReason,
   Candidate,
@@ -86,29 +87,36 @@ export default async function CandidateDetailPage(
   }
 
   // Vacancies this candidate is actually in AND the caller actually owns.
+  // Deduped by vacancy id: since reapply-after-rejection a candidate can hold
+  // SEVERAL applications to one vacancy, but the selector offers the vacancy
+  // relationship, not the attempts — the newest attempt is picked separately
+  // below as `activeApplication`.
   const ownedById = new Map(myVacancies.map((vacancy) => [vacancy.id, vacancy]));
-  const eligible = candidate.applications
-    .map((application) => ownedById.get(application.vacancyId))
-    .filter((vacancy): vacancy is MyVacancy => Boolean(vacancy));
+  const eligible = [
+    ...new Map(
+      candidate.applications
+        .map((application) => ownedById.get(application.vacancyId))
+        .filter((vacancy): vacancy is MyVacancy => Boolean(vacancy))
+        .map((vacancy) => [vacancy.id, vacancy] as const),
+    ).values(),
+  ];
 
   const requested = selectedVacancyId(searchParams);
   const { selected, invalid } = resolveVacancySelection(eligible, requested);
 
   /**
-   * The CURRENT attempt in the active vacancy.
+   * This candidate's relationship with the ACTIVE vacancy: the current attempt
+   * plus every earlier one.
    *
    * A candidate may hold several applications to one vacancy — a rejection
    * ends an attempt without ending the relationship — so the newest is the
-   * live one. Taking the first match would let an old rejected attempt show
-   * as the candidate's stage.
+   * live one, and the older ones are history rather than noise.
+   *
+   * Resolved by the SAME function the vacancy applicant list uses, so the two
+   * screens can never disagree about which attempt is current.
    */
-  const activeApplication =
-    candidate.applications
-      .filter((application) => application.vacancyId === selected?.id)
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      )[0] ?? null;
+  const attempts = vacancyAttempts(candidate.applications, selected?.id ?? null);
+  const activeApplication = attempts?.current ?? null;
 
   /**
    * Read for the ACTIVE vacancy only. A plain read with no LLM in the path, so
@@ -116,7 +124,7 @@ export default async function CandidateDetailPage(
    * generation is unavailable; when retrieval is down the reason travels into
    * the panel instead of failing the page.
    */
-  const [evidence, conversations] = selected
+  const [evidence, conversations, currentEvidence] = selected
     ? await Promise.all([
         readEvidenceMap(candidate.id, selected.id),
         // Creator-scoped: a colleague's vacancy yields nothing rather than
@@ -128,8 +136,14 @@ export default async function CandidateDetailPage(
             limit: 100,
           })
           .catch(() => null),
+        // The applicant's LIVE profile/evidence. Best-effort: a failure here
+        // (a race with an account deletion, a transient error) hides the card
+        // rather than failing the whole page.
+        api
+          .getCandidateCurrentEvidence(candidate.id, selected.id)
+          .catch(() => null),
       ])
-    : [{ map: null, failure: null }, null];
+    : [{ map: null, failure: null }, null, null];
 
   const evidenceMap = evidence.map;
   const evidenceMapFailure = evidence.failure;
@@ -154,7 +168,9 @@ export default async function CandidateDetailPage(
         activeVacancy={selected}
         invalidSelection={invalid}
         activeApplication={activeApplication}
+        attempts={attempts?.attempts ?? []}
         applicationConversationId={conversationId}
+        currentEvidence={currentEvidence}
         evidenceMap={evidenceMap}
         evidenceMapFailure={evidenceMapFailure}
         role={

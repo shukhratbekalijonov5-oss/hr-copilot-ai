@@ -34,6 +34,7 @@ import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import {
   ApplicationSource,
   ApplicationStatus,
+  DocumentStatus,
   DocumentType,
 } from '../generated/prisma/enums';
 import {
@@ -42,6 +43,7 @@ import {
 } from '../documents/file-validation';
 import {
   DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES,
+  DOCUMENT_ERROR_CODES,
   MAX_PERSONAL_DOCUMENTS,
   personalDocumentLimitReached,
 } from '../documents/document-policy';
@@ -381,7 +383,7 @@ export class CandidateAccountService {
    *     file bytes provably remain. The delete is idempotent, so retrying is
    *     always safe.
    *  2. The FULL cascade, in one transaction: this row, every organization
-   *     copy derived from it (`sourceCandidateDocumentId`), the citations and
+   *     stored citation of it (FK cascade), the derived verdicts and
    *     requirement mappings built on those copies, and the account's evidence
    *     revision. If the deleted file was the primary resume the pointer moves
    *     to the newest remaining personal document, so applying keeps working
@@ -419,6 +421,67 @@ export class CandidateAccountService {
     });
 
     return { id: document.id, deleted: true };
+  }
+
+  /**
+   * Re-queues indexing for ONE of the caller's own FAILED documents.
+   *
+   * A document fails terminally after the queue's own retries are exhausted —
+   * historically almost always because a processing dependency (AI service,
+   * vector store) was down, not because the file is bad. The bytes are still
+   * in storage, so recovery is a re-enqueue, never a re-upload: the file the
+   * candidate already stands behind is exactly the file that gets indexed.
+   *
+   * Mirrors the professional-link reprocess: FAILED only (a COMPLETED
+   * document has nothing to fix and an in-flight one is already being
+   * worked), and a live queue job blocks a duplicate enqueue.
+   */
+  async reprocessPersonalDocument(userId: string, documentId: string) {
+    const account = await this.requireAccount(userId);
+    const document = await this.prisma.document.findFirst({
+      where: {
+        id: documentId,
+        candidateAccountId: account.id,
+        organizationId: null,
+      },
+      select: { id: true, status: true },
+    });
+    if (!document) throw new NotFoundException('Document not found');
+
+    if (document.status !== DocumentStatus.FAILED) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'Only a failed document can be retried.',
+        code: DOCUMENT_ERROR_CODES.DOCUMENT_NOT_RETRYABLE,
+      });
+    }
+    if (await this.producer.hasLivePersonalResumeJob(document.id)) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        message: 'This document is already being processed.',
+        code: DOCUMENT_ERROR_CODES.DOCUMENT_BUSY,
+      });
+    }
+
+    const updated = await this.prisma.document.update({
+      where: { id: document.id },
+      data: { status: DocumentStatus.UPLOADED },
+      select: {
+        id: true,
+        originalFileName: true,
+        mimeType: true,
+        fileSize: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+    await this.producer.enqueuePersonalResume(
+      { documentId: document.id, candidateAccountId: account.id },
+      { replaceExisting: true },
+    );
+    return updated;
   }
 
   /** Short-lived signed URL for the caller's own resume. */
@@ -874,7 +937,6 @@ const CANDIDATE_APPLICATION_SELECT = {
       organization: { select: { name: true } },
     },
   },
-  submittedDocument: { select: { originalFileName: true } },
 } as const;
 
 function toAccountData(dto: UpsertCandidateAccountDto) {

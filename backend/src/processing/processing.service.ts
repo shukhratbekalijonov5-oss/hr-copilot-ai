@@ -270,6 +270,11 @@ export class ProcessingService {
               originalFileName: true,
               status: true,
               type: true,
+              // Resolved in the same query rather than by the caller joining
+              // a separate document list: since the snapshot removal there is
+              // no org-wide document list to join against, and one row per
+              // job is what this screen reads anyway.
+              candidate: { select: { id: true, fullName: true } },
             },
           },
         },

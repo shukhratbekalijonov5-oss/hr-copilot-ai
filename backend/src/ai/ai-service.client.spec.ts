@@ -62,7 +62,9 @@ describe('AiServiceClient', () => {
 
     it('refuses to search rather than inventing hits', async () => {
       await expect(
-        client.searchEvidence('kubernetes', { organizationId: 'org-a' }),
+        client.searchEvidence('kubernetes', {
+          candidateAccountIds: ['acct-a'],
+        }),
       ).rejects.toBeInstanceOf(AiServiceDisabledError);
     });
 
@@ -80,7 +82,7 @@ describe('AiServiceClient', () => {
       });
 
       await makeClient('http://ai:8000').searchEvidence('kubernetes', {
-        organizationId: 'org-a',
+        candidateAccountIds: ['acct-a'],
       });
 
       const headers = fetchMock.mock.calls[0][1].headers as Record<
@@ -96,7 +98,7 @@ describe('AiServiceClient', () => {
       });
 
       await makeClient('http://ai:8000').searchEvidence('kubernetes', {
-        organizationId: 'org-a',
+        candidateAccountIds: ['acct-a'],
       });
 
       const headers = fetchMock.mock.calls[0][1].headers as Record<
@@ -177,21 +179,45 @@ describe('AiServiceClient', () => {
   });
 
   describe('searchEvidence', () => {
-    it('always sends the organizationId it was given', async () => {
+    it('sends the authorized account universe it was given', async () => {
       const fetchMock = mockFetch({
         json: () => Promise.resolve({ hits: [] }),
       });
 
       await makeClient('http://ai:8000').searchEvidence('kubernetes', {
-        organizationId: 'org-a',
-        candidateId: 'c1',
+        candidateAccountIds: ['acct-a', 'acct-b'],
+        documentId: 'doc-1',
         limit: 5,
       });
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-      expect(body.organizationId).toBe('org-a');
-      expect(body.candidateId).toBe('c1');
+      // The universe IS the authorization: it is resolved server-side from
+      // the caller's own vacancies and an account outside it is unreachable.
+      expect(body.candidateAccountIds).toEqual(['acct-a', 'acct-b']);
+      expect(body.documentId).toBe('doc-1');
       expect(body.limit).toBe(5);
+      // The tenant key is gone from retrieval entirely — there is no
+      // organization-owned copy of candidate evidence left to scope by.
+      expect(body).not.toHaveProperty('organizationId');
+      expect(body).not.toHaveProperty('candidateId');
+    });
+
+    it('passes an EMPTY universe through rather than dropping the filter', async () => {
+      const fetchMock = mockFetch({
+        json: () => Promise.resolve({ hits: [] }),
+      });
+
+      await makeClient('http://ai:8000').searchEvidence('kubernetes', {
+        candidateAccountIds: [],
+      });
+
+      // `[]` means "nothing is retrievable", and must never be normalised
+      // away into "no restriction" — that would turn an empty result into a
+      // search across every candidate in the index.
+      expect(
+        JSON.parse(fetchMock.mock.calls[0][1].body as string)
+          .candidateAccountIds,
+      ).toEqual([]);
     });
 
     it('defaults to reranking on', async () => {
@@ -200,7 +226,7 @@ describe('AiServiceClient', () => {
       });
 
       await makeClient('http://ai:8000').searchEvidence('kubernetes', {
-        organizationId: 'org-a',
+        candidateAccountIds: ['acct-a'],
       });
 
       expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).rerank).toBe(
@@ -220,7 +246,7 @@ describe('AiServiceClient', () => {
 
       await expect(
         makeClient('http://ai:8000').searchEvidence('x', {
-          organizationId: 'o',
+          candidateAccountIds: ['acct-a'],
         }),
       ).rejects.toBeInstanceOf(ServiceUnavailableException);
     });
@@ -235,7 +261,7 @@ describe('AiServiceClient', () => {
 
       await expect(
         makeClient('http://ai:8000').searchEvidence('x', {
-          organizationId: 'o',
+          candidateAccountIds: ['acct-a'],
         }),
       ).rejects.toThrow(/empty_document/);
     });
@@ -250,7 +276,7 @@ describe('AiServiceClient', () => {
 
       await expect(
         makeClient('http://ai:8000').searchEvidence('x', {
-          organizationId: 'o',
+          candidateAccountIds: ['acct-a'],
         }),
       ).rejects.toThrow(
         expect.objectContaining({
@@ -268,7 +294,7 @@ describe('AiServiceClient', () => {
 
       await expect(
         makeClient('http://ai:8000').searchEvidence('x', {
-          organizationId: 'o',
+          candidateAccountIds: ['acct-a'],
         }),
       ).rejects.toThrow(/did not respond within/);
     });

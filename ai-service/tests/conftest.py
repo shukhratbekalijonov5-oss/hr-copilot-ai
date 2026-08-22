@@ -8,6 +8,9 @@ import pytest
 TEST_TOKEN = "test-internal-service-token-value"
 os.environ.setdefault("INTERNAL_SERVICE_TOKEN", TEST_TOKEN)
 os.environ.setdefault("QDRANT_COLLECTION", "resume_chunks_test")
+# The HTTP path resolves the personal collection from settings; point it at a
+# test name so end-to-end tests never write into the dev personal collection.
+os.environ.setdefault("QDRANT_CANDIDATE_COLLECTION", "candidate_resume_chunks_test")
 os.environ.setdefault("ENVIRONMENT", "test")
 
 
@@ -59,6 +62,52 @@ def store(qdrant_available: bool):
         settings.qdrant_collection,
         api_key=settings.qdrant_api_key,
     )
+
+
+@pytest.fixture()
+def candidate_store(qdrant_available: bool):
+    """A throwaway PERSONAL collection, torn down after each test.
+
+    Retrieval now reads the candidate personal collection, so integration
+    tests index and search through a scratch CandidateResumeStore rather than
+    the org-scoped QdrantStore.
+    """
+    if not qdrant_available:
+        pytest.skip("Qdrant is not running")
+
+    import uuid
+
+    from app.candidate.store import CandidateResumeStore
+    from app.config import get_settings
+
+    settings = get_settings()
+    scratch = CandidateResumeStore(
+        settings.qdrant_url,
+        f"test_candidate_chunks_{uuid.uuid4().hex[:8]}",
+        api_key=settings.qdrant_api_key,
+    )
+    yield scratch
+    scratch._client.delete_collection(scratch.collection)
+
+
+@pytest.fixture()
+def vacancy_store(qdrant_available: bool):
+    if not qdrant_available:
+        pytest.skip("Qdrant is not running")
+
+    import uuid
+
+    from app.candidate.store import VacancyStore
+    from app.config import get_settings
+
+    settings = get_settings()
+    scratch = VacancyStore(
+        settings.qdrant_url,
+        f"test_vacancy_chunks_{uuid.uuid4().hex[:8]}",
+        api_key=settings.qdrant_api_key,
+    )
+    yield scratch
+    scratch._client.delete_collection(scratch.collection)
 
 
 @pytest.fixture(scope="session")

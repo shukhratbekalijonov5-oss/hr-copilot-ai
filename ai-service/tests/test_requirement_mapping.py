@@ -26,7 +26,7 @@ from app.models.schemas import EvidenceHit
 def hit(text: str, score: float = 0.5, chunk_id: str | None = None):
     return EvidenceHit(
         chunkId=chunk_id or f"chunk-{uuid.uuid4()}",
-        candidateId="cand-1",
+        candidateAccountId="acct-1",
         documentId="doc-1",
         fileName="resume.pdf",
         section="experience",
@@ -183,34 +183,37 @@ class TestRealJdMapping:
     """§48 Test 4 against real Qdrant, real embeddings and the real reranker."""
 
     @pytest.fixture()
-    def indexed(self, store, embedder):
+    def indexed(self, candidate_store, embedder):
+        """The candidate's own CURRENT evidence.
+
+        Mapping reads the personal collection now — a requirement is judged
+        against what this person actually has on file today, not against an
+        org-owned copy taken when they applied.
+        """
+        from app.candidate.indexing import process_candidate_resume
         from app.config import get_settings
-        from app.retrieval import process_document
         from tests.fixtures.resumes import JIWOO_HAN_TEXT, build_pdf
 
-        org = f"org-{uuid.uuid4()}"
+        account = f"acct-{uuid.uuid4()}"
         doc = f"doc-{uuid.uuid4()}"
-        process_document(
+        process_candidate_resume(
             data=build_pdf(JIWOO_HAN_TEXT),
             file_name="jiwoo-han.pdf",
             document_id=doc,
-            organization_id=org,
-            candidate_id="cand-jiwoo",
+            candidate_account_id=account,
             settings=get_settings(),
             embedder=embedder,
-            store=store,
+            store=candidate_store,
         )
-        yield {"org": org, "doc": doc}
-        store.delete_document(org, doc)
+        return {"account": account, "doc": doc}
 
-    def _map(self, store, embedder, reranker, org, requirements):
+    def _map(self, store, embedder, reranker, account, requirements):
         from app.config import get_settings
         from app.mapping import map_requirements
         from app.models.schemas import RequirementInput
 
         return map_requirements(
-            organization_id=org,
-            candidate_id="cand-jiwoo",
+            candidate_account_id=account,
             vacancy_id="vac-1",
             requirements=[
                 RequirementInput(requirementId=f"r{i}", text=t)
@@ -222,9 +225,9 @@ class TestRealJdMapping:
             reranker=reranker,
         )
 
-    def test_the_headline_scenario(self, store, embedder, reranker, indexed):
+    def test_the_headline_scenario(self, candidate_store, embedder, reranker, indexed):
         result = self._map(
-            store, embedder, reranker, indexed["org"],
+            candidate_store, embedder, reranker, indexed["account"],
             ["NestJS", "Redis Pub/Sub", "Production Kubernetes experience",
              "AWS production experience"],
         )
@@ -235,9 +238,25 @@ class TestRealJdMapping:
         assert statuses["Production Kubernetes experience"] == EVIDENCE_FOUND
         assert statuses["AWS production experience"] == NO_EVIDENCE_FOUND
 
-    def test_absent_requirements_carry_no_evidence(self, store, embedder, reranker, indexed):
+    def test_the_response_names_the_account_it_answered_about(
+        self, candidate_store, embedder, reranker, indexed
+    ):
+        """The subject is echoed back as an ACCOUNT id, not an org-side one.
+
+        The caller correlates this response with the applicant it asked about;
+        answering with a key from a different id space would let a mapping be
+        filed against the wrong person.
+        """
         result = self._map(
-            store, embedder, reranker, indexed["org"],
+            candidate_store, embedder, reranker, indexed["account"], ["Kubernetes"]
+        )
+        assert result.candidateAccountId == indexed["account"]
+
+    def test_absent_requirements_carry_no_evidence(
+        self, candidate_store, embedder, reranker, indexed
+    ):
+        result = self._map(
+            candidate_store, embedder, reranker, indexed["account"],
             ["AWS production experience", "Terraform infrastructure as code",
              "Salesforce administration"],
         )
@@ -245,8 +264,12 @@ class TestRealJdMapping:
             assert mapping.status == NO_EVIDENCE_FOUND
             assert mapping.evidence == []
 
-    def test_found_requirements_carry_citable_evidence(self, store, embedder, reranker, indexed):
-        result = self._map(store, embedder, reranker, indexed["org"], ["Kubernetes"])
+    def test_found_requirements_carry_citable_evidence(
+        self, candidate_store, embedder, reranker, indexed
+    ):
+        result = self._map(
+            candidate_store, embedder, reranker, indexed["account"], ["Kubernetes"]
+        )
         mapping = result.requirements[0]
 
         assert mapping.status == EVIDENCE_FOUND
@@ -256,44 +279,39 @@ class TestRealJdMapping:
         assert citation.fileName == "jiwoo-han.pdf"
         assert "kubernetes" in citation.text.lower()
 
-    def test_partial_requirement_is_flagged_for_review(self, store, embedder, reranker, indexed):
+    def test_partial_requirement_is_flagged_for_review(
+        self, candidate_store, embedder, reranker, indexed
+    ):
         """Resume lists Kafka but never describes stream processing."""
         result = self._map(
-            store, embedder, reranker, indexed["org"], ["Kafka Streams stateful processing"]
+            candidate_store, embedder, reranker, indexed["account"],
+            ["Kafka Streams stateful processing"],
         )
         assert result.requirements[0].status == NEEDS_HUMAN_REVIEW
 
-    def test_mapping_is_deterministic_across_runs(self, store, embedder, reranker, indexed):
+    def test_mapping_is_deterministic_across_runs(
+        self, candidate_store, embedder, reranker, indexed
+    ):
         reqs = ["NestJS", "AWS production experience", "Kubernetes"]
-        first = self._map(store, embedder, reranker, indexed["org"], reqs)
-        second = self._map(store, embedder, reranker, indexed["org"], reqs)
+        first = self._map(candidate_store, embedder, reranker, indexed["account"], reqs)
+        second = self._map(candidate_store, embedder, reranker, indexed["account"], reqs)
 
         assert [m.status for m in first.requirements] == [
             m.status for m in second.requirements
         ]
 
-    def test_another_organization_gets_no_evidence(self, store, embedder, reranker, indexed):
+    def test_an_unrelated_account_gets_no_evidence(
+        self, candidate_store, embedder, reranker, indexed
+    ):
+        """Mapping is scoped to exactly one account, and cannot spill.
+
+        This is the isolation property the old tenant test held: asking about
+        somebody else must produce "not shown", never this candidate's
+        Kubernetes evidence under another person's name.
+        """
         result = self._map(
-            store, embedder, reranker, f"org-other-{uuid.uuid4()}", ["Kubernetes"]
+            candidate_store, embedder, reranker, f"acct-other-{uuid.uuid4()}",
+            ["Kubernetes"],
         )
         assert result.requirements[0].status == NO_EVIDENCE_FOUND
         assert result.requirements[0].evidence == []
-
-    def test_another_candidate_in_the_same_org_gets_no_evidence(
-        self, store, embedder, reranker, indexed
-    ):
-        from app.config import get_settings
-        from app.mapping import map_requirements
-        from app.models.schemas import RequirementInput
-
-        result = map_requirements(
-            organization_id=indexed["org"],
-            candidate_id="cand-someone-else",
-            vacancy_id="vac-1",
-            requirements=[RequirementInput(requirementId="r1", text="Kubernetes")],
-            settings=get_settings(),
-            embedder=embedder,
-            store=store,
-            reranker=reranker,
-        )
-        assert result.requirements[0].status == NO_EVIDENCE_FOUND

@@ -11,6 +11,8 @@ import { AiServiceDisabledError } from '../ai/ai-service.client';
 const ORG_A = 'org-a';
 const ORG_B = 'org-b';
 const CAND = 'cand-1';
+/** The account behind CAND — where the mapped evidence actually lives. */
+const ACCOUNT = 'acct-1';
 const VAC = 'vac-1';
 /** The vacancy creator; every call in this spec runs as them by default. */
 const HR_A = 'user-a';
@@ -71,6 +73,14 @@ describe('EvidenceMapService', () => {
   let createMany: jest.Mock;
   let deleteMany: jest.Mock;
   let upsert: jest.Mock;
+  /**
+   * The citation-resolution lookups inside the transaction. A citation names a
+   * SOURCE, which is either the candidate's personal file or their
+   * professional link — one key space, so both tables are consulted to find
+   * out which kind an id is.
+   */
+  let txDocumentFindMany: jest.Mock;
+  let txCandidateLinkFindMany: jest.Mock;
 
   beforeEach(() => {
     createMany = jest.fn();
@@ -78,12 +88,16 @@ describe('EvidenceMapService', () => {
     upsert = jest.fn(({ create }: any) =>
       Promise.resolve({ id: `map-${create?.requirementId ?? 'x'}` }),
     );
+    txDocumentFindMany = jest.fn().mockResolvedValue([{ id: 'doc-1' }]);
+    txCandidateLinkFindMany = jest.fn().mockResolvedValue([]);
 
     prisma = {
       candidate: {
-        findFirst: jest
-          .fn()
-          .mockResolvedValue({ id: CAND, fullName: 'Ji-woo Han' }),
+        findFirst: jest.fn().mockResolvedValue({
+          id: CAND,
+          fullName: 'Ji-woo Han',
+          candidateAccount: { id: ACCOUNT },
+        }),
       },
       vacancy: {
         findFirst: jest.fn().mockResolvedValue({
@@ -99,7 +113,6 @@ describe('EvidenceMapService', () => {
         // association is what every candidate-in-vacancy AI path requires).
         findFirst: jest.fn().mockResolvedValue({ id: 'assoc-1' }),
       },
-      document: { findMany: jest.fn().mockResolvedValue([{ id: 'doc-1' }]) },
       requirementEvidenceMap: {
         upsert,
         findMany: jest.fn().mockResolvedValue([]),
@@ -109,14 +122,8 @@ describe('EvidenceMapService', () => {
         fn({
           requirementEvidenceMap: { upsert },
           candidateEvidence: { deleteMany, createMany },
-          document: {
-            findMany: jest.fn().mockResolvedValue([{ id: 'doc-1' }]),
-          },
-          // A citation names a SOURCE, which may be a submitted link; both
-          // tables are consulted to find out which kind an id is.
-          applicationLinkSource: {
-            findMany: jest.fn().mockResolvedValue([]),
-          },
+          document: { findMany: txDocumentFindMany },
+          candidateLink: { findMany: txCandidateLinkFindMany },
         }),
       ),
     };
@@ -131,17 +138,49 @@ describe('EvidenceMapService', () => {
     );
   });
 
+  /**
+   * Isolation, restated for the account-scoped world.
+   *
+   * Mapping used to retrieve from an org-owned copy of the candidate's
+   * evidence, so `organizationId` was the filter that kept tenants apart.
+   * There are no copies now: retrieval addresses the candidate's own account,
+   * resolved through the authorization chain (owned vacancy -> applicant of
+   * that vacancy -> live account). The organization still owns the RESULT — a
+   * mapping is a recruiter's work product — so it keeps stamping the stored
+   * rows.
+   */
   describe('tenant isolation', () => {
-    it('sends the organization derived from auth', async () => {
+    it('retrieves against the candidate ACCOUNT resolved from auth, not the payload', async () => {
       await service.run(ORG_A, HR_A, CAND, VAC);
 
-      expect(ai.mapEvidence.mock.calls[0][0].organizationId).toBe(ORG_A);
+      const payload = ai.mapEvidence.mock.calls[0][0];
+      expect(payload.candidateAccountId).toBe(ACCOUNT);
+      // Nothing org-shaped travels to the AI service: the org-owned corpus it
+      // used to select no longer exists.
+      expect(payload).not.toHaveProperty('organizationId');
+      expect(payload).not.toHaveProperty('candidateId');
     });
 
     it('rejects a candidate from another organization', async () => {
       prisma.candidate.findFirst.mockResolvedValue(null);
 
       await expect(service.run(ORG_B, HR_A, CAND, VAC)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(ai.mapEvidence).not.toHaveBeenCalled();
+    });
+
+    it('rejects a candidate whose account row no longer exists', async () => {
+      // The applicant predicate guarantees a candidateAccountId, but the
+      // account row itself can be gone. No account means no current evidence
+      // to map — a 404, never an unscoped retrieval.
+      prisma.candidate.findFirst.mockResolvedValue({
+        id: CAND,
+        fullName: 'Ji-woo Han',
+        candidateAccount: null,
+      });
+
+      await expect(service.run(ORG_A, HR_A, CAND, VAC)).rejects.toBeInstanceOf(
         NotFoundException,
       );
       expect(ai.mapEvidence).not.toHaveBeenCalled();
@@ -165,6 +204,31 @@ describe('EvidenceMapService', () => {
       expect(
         prisma.vacancy.findFirst.mock.calls[0][0].where.organizationId,
       ).toBe(ORG_A);
+    });
+  });
+
+  describe('only CURRENT evidence may be mapped', () => {
+    it('restricts retrieval to the candidate’s surviving personal sources', async () => {
+      evidence.activePersonalSourceIds.mockResolvedValue(['doc-1', 'link-1']);
+
+      await service.run(ORG_A, HR_A, CAND, VAC);
+
+      expect(evidence.activePersonalSourceIds).toHaveBeenCalledWith(ACCOUNT);
+      expect(ai.mapEvidence.mock.calls[0][0].allowedSourceIds).toEqual([
+        'doc-1',
+        'link-1',
+      ]);
+    });
+
+    it('an empty allowlist is sent as `[]`, which retrieves nothing', async () => {
+      // `[]` and "no restriction" must never be confused here: a requirement
+      // coming back EVIDENCE_FOUND on the strength of a file the candidate has
+      // since deleted is exactly the failure this list prevents.
+      evidence.activePersonalSourceIds.mockResolvedValue([]);
+
+      await service.run(ORG_A, HR_A, CAND, VAC);
+
+      expect(ai.mapEvidence.mock.calls[0][0].allowedSourceIds).toEqual([]);
     });
   });
 
@@ -198,41 +262,48 @@ describe('EvidenceMapService', () => {
       expect(createMany.mock.calls[0][0].data[0].organizationId).toBe(ORG_A);
     });
 
-    it('skips evidence whose source no longer exists in this organization', async () => {
-      prisma.$transaction = jest.fn((fn: any) =>
-        fn({
-          requirementEvidenceMap: { upsert },
-          candidateEvidence: { deleteMany, createMany },
-          document: { findMany: jest.fn().mockResolvedValue([]) },
-          applicationLinkSource: { findMany: jest.fn().mockResolvedValue([]) },
-        }),
-      );
+    it('resolves a citation against THIS candidate’s own sources only', async () => {
+      await service.run(ORG_A, HR_A, CAND, VAC);
+
+      // The id in a citation is only meaningful if it names something this
+      // candidate actually owns. Scoping the lookup to their account is what
+      // stops a foreign or fabricated source id being stored as though it were
+      // theirs; `organizationId: null` keeps it to the personal row, the only
+      // copy there is.
+      expect(txDocumentFindMany.mock.calls[0][0].where).toMatchObject({
+        id: { in: ['doc-1'] },
+        candidateAccountId: ACCOUNT,
+        organizationId: null,
+      });
+      expect(txCandidateLinkFindMany.mock.calls[0][0].where).toMatchObject({
+        id: { in: ['doc-1'] },
+        candidateAccountId: ACCOUNT,
+      });
+    });
+
+    it('skips evidence whose source the candidate no longer has', async () => {
+      txDocumentFindMany.mockResolvedValue([]);
+      txCandidateLinkFindMany.mockResolvedValue([]);
 
       await service.run(ORG_A, HR_A, CAND, VAC);
 
       expect(createMany.mock.calls[0][0].data).toHaveLength(0);
     });
 
-    it('stores a citation from a submitted LINK against linkSourceId', async () => {
+    it('stores a citation from a professional LINK against candidateLinkId', async () => {
       // The AI service uses one key space for both source kinds, so the id in
       // a citation may name either. Storing a link id in `documentId` would
       // violate a real foreign key; dropping it (the earlier behaviour) meant
-      // JD Evidence reported EVIDENCE_FOUND with nothing to show for it.
-      prisma.$transaction = jest.fn((fn: any) =>
-        fn({
-          requirementEvidenceMap: { upsert },
-          candidateEvidence: { deleteMany, createMany },
-          document: { findMany: jest.fn().mockResolvedValue([]) },
-          applicationLinkSource: {
-            findMany: jest.fn().mockResolvedValue([{ id: 'doc-1' }]),
-          },
-        }),
-      );
+      // JD Evidence reported EVIDENCE_FOUND with nothing to show for it. The
+      // column now points at the candidate's LIVE link, so deleting it
+      // cascades the citation away instead of leaving it dangling.
+      txDocumentFindMany.mockResolvedValue([]);
+      txCandidateLinkFindMany.mockResolvedValue([{ id: 'doc-1' }]);
 
       await service.run(ORG_A, HR_A, CAND, VAC);
 
       const stored = createMany.mock.calls[0][0].data[0];
-      expect(stored.linkSourceId).toBe('doc-1');
+      expect(stored.candidateLinkId).toBe('doc-1');
       expect(stored.documentId).toBeNull();
     });
 
@@ -241,7 +312,7 @@ describe('EvidenceMapService', () => {
 
       const stored = createMany.mock.calls[0][0].data[0];
       expect(stored.documentId).toBe('doc-1');
-      expect(stored.linkSourceId).toBeNull();
+      expect(stored.candidateLinkId).toBeNull();
     });
   });
 
@@ -338,6 +409,88 @@ describe('EvidenceMapService', () => {
       ).toBe(ORG_A);
     });
 
+    it('presents a link-backed citation through the LIVE link', async () => {
+      // Both source kinds are emitted in one shape — `documentId` is whichever
+      // id the citation names — so the UI addresses them uniformly. The title
+      // and URL come from the candidate's current link rather than from a
+      // frozen copy, which is what makes an edited or deleted link take effect
+      // everywhere at once.
+      prisma.requirementEvidenceMap.findMany.mockResolvedValue([
+        {
+          requirementId: 'r-nest',
+          status: 'EVIDENCE_FOUND',
+          reason: 'x',
+          matchedTerms: [],
+          missingTerms: [],
+          updatedAt: new Date(),
+          evidence: [
+            {
+              id: 'ev-1',
+              documentId: null,
+              candidateLinkId: 'link-1',
+              pageNumber: null,
+              section: 'projects',
+              text: 'Kubernetes work',
+              sourceChunkId: 'chunk-9',
+              document: null,
+              candidateLink: {
+                title: 'Portfolio Website',
+                url: 'https://portfolio.example.com/projects',
+              },
+            },
+          ],
+        },
+      ]);
+
+      const result = await service.read(ORG_A, HR_A, CAND, VAC);
+      const cited = result.requirements[0].evidence[0];
+
+      expect(cited.documentId).toBe('link-1');
+      expect(cited.sourceType).toBe('URL');
+      expect(cited.fileName).toBe('Portfolio Website');
+      expect(cited.sourceUrl).toBe('https://portfolio.example.com/projects');
+      // The read asks for the live link, not a stored snapshot of it.
+      const include =
+        prisma.requirementEvidenceMap.findMany.mock.calls[0][0].include;
+      expect(include.evidence.select.candidateLink).toEqual({
+        select: { title: true, url: true },
+      });
+    });
+
+    it('presents a file-backed citation as a FILE', async () => {
+      prisma.requirementEvidenceMap.findMany.mockResolvedValue([
+        {
+          requirementId: 'r-nest',
+          status: 'EVIDENCE_FOUND',
+          reason: 'x',
+          matchedTerms: [],
+          missingTerms: [],
+          updatedAt: new Date(),
+          evidence: [
+            {
+              id: 'ev-1',
+              documentId: 'doc-1',
+              candidateLinkId: null,
+              pageNumber: 1,
+              section: 'experience',
+              text: 'Built the platform using NestJS',
+              sourceChunkId: 'chunk-1',
+              document: { originalFileName: 'cv.pdf' },
+              candidateLink: null,
+            },
+          ],
+        },
+      ]);
+
+      const result = await service.read(ORG_A, HR_A, CAND, VAC);
+      const cited = result.requirements[0].evidence[0];
+
+      expect(cited.documentId).toBe('doc-1');
+      expect(cited.sourceType).toBe('FILE');
+      expect(cited.fileName).toBe('cv.pdf');
+      expect(cited.sourceUrl).toBeNull();
+    });
+
     it('never returns a score or fit percentage', async () => {
       prisma.requirementEvidenceMap.findMany.mockResolvedValue([
         {
@@ -405,13 +558,12 @@ describe('EvidenceMapService', () => {
 });
 
 /**
- * The lifecycle service as a collaborator. `activeApplicationSourceIds` is the
+ * The lifecycle service as a collaborator. `activePersonalSourceIds` is the
  * surviving-source allowlist every candidate-scoped AI call must carry — these
- * tests check it is SENT, not what it contains (that is the lifecycle
- * service's own spec).
+ * tests check it is SENT for the right account, not what it contains (that is
+ * the lifecycle service's own spec).
  */
 const evidenceLifecycleMock = () => ({
-  activeApplicationSourceIds: jest.fn().mockResolvedValue(['doc-1', 'src-1']),
   activePersonalSourceIds: jest.fn().mockResolvedValue([]),
   activeSourceCounts: jest
     .fn()

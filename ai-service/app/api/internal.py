@@ -31,7 +31,6 @@ from app.models.schemas import (
     CandidateSummaryRequest,
     DeleteCandidateResumeRequest,
     IndexCandidateWebSourceRequest,
-    IndexWebSourceRequest,
     IndexWebSourceResponse,
     JobMatchRequest,
     JobMatchResponse,
@@ -62,7 +61,6 @@ from app.candidate import index_vacancy, match_jobs, process_candidate_resume
 from app.candidate.job_match import explain_matches
 from app.retrieval import (
     answer_question,
-    index_application_web_source,
     index_candidate_web_source,
     process_document,
     rerank_hits,
@@ -141,45 +139,24 @@ async def process_document_endpoint(
     )
 
 
-@router.post("/web-sources/index", response_model=IndexWebSourceResponse)
-async def index_web_source_endpoint(
-    payload: IndexWebSourceRequest,
-    settings=Depends(get_current_settings),
-    embedder=Depends(get_embedder),
-    store=Depends(get_store),
-) -> IndexWebSourceResponse:
-    """Indexes one application's LINK SNAPSHOT into the tenant collection.
-
-    Takes already-fetched, already-bounded text — never a URL to go and get.
-    Every outbound request for candidate-supplied destinations happens in the
-    backend, behind its SSRF policy; this service performs no such egress, and
-    that split is deliberate rather than incidental.
-
-    Chunks land beside this candidate's file chunks under the same
-    organizationId/candidateId keys, which is what makes recruiter search, JD
-    evidence, summaries, Ask, interview questions and Compare retrieve files
-    and links together with no per-feature work. Idempotent per sourceId.
-    """
-    return index_application_web_source(
-        payload, settings=settings, embedder=embedder, store=store
-    )
-
-
 @router.post("/search", response_model=SearchResponse)
 async def search_endpoint(
     payload: SearchRequest,
     settings=Depends(get_current_settings),
     embedder=Depends(get_embedder),
-    store=Depends(get_store),
+    store=Depends(get_candidate_store),
 ) -> SearchResponse:
-    """Semantic evidence search, always scoped to one organization."""
+    """Semantic search over CURRENT candidate evidence.
+
+    Scoped to the authorized candidate accounts the backend resolved — an
+    empty universe returns zero hits without touching the store.
+    """
     reranker = get_cross_encoder() if (payload.rerank and settings.reranker_enabled) else None
 
     return search_evidence(
-        organization_id=payload.organizationId,
+        candidate_account_ids=payload.candidateAccountIds,
         query=payload.query,
         limit=payload.limit,
-        candidate_id=payload.candidateId,
         document_id=payload.documentId,
         use_rerank=payload.rerank,
         settings=settings,
@@ -267,19 +244,18 @@ async def rag_endpoint(
     payload: RagRequest,
     settings=Depends(get_current_settings),
     embedder=Depends(get_embedder),
-    store=Depends(get_store),
+    store=Depends(get_candidate_store),
     generator=Depends(get_generator),
 ) -> RagResponse:
-    """Answers a question using only this candidate's indexed evidence.
+    """Answers a question grounded in CURRENT candidate evidence.
 
     With no retrieved evidence the LLM is never called and the response is
     INSUFFICIENT_EVIDENCE — an ungrounded answer is worse than no answer.
     """
     reranker = get_cross_encoder() if settings.reranker_enabled else None
     return answer_question(
-        organization_id=payload.organizationId,
+        candidate_account_ids=payload.candidateAccountIds,
         query=payload.query,
-        candidate_id=payload.candidateId,
         locale=payload.locale,
         limit=payload.limit,
         settings=settings,
@@ -297,13 +273,12 @@ async def candidate_summary_endpoint(
     payload: CandidateSummaryRequest,
     settings=Depends(get_current_settings),
     embedder=Depends(get_embedder),
-    store=Depends(get_store),
+    store=Depends(get_candidate_store),
     generator=Depends(get_generator),
 ) -> CandidateSummaryResponse:
-    """Summarises what a candidate's own documents state. No quality judgement."""
+    """Summarises what a candidate's CURRENT documents state. No quality judgement."""
     return summarise_candidate(
-        organization_id=payload.organizationId,
-        candidate_id=payload.candidateId,
+        candidate_account_id=payload.candidateAccountId,
         locale=payload.locale,
         limit=payload.limit,
         vacancy=payload.vacancy,
@@ -324,7 +299,7 @@ async def evidence_map_endpoint(
     payload: EvidenceMapRequest,
     settings=Depends(get_current_settings),
     embedder=Depends(get_embedder),
-    store=Depends(get_store),
+    store=Depends(get_candidate_store),
 ) -> EvidenceMapResponse:
     """Maps each job requirement to the candidate's evidence.
 
@@ -334,8 +309,7 @@ async def evidence_map_endpoint(
     """
     reranker = get_cross_encoder() if settings.reranker_enabled else None
     return map_requirements(
-        organization_id=payload.organizationId,
-        candidate_id=payload.candidateId,
+        candidate_account_id=payload.candidateAccountId,
         vacancy_id=payload.vacancyId,
         requirements=payload.requirements,
         settings=settings,
@@ -351,14 +325,13 @@ async def interview_questions_endpoint(
     payload: InterviewQuestionsRequest,
     settings=Depends(get_current_settings),
     embedder=Depends(get_embedder),
-    store=Depends(get_store),
+    store=Depends(get_candidate_store),
     generator=Depends(get_generator),
 ) -> InterviewQuestionsResponse:
     """Interview prompts drawn from present and missing evidence."""
     reranker = get_cross_encoder() if settings.reranker_enabled else None
     return generate_interview_questions(
-        organization_id=payload.organizationId,
-        candidate_id=payload.candidateId,
+        candidate_account_id=payload.candidateAccountId,
         vacancy_id=payload.vacancyId,
         requirements=payload.requirements,
         locale=payload.locale,

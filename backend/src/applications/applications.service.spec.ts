@@ -53,14 +53,12 @@ describe('ApplicationsService', () => {
     purgeCandidateVacancyConversationTx: jest.Mock;
   };
   let events: { publish: jest.Mock };
-  let producer: { enqueueApplicationLinkIndexDeletion: jest.Mock };
+  let storage: { getSignedUrl: jest.Mock };
   let service: ApplicationsService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
-    producer = {
-      enqueueApplicationLinkIndexDeletion: jest.fn().mockResolvedValue('job-1'),
-    };
+    storage = { getSignedUrl: jest.fn().mockResolvedValue('https://signed') };
     chat = {
       createForInvitationTx: jest.fn(),
       purgeCandidateVacancyConversationTx: jest.fn().mockResolvedValue([]),
@@ -68,12 +66,12 @@ describe('ApplicationsService', () => {
     events = { publish: jest.fn() };
     service = new ApplicationsService(
       prisma as unknown as PrismaService,
+      storage as never,
       new TenantService(),
       chat as never,
       events as never,
       // The REAL ownership policy over the same prisma mock.
       new OwnedVacancyService(prisma as unknown as PrismaService),
-      producer as never,
     );
     // Default: vacancy v1 exists in the caller org and was created by HR_A.
     prisma.vacancy.findFirst.mockResolvedValue({

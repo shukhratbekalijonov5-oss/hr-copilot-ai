@@ -45,6 +45,45 @@ export class CandidatesController {
     return this.candidatesService.findOne(organizationId, id);
   }
 
+  /**
+   * The applicant's CURRENT profile and evidence (live account data), behind
+   * the full vacancy-contextual chain: the vacancy must be the caller's own
+   * and the candidate must have legitimately applied to it. Read-only — there
+   * is deliberately no write counterpart to anything returned here.
+   */
+  @Get(':id/current-evidence')
+  currentEvidence(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('vacancyId', ParseUUIDPipe) vacancyId: string,
+  ) {
+    return this.candidatesService.getCurrentEvidence(
+      userId,
+      organizationId,
+      id,
+      vacancyId,
+    );
+  }
+
+  /** Signed URL for one CURRENT document, same chain plus live ownership. */
+  @Get(':id/current-documents/:documentId/download-url')
+  currentDocumentDownload(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @Query('vacancyId', ParseUUIDPipe) vacancyId: string,
+  ) {
+    return this.candidatesService.getCurrentDocumentDownload(
+      userId,
+      organizationId,
+      id,
+      vacancyId,
+      documentId,
+    );
+  }
+
   @Roles(Role.OWNER, Role.HR_ADMIN, Role.RECRUITER)
   @Patch(':id')
   update(

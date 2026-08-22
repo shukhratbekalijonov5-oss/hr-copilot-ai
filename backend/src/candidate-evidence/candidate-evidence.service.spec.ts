@@ -4,12 +4,20 @@ import { CandidateEvidenceLifecycleService } from './candidate-evidence.service'
  * The cascade is the heart of the product rule "a candidate owns their
  * evidence", so it is tested directly rather than only through its callers.
  *
+ * Since the snapshot removal there is exactly ONE copy of a candidate's
+ * evidence, so "disappears from every organization" is now enforced by the
+ * database: CandidateEvidence cites the personal document / candidate link
+ * with ON DELETE CASCADE, and deleting the row takes every stored citation of
+ * it — in every organization — with it. What this service still owns is what
+ * a foreign key cannot do.
+ *
  * What these tests care about, in order of importance:
- *  1. a deleted source disappears from EVERY organization it was sent to;
- *  2. an unrelated source is never touched;
- *  3. the APPLICATION survives;
- *  4. the derived AI artifacts are invalidated, not left pointing at nothing;
- *  5. a storage or Qdrant failure never turns a completed deletion into an
+ *  1. the personal row is deleted, scoped to its owner (the FK cascade then
+ *     withdraws the evidence everywhere);
+ *  2. the derived AI VERDICTS are invalidated, not left pointing at nothing;
+ *  3. an unrelated source is never touched;
+ *  4. the APPLICATION survives;
+ *  5. a queue or Qdrant failure never turns a completed deletion into an
  *     error, because the authoritative state has already changed.
  */
 
@@ -23,8 +31,7 @@ function createPrismaMock(overrides: Record<string, unknown> = {}) {
       findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn().mockResolvedValue(0),
     },
-    applicationLinkSource: {
-      findMany: jest.fn().mockResolvedValue([]),
+    candidateEvidence: {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     candidateLink: {
@@ -49,11 +56,8 @@ function createPrismaMock(overrides: Record<string, unknown> = {}) {
   return prisma;
 }
 
-function build(overrides: { prisma?: any; storage?: any; ai?: any } = {}) {
+function build(overrides: { prisma?: any; ai?: any } = {}) {
   const prisma = overrides.prisma ?? createPrismaMock();
-  const storage = overrides.storage ?? {
-    delete: jest.fn().mockResolvedValue(undefined),
-  };
   const producer = {
     enqueuePersonalResumeIndexDeletion: jest.fn().mockResolvedValue('job-1'),
     enqueueCandidateLinkIndexDeletion: jest.fn().mockResolvedValue('job-2'),
@@ -66,19 +70,12 @@ function build(overrides: { prisma?: any; storage?: any; ai?: any } = {}) {
   };
   const service = new CandidateEvidenceLifecycleService(
     prisma as never,
-    storage as never,
     producer as never,
     ai as never,
   );
-  return { service, prisma, storage, producer, ai };
+  return { service, prisma, producer, ai };
 }
 
-const orgCopy = (id: string, org: string, candidate: string) => ({
-  id,
-  organizationId: org,
-  candidateId: candidate,
-  storageKey: `org/${org}/${id}.pdf`,
-});
 
 describe('CandidateEvidenceLifecycleService', () => {
   describe('what counts as evidence', () => {
@@ -127,19 +124,21 @@ describe('CandidateEvidenceLifecycleService', () => {
       ]);
     });
 
-    it('scopes an organization’s allowlist by BOTH organization and candidate', async () => {
+    it('scopes the allowlist to the account, and to PERSONAL rows only', async () => {
       const prisma = createPrismaMock();
       const { service } = build({ prisma });
 
-      await service.activeApplicationSourceIds('org-1', 'cand-1');
+      await service.activePersonalSourceIds(ACCOUNT);
 
-      // A filter that leaked ids across tenants would be worse than none.
+      // There is one allowlist now, because there is one copy of the
+      // evidence. `organizationId: null` keeps a historical organization
+      // document from ever entering a candidate's own source list.
       expect(prisma.document.findMany).toHaveBeenCalledWith({
-        where: { organizationId: 'org-1', candidateId: 'cand-1' },
+        where: { candidateAccountId: ACCOUNT, organizationId: null },
         select: { id: true },
       });
-      expect(prisma.applicationLinkSource.findMany).toHaveBeenCalledWith({
-        where: { organizationId: 'org-1', candidateId: 'cand-1' },
+      expect(prisma.candidateLink.findMany).toHaveBeenCalledWith({
+        where: { candidateAccountId: ACCOUNT },
         select: { id: true },
       });
     });
@@ -148,53 +147,50 @@ describe('CandidateEvidenceLifecycleService', () => {
       // Empty and absent mean opposite things downstream: empty is "read
       // nothing", absent is "read everything".
       const { service } = build();
-      await expect(
-        service.activeApplicationSourceIds('org-1', 'cand-1'),
-      ).resolves.toEqual([]);
+      await expect(service.activePersonalSourceIds(ACCOUNT)).resolves.toEqual(
+        [],
+      );
     });
   });
 
   describe('deleting a personal FILE', () => {
-    it('removes every organization copy derived from it', async () => {
-      const prisma = createPrismaMock();
-      prisma.document.findMany.mockResolvedValue([
-        orgCopy('copy-a', 'org-1', 'cand-1'),
-        orgCopy('copy-b', 'org-2', 'cand-2'),
-      ]);
-      const { service, ai } = build({ prisma });
+    it('deletes the personal row scoped to its owner', async () => {
+      const { service, prisma } = build();
 
       await service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1');
 
+      // The account scope is what stops one person's delete removing
+      // another's file if an id were ever substituted upstream. The row going
+      // is what withdraws the evidence: its stored citations cascade with it,
+      // in every organization, in the same statement.
       expect(prisma.document.deleteMany).toHaveBeenCalledWith({
-        where: { id: { in: ['copy-a', 'copy-b'] } },
+        where: { id: 'doc-1', candidateAccountId: ACCOUNT },
       });
-      // ...in every organization, each in its own tenant collection.
-      expect(ai.deleteDocument).toHaveBeenCalledWith('org-1', 'copy-a');
-      expect(ai.deleteDocument).toHaveBeenCalledWith('org-2', 'copy-b');
     });
 
-    it('finds those copies by LINEAGE, not by name or by candidate', async () => {
-      const prisma = createPrismaMock();
-      const { service } = build({ prisma });
+    it('makes NO organization-side copy deletion — there are none to make', async () => {
+      const { service, prisma, ai } = build();
 
       await service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1');
 
-      expect(prisma.document.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: {
-            sourceCandidateDocumentId: 'doc-1',
-            organizationId: { not: null },
-          },
-        }),
+      // Applying copies nothing, so nothing derived exists to hunt down by
+      // lineage. A lookup here would be dead code hiding a resurrected model.
+      expect(prisma.document.findMany).not.toHaveBeenCalled();
+      expect(ai.deleteDocument).not.toHaveBeenCalled();
+    });
+
+    it('evicts the PERSONAL vectors through the queue', async () => {
+      const { service, producer } = build();
+
+      await service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1');
+
+      expect(producer.enqueuePersonalResumeIndexDeletion).toHaveBeenCalledWith(
+        { documentId: 'doc-1', candidateAccountId: ACCOUNT },
       );
     });
 
     it('leaves the APPLICATION alone — only the evidence is withdrawn', async () => {
-      const prisma = createPrismaMock();
-      prisma.document.findMany.mockResolvedValue([
-        orgCopy('copy-a', 'org-1', 'cand-1'),
-      ]);
-      const { service } = build({ prisma });
+      const { service, prisma } = build();
 
       await service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1');
 
@@ -202,28 +198,17 @@ describe('CandidateEvidenceLifecycleService', () => {
       expect(prisma.application).toBeUndefined();
     });
 
-    it('invalidates the requirement mappings built on the removed copies', async () => {
-      const prisma = createPrismaMock();
-      prisma.document.findMany.mockResolvedValue([
-        orgCopy('copy-a', 'org-1', 'cand-1'),
-      ]);
-      const { service } = build({ prisma });
-
-      await service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1');
-
-      // Otherwise "Kubernetes — EVIDENCE_FOUND" would survive with nothing
-      // behind it, and a recruiter would read a verdict whose proof is gone.
-      expect(prisma.requirementEvidenceMap.deleteMany).toHaveBeenCalledWith({
-        where: { candidateId: { in: ['cand-1'] } },
-      });
-    });
-
-    it('invalidates NOTHING when the file was never submitted anywhere', async () => {
+    it('invalidates the requirement verdicts derived from this account', async () => {
       const { service, prisma } = build();
 
       await service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1');
 
-      expect(prisma.requirementEvidenceMap.deleteMany).not.toHaveBeenCalled();
+      // The citations cascade away with the row, but the VERDICT would not:
+      // "Kubernetes — EVIDENCE_FOUND" must not survive with nothing behind
+      // it, in any organization this person applied to.
+      expect(prisma.requirementEvidenceMap.deleteMany).toHaveBeenCalledWith({
+        where: { candidate: { candidateAccountId: ACCOUNT } },
+      });
     });
 
     it('bumps the evidence revision so an in-flight match is recognised as stale', async () => {
@@ -269,32 +254,22 @@ describe('CandidateEvidenceLifecycleService', () => {
   });
 
   describe('deleting a personal LINK', () => {
-    it('removes every submitted snapshot copied from it', async () => {
-      const prisma = createPrismaMock();
-      prisma.applicationLinkSource.findMany.mockResolvedValue([
-        { id: 'src-a', organizationId: 'org-1', candidateId: 'cand-1' },
-        { id: 'src-b', organizationId: 'org-2', candidateId: 'cand-2' },
-      ]);
-      const { service, ai } = build({ prisma });
+    it('invalidates the verdicts derived from this account', async () => {
+      const { service, prisma } = build();
 
       await service.cascadePersonalLinkDeletion(ACCOUNT, 'link-1');
 
-      expect(prisma.applicationLinkSource.deleteMany).toHaveBeenCalledWith({
-        where: { id: { in: ['src-a', 'src-b'] } },
+      expect(prisma.requirementEvidenceMap.deleteMany).toHaveBeenCalledWith({
+        where: { candidate: { candidateAccountId: ACCOUNT } },
       });
-      expect(ai.deleteDocument).toHaveBeenCalledWith('org-1', 'src-a');
-      expect(ai.deleteDocument).toHaveBeenCalledWith('org-2', 'src-b');
     });
 
-    it('finds them by sourceLinkId — the link’s own lineage column', async () => {
-      const prisma = createPrismaMock();
-      const { service } = build({ prisma });
+    it('makes NO organization-side snapshot deletion — there are none', async () => {
+      const { service, ai } = build();
 
       await service.cascadePersonalLinkDeletion(ACCOUNT, 'link-1');
 
-      expect(prisma.applicationLinkSource.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { sourceLinkId: 'link-1' } }),
-      );
+      expect(ai.deleteDocument).not.toHaveBeenCalled();
     });
 
     it('deletes the personal row scoped to its owner', async () => {
@@ -320,53 +295,52 @@ describe('CandidateEvidenceLifecycleService', () => {
   });
 
   describe('re-pointing a link at a different URL', () => {
-    it('withdraws the submitted copies of the OLD address, keeping the row', async () => {
-      const prisma = createPrismaMock();
-      prisma.applicationLinkSource.findMany.mockResolvedValue([
-        { id: 'src-a', organizationId: 'org-1', candidateId: 'cand-1' },
-      ]);
-      const { service } = build({ prisma });
+    it('withdraws the citations of the OLD address, keeping the row', async () => {
+      const { service, prisma } = build();
 
       await service.cascadeDerivedCopyRemoval(ACCOUNT, { linkId: 'link-1' });
 
-      expect(prisma.applicationLinkSource.deleteMany).toHaveBeenCalled();
+      // The row survives an edit, so no foreign key fires — the stored
+      // citations of the address the candidate no longer claims have to be
+      // removed explicitly, or a recruiter would keep reading passages from
+      // a page that is no longer this person's evidence.
+      expect(prisma.candidateEvidence.deleteMany).toHaveBeenCalledWith({
+        where: { candidateLinkId: 'link-1' },
+      });
+      expect(prisma.requirementEvidenceMap.deleteMany).toHaveBeenCalled();
       // The personal link itself stays: the candidate is editing it, not
       // deleting it.
       expect(prisma.candidateLink.deleteMany).not.toHaveBeenCalled();
     });
+
+    it('withdraws NO citations when a FILE is merely re-processed', async () => {
+      const { service, prisma } = build();
+
+      await service.cascadeDerivedCopyRemoval(ACCOUNT, { fileId: 'doc-1' });
+
+      // A file keeps its id across a reprocess, and its chunks are replaced
+      // in place — the citations still point at real, current passages.
+      expect(prisma.candidateEvidence.deleteMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('when cleanup fails, the deletion still stands', () => {
-    it('reports success even if the organization vectors cannot be evicted', async () => {
-      const prisma = createPrismaMock();
-      prisma.document.findMany.mockResolvedValue([
-        orgCopy('copy-a', 'org-1', 'cand-1'),
-      ]);
+    it('reports success even if the personal vectors cannot be evicted', async () => {
       const ai = {
         enabled: true,
-        deleteDocument: jest.fn().mockRejectedValue(new Error('qdrant down')),
-        deletePersonalResume: jest.fn().mockResolvedValue(undefined),
+        deleteDocument: jest.fn(),
+        deletePersonalResume: jest
+          .fn()
+          .mockRejectedValue(new Error('qdrant down')),
         deletePersonalWebSource: jest.fn().mockResolvedValue(undefined),
       };
-      const { service } = build({ prisma, ai });
+      const { service, producer } = build({ ai });
+      producer.enqueuePersonalResumeIndexDeletion.mockRejectedValue(
+        new Error('redis down'),
+      );
 
       // The rows are already gone, and retrieval is authorized against rows —
       // so the surviving vectors are unreachable, not dangerous.
-      await expect(
-        service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1'),
-      ).resolves.toBeUndefined();
-    });
-
-    it('reports success even if an organization’s bytes cannot be removed', async () => {
-      const prisma = createPrismaMock();
-      prisma.document.findMany.mockResolvedValue([
-        orgCopy('copy-a', 'org-1', 'cand-1'),
-      ]);
-      const storage = {
-        delete: jest.fn().mockRejectedValue(new Error('r2 unreachable')),
-      };
-      const { service } = build({ prisma, storage });
-
       await expect(
         service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1'),
       ).resolves.toBeUndefined();
@@ -387,21 +361,20 @@ describe('CandidateEvidenceLifecycleService', () => {
     });
 
     it('does not call a disabled AI service at all', async () => {
-      const prisma = createPrismaMock();
-      prisma.document.findMany.mockResolvedValue([
-        orgCopy('copy-a', 'org-1', 'cand-1'),
-      ]);
       const ai = {
         enabled: false,
         deleteDocument: jest.fn(),
         deletePersonalResume: jest.fn(),
         deletePersonalWebSource: jest.fn(),
       };
-      const { service } = build({ prisma, ai });
+      const { service, producer } = build({ ai });
+      producer.enqueuePersonalResumeIndexDeletion.mockRejectedValue(
+        new Error('redis down'),
+      );
 
       await service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1');
 
-      expect(ai.deleteDocument).not.toHaveBeenCalled();
+      expect(ai.deletePersonalResume).not.toHaveBeenCalled();
     });
   });
 

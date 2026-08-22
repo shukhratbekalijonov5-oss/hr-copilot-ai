@@ -92,7 +92,11 @@ export function CandidateListView({
       header: d.tables.candidate,
       render: (candidate) => (
         <div className="flex items-center gap-2.5">
-          <Avatar name={candidate.fullName} size="sm" />
+          <Avatar
+            name={candidate.fullName}
+            src={candidate.avatarUrl}
+            size="sm"
+          />
           <div className="min-w-0">
             <Link
               href={`/candidates/${candidate.id}`}
@@ -134,9 +138,9 @@ export function CandidateListView({
       hideBelow: "lg",
       render: (candidate) => (
         <span className="text-ink-muted">
-          {candidate.documents.length === 0
+          {candidate.documentCount === 0
             ? d.tables.noneUploaded
-            : p(d.common.files, candidate.documents.length)}
+            : p(d.common.files, candidate.documentCount)}
         </span>
       ),
     },

@@ -6,10 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from '../common/tenant/tenant.service';
 import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
-import {
-  APPLICANT_APPLICATION_SCOPE,
-  APPLICANT_CANDIDATE_SCOPE,
-} from '../common/vacancy-access/applicant-scope';
+import { APPLICANT_APPLICATION_SCOPE } from '../common/vacancy-access/applicant-scope';
 import {
   AiServiceClient,
   AiServiceDisabledError,
@@ -22,11 +19,12 @@ import type { EvidenceSearchDto } from './dto/evidence-search.dto';
 /**
  * One passage, enriched with the candidate/source context the UI needs.
  *
- * `documentId` is the SOURCE key — a Document id for a file, an
- * ApplicationLinkSource id for a link — so the result card can address either
- * kind uniformly. `sourceType` tells the UI which one it is, and therefore
- * whether "page 2" or "portfolio.example.com/projects" is the right thing to
- * show underneath.
+ * `documentId` is the CURRENT source key — a personal Document id for a file,
+ * a CandidateLink id for a link — so the result card can address either kind
+ * uniformly. `sourceType` tells the UI which one it is, and therefore whether
+ * "page 2" or "portfolio.example.com/projects" is the right thing to show
+ * underneath. `candidateId` stays the org-side applicant id (it is what
+ * /candidates/:id routes on); `candidateName` is the account's CURRENT name.
  */
 export interface EvidenceResult {
   candidateId: string | null;
@@ -67,98 +65,87 @@ export class SearchService {
   ) {}
 
   /**
-   * Searches indexed applicant evidence for one organization.
+   * Searches CURRENT applicant evidence.
    *
-   * `organizationId` comes from the authenticated user and is the only tenant
-   * the AI service is ever asked about, so a caller cannot reach another
-   * organization's documents. This search only ever touches the ORG-SCOPED
-   * collection (resume_chunks); candidates' private personal indexes are a
-   * physically separate store no recruiter path can reach.
+   * Since the snapshot removal there is nothing org-scoped to search: the
+   * index holds one corpus per candidate account, and what makes reading it
+   * lawful is the applicant relationship. The retrieval universe is resolved
+   * server-side before anything reaches the AI service:
    *
-   * WHAT is searchable: only evidence from real applications. Every org
-   * document is now an apply-time snapshot of a resume the candidate chose to
-   * submit — recruiter upload was removed — and hits are additionally filtered
-   * to applicant candidates, so vectors left behind by the old
-   * recruiter-uploaded files cannot resurface as an orphaned talent database.
+   *   - with `vacancyId` (which must be one of the CALLER'S OWN vacancies):
+   *     the applicant accounts of that vacancy;
+   *   - without: the applicant accounts across ALL of the caller's own
+   *     vacancies — the same creator-scoped workspace rule as every other
+   *     surface, so a colleague's applicants never appear.
    *
-   * With `vacancyId` (which must be one of the CALLER'S OWN vacancies), the
-   * results are restricted further to that vacancy's applicants: the backend
-   * resolves the applicant set and filters the returned passages against it —
-   * over-fetching from the index first so the trimmed result can still fill
-   * the requested limit.
+   * The AI service receives that account list as a hard filter; an account
+   * outside it is physically unreachable, whatever ids the client sends.
    */
   async searchEvidence(
     organizationId: string,
     userId: string,
     dto: EvidenceSearchDto,
   ): Promise<EvidenceSearchResponse> {
-    // Selected-vacancy scoping: ownership first, then the association set.
-    let vacancyCandidateIds: Set<string> | null = null;
-    if (dto.vacancyId) {
-      await this.ownedVacancies.requireOwned(
-        userId,
-        organizationId,
-        dto.vacancyId,
-      );
-      const associations = await this.prisma.application.findMany({
-        where: { vacancyId: dto.vacancyId, ...APPLICANT_APPLICATION_SCOPE },
-        select: { candidateId: true },
-      });
-      vacancyCandidateIds = new Set(associations.map((a) => a.candidateId));
-      if (vacancyCandidateIds.size === 0) {
-        // No candidates in this vacancy yet — nothing can match.
-        return {
-          query: dto.query,
-          results: [],
-          reranked: false,
-          totalConsidered: 0,
-          durationMs: 0,
-        };
-      }
-    }
-    // Verify optional filters belong to this tenant before they leave the
-    // backend, so a probing id cannot be used to test another org's data.
+    // Resolve the authorized universe: (org candidateId -> live account).
+    const universe = await this.applicantUniverse(
+      organizationId,
+      userId,
+      dto.vacancyId,
+    );
+    const empty: EvidenceSearchResponse = {
+      query: dto.query,
+      results: [],
+      reranked: false,
+      totalConsidered: 0,
+      durationMs: 0,
+    };
+    if (universe.size === 0) return empty;
+
+    // Optional narrowing filters are verified against the universe BEFORE
+    // they leave the backend, so a probing id cannot be used to test another
+    // owner's (or another org's) data.
+    let accountIds = [...new Set(universe.values())];
     if (dto.candidateId) {
-      this.tenant.assertFound(
-        await this.prisma.candidate.findFirst({
+      const accountId = universe.get(dto.candidateId);
+      this.tenant.assertFound(accountId ?? null, 'Candidate');
+      accountIds = [accountId!];
+    }
+    if (dto.documentId) {
+      // A source filter may name either kind of CURRENT evidence — a personal
+      // file or a professional link — because both occupy one key space in
+      // the index. Either way it must belong to an account in the universe.
+      const [document, link] = await Promise.all([
+        this.prisma.document.findFirst({
           where: {
-            id: dto.candidateId,
-            ...this.tenant.scope(organizationId),
-            ...APPLICANT_CANDIDATE_SCOPE,
+            id: dto.documentId,
+            candidateAccountId: { in: accountIds },
+            organizationId: null,
           },
           select: { id: true },
         }),
-        'Candidate',
-      );
-    }
-    if (dto.documentId) {
-      // A source filter may name either kind of evidence — a submitted file or
-      // a submitted link — because both occupy one key space in the index.
-      // Either way it must belong to THIS organization before it reaches the
-      // AI service, so a probing id cannot be used to test another org's data.
-      const [document, linkSource] = await Promise.all([
-        this.prisma.document.findFirst({
-          where: { id: dto.documentId, ...this.tenant.scope(organizationId) },
-          select: { id: true },
-        }),
-        this.prisma.applicationLinkSource.findFirst({
-          where: { id: dto.documentId, ...this.tenant.scope(organizationId) },
+        this.prisma.candidateLink.findFirst({
+          where: {
+            id: dto.documentId,
+            candidateAccountId: { in: accountIds },
+          },
           select: { id: true },
         }),
       ]);
-      this.tenant.assertFound(document ?? linkSource, 'Document');
+      this.tenant.assertFound(document ?? link, 'Document');
     }
 
     const limit = dto.limit ?? 10;
     let result: AiEvidenceSearchResult;
     try {
       result = await this.ai.searchEvidence(dto.query, {
-        organizationId,
-        candidateId: dto.candidateId,
+        candidateAccountIds: accountIds,
         documentId: dto.documentId,
-        // Vacancy filtering happens after retrieval, so ask the index for
-        // more than the page size to keep the trimmed page full.
-        limit: vacancyCandidateIds ? Math.min(50, limit * 5) : limit,
+        // Ask for more than the page size. The account universe is a hard
+        // pre-filter now, so the return-path checks below drop far less than
+        // the old vacancy trim did — but a source deleted while its eviction
+        // is still retrying is dropped there, and without headroom that would
+        // silently hand back a short page.
+        limit: Math.min(50, limit * 2),
         rerank: dto.rerank ?? true,
       });
     } catch (error) {
@@ -170,52 +157,51 @@ export class SearchService {
       throw error;
     }
 
-    // Applicant resolution doubles as the visibility filter: a hit whose
-    // candidate is not a current applicant of this organization (a legacy
-    // recruiter-uploaded file, or a foreign id the index returned) resolves to
-    // no name and is dropped rather than shown without context.
+    // Two return-path checks, both bounded to the hits actually returned:
     //
-    // The SOURCE filter alongside it is the deletion guarantee. This search is
-    // organization-wide, so there is no small set of allowed source ids to send
-    // the index — the surviving set is resolved for the handful of sources the
-    // index actually returned instead. A term that exists only inside a file or
-    // link the candidate has withdrawn therefore stops finding them, whether or
-    // not the vectors have physically been evicted yet.
-    const [names, liveSources] = await Promise.all([
-      this.applicantNames(organizationId, result.hits),
-      this.survivingSourceIds(organizationId, result.hits),
+    //  - identity: a hit resolves to the LIVE person (current name) through
+    //    the org-side applicant record; anything unresolvable is dropped
+    //    rather than shown without context;
+    //  - deletion: a hit whose source row no longer exists is dropped. The
+    //    vectors may outlive the row while an eviction retries, and this
+    //    makes them unusable in the meantime.
+    const [people, liveSources] = await Promise.all([
+      this.applicantsByAccount(organizationId, result.hits),
+      this.survivingSourceIds(result.hits),
     ]);
     const hits = result.hits
       .filter((hit) => hit.documentId)
       .filter((hit) => liveSources.has(hit.documentId))
-      .filter((hit) => hit.candidateId !== null && names.has(hit.candidateId))
       .filter(
         (hit) =>
-          !vacancyCandidateIds || vacancyCandidateIds.has(hit.candidateId!),
+          hit.candidateAccountId !== null && people.has(hit.candidateAccountId),
       )
       .slice(0, limit);
 
     return {
       query: result.query,
-      results: hits.map((hit) => ({
-        candidateId: hit.candidateId,
-        candidateName: names.get(hit.candidateId!) ?? null,
-        documentId: hit.documentId,
-        fileName: hit.fileName,
-        section: hit.section,
-        pageNumber: hit.pageNumber,
-        text: hit.text,
-        // Chunks indexed before URL evidence existed carry no sourceType;
-        // they are files, and defaulting keeps them rendering correctly
-        // without a reindex.
-        sourceType: hit.sourceType ?? 'FILE',
-        sourceTitle: hit.sourceTitle ?? hit.fileName,
-        sourceUrl: hit.sourceUrl ?? null,
-        relevance: {
-          retrievalScore: hit.retrievalScore,
-          rerankScore: hit.rerankScore,
-        },
-      })),
+      results: hits.map((hit) => {
+        const person = people.get(hit.candidateAccountId!)!;
+        return {
+          candidateId: person.candidateId,
+          candidateName: person.fullName,
+          documentId: hit.documentId,
+          fileName: hit.fileName,
+          section: hit.section,
+          pageNumber: hit.pageNumber,
+          text: hit.text,
+          // Chunks indexed before URL evidence existed carry no sourceType;
+          // they are files, and defaulting keeps them rendering correctly
+          // without a reindex.
+          sourceType: hit.sourceType ?? 'FILE',
+          sourceTitle: hit.sourceTitle ?? hit.fileName,
+          sourceUrl: hit.sourceUrl ?? null,
+          relevance: {
+            retrievalScore: hit.retrievalScore,
+            rerankScore: hit.rerankScore,
+          },
+        };
+      }),
       reranked: result.reranked,
       totalConsidered: result.totalCandidatesConsidered,
       durationMs: result.durationMs,
@@ -223,64 +209,110 @@ export class SearchService {
   }
 
   /**
-   * Which of these hits' sources STILL EXIST in this organization.
+   * The searchable universe as (org candidateId -> candidateAccountId), for
+   * the caller's own vacancies — one of them, or all of them.
+   */
+  private async applicantUniverse(
+    organizationId: string,
+    userId: string,
+    vacancyId?: string,
+  ): Promise<Map<string, string>> {
+    if (vacancyId) {
+      await this.ownedVacancies.requireOwned(userId, organizationId, vacancyId);
+    }
+    const associations = await this.prisma.application.findMany({
+      where: {
+        ...APPLICANT_APPLICATION_SCOPE,
+        vacancy: vacancyId
+          ? { id: vacancyId, organizationId }
+          : { organizationId, createdById: userId },
+      },
+      select: {
+        candidate: { select: { id: true, candidateAccountId: true } },
+      },
+    });
+    const universe = new Map<string, string>();
+    for (const { candidate } of associations) {
+      if (candidate.candidateAccountId) {
+        universe.set(candidate.id, candidate.candidateAccountId);
+      }
+    }
+    return universe;
+  }
+
+  /**
+   * Which of these hits' sources STILL EXIST right now.
    *
-   * A hit's `documentId` is the source key for either kind — a submitted file
-   * or a submitted link snapshot — so both tables are consulted and the result
-   * is one set of ids. Only the ids the index actually returned are looked up,
-   * so this is a bounded query however large the organization's corpus is.
+   * A hit's `documentId` is the source key for either kind — a personal file
+   * or a professional link — so both tables are consulted and the result is
+   * one set of ids. Only the ids the index actually returned are looked up,
+   * so this is a bounded query however large the corpus grows.
    *
    * This is the search-side half of the rule that deleted evidence stops
    * existing: the vectors may outlive the row for as long as an eviction is
    * retrying, and this makes them unusable in the meantime.
    */
   private async survivingSourceIds(
-    organizationId: string,
     hits: EvidenceSearchHit[],
   ): Promise<Set<string>> {
     const ids = [...new Set(hits.map((h) => h.documentId).filter(Boolean))];
     if (ids.length === 0) return new Set();
 
-    const [documents, linkSources] = await Promise.all([
+    const [documents, links] = await Promise.all([
       this.prisma.document.findMany({
-        where: { id: { in: ids }, ...this.tenant.scope(organizationId) },
+        where: { id: { in: ids }, organizationId: null },
         select: { id: true },
       }),
-      this.prisma.applicationLinkSource.findMany({
-        where: { id: { in: ids }, ...this.tenant.scope(organizationId) },
+      this.prisma.candidateLink.findMany({
+        where: { id: { in: ids } },
         select: { id: true },
       }),
     ]);
-    return new Set([
-      ...documents.map((d) => d.id),
-      ...linkSources.map((s) => s.id),
-    ]);
+    return new Set([...documents.map((d) => d.id), ...links.map((l) => l.id)]);
   }
 
   /**
-   * Resolves names for the APPLICANTS among these hits, scoped to the
-   * organization. Membership in the returned map is what makes a hit
-   * displayable: it is simultaneously the tenant check (a foreign candidateId
-   * the index returned resolves to nothing, on top of Qdrant's own tenant
-   * filter) and the applicant check.
+   * Resolves the LIVE person behind each hit's account: the org-side
+   * applicant record (for the /candidates/:id link) plus the account's
+   * CURRENT display name. Membership in the returned map is what makes a hit
+   * displayable — an account with no applicant record in this organization
+   * resolves to nothing and its hit is dropped.
    */
-  private async applicantNames(
+  private async applicantsByAccount(
     organizationId: string,
     hits: EvidenceSearchHit[],
-  ): Promise<Map<string, string>> {
-    const ids = [
-      ...new Set(hits.map((h) => h.candidateId).filter(Boolean)),
+  ): Promise<Map<string, { candidateId: string; fullName: string }>> {
+    const accountIds = [
+      ...new Set(hits.map((h) => h.candidateAccountId).filter(Boolean)),
     ] as string[];
-    if (ids.length === 0) return new Map();
+    if (accountIds.length === 0) return new Map();
 
     const candidates = await this.prisma.candidate.findMany({
       where: {
-        id: { in: ids },
         ...this.tenant.scope(organizationId),
-        ...APPLICANT_CANDIDATE_SCOPE,
+        // Subsumes the applicant scope: an id from this list is non-null by
+        // construction, and the DIRECT-application half was already enforced
+        // when the universe containing it was resolved.
+        candidateAccountId: { in: accountIds },
       },
-      select: { id: true, fullName: true },
+      select: {
+        id: true,
+        fullName: true,
+        candidateAccount: {
+          select: { id: true, user: { select: { fullName: true } } },
+        },
+      },
     });
-    return new Map(candidates.map((c) => [c.id, c.fullName]));
+    return new Map(
+      candidates
+        .filter((c) => c.candidateAccount)
+        .map((c) => [
+          c.candidateAccount!.id,
+          {
+            candidateId: c.id,
+            fullName: c.candidateAccount!.user.fullName ?? c.fullName,
+          },
+        ]),
+    );
   }
 }

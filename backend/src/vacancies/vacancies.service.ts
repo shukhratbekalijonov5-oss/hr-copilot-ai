@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
+import { signAvatarUrl } from '../account/avatar-url';
 import { TenantService } from '../common/tenant/tenant.service';
 import { DocumentProcessingProducer } from '../queue/document-processing.producer';
 import { ChatService } from '../chat/chat.service';
@@ -38,6 +40,7 @@ export class VacanciesService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
     private readonly tenant: TenantService,
     private readonly producer: DocumentProcessingProducer,
     private readonly chat: ChatService,
@@ -208,7 +211,13 @@ export class VacanciesService {
       this.prisma.vacancy.count({ where }),
     ]);
 
-    return paginated(data, total, query.page, query.limit);
+    const candidates = await this.candidateCounts(data.map((v) => v.id));
+    return paginated(
+      data.map((v) => ({ ...v, candidateCount: candidates.get(v.id) ?? 0 })),
+      total,
+      query.page,
+      query.limit,
+    );
   }
 
   /**
@@ -254,19 +263,57 @@ export class VacanciesService {
       this.prisma.vacancy.count({ where }),
     ]);
 
+    const candidates = await this.candidateCounts(data.map((v) => v.id));
     return paginated(
       data.map((v) => ({
         id: v.id,
         title: v.title,
         status: v.status,
         createdAt: v.createdAt,
-        candidateCount: v._count.applications,
+        candidateCount: candidates.get(v.id) ?? 0,
         requirementCount: v._count.requirements,
       })),
       total,
       query.page,
       query.limit,
     );
+  }
+
+  /**
+   * How many PEOPLE are attached to each vacancy.
+   *
+   * `_count.applications` counts ATTEMPTS, and since reapply-after-rejection
+   * one candidate can hold several of them on the same vacancy — so a field
+   * named `candidateCount` fed from it reports 5 where three people applied,
+   * and disagrees with the applicant list it labels.
+   *
+   * Prisma's `_count` has no DISTINCT, so the distinct (vacancy, candidate)
+   * pairs are read for the page's vacancies in one query and tallied here.
+   * The filter is the SAME applicant scope every other surface uses, so the
+   * number can never describe a different universe than the list beside it.
+   *
+   * Nothing is deduplicated in the data: the attempts all still exist, and
+   * every attempt-level endpoint still returns every one of them.
+   */
+  private async candidateCounts(
+    vacancyIds: string[],
+  ): Promise<Map<string, number>> {
+    if (vacancyIds.length === 0) return new Map();
+
+    const pairs = await this.prisma.application.findMany({
+      where: {
+        vacancyId: { in: vacancyIds },
+        ...APPLICANT_APPLICATION_SCOPE,
+      },
+      select: { vacancyId: true, candidateId: true },
+      distinct: ['vacancyId', 'candidateId'],
+    });
+
+    const counts = new Map<string, number>();
+    for (const pair of pairs) {
+      counts.set(pair.vacancyId, (counts.get(pair.vacancyId) ?? 0) + 1);
+    }
+    return counts;
   }
 
   /**
@@ -310,52 +357,131 @@ export class VacanciesService {
       ...(query.status ? { status: query.status } : {}),
     };
 
-    const [rows, total] = await this.prisma.$transaction([
-      this.prisma.application.findMany({
-        where,
-        skip: query.skip,
-        take: query.limit,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          status: true,
-          createdAt: true,
-          candidate: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-              phone: true,
-              location: true,
-              currentTitle: true,
-              totalExperienceYears: true,
-              _count: { select: { documents: true, evidence: true } },
+    // ONE ROW PER PERSON, not per attempt.
+    //
+    // Since reapply-after-rejection a candidate can hold several applications
+    // to one vacancy, and paginating over applications renders that person
+    // once per attempt — the list would then disagree with the
+    // `candidateCount` beside it (which already counts distinct people), and
+    // the Compare picker fed from this list would let someone be compared
+    // against themselves.
+    //
+    // Grouping happens in the database and transfers only (candidateId,
+    // latest attempt) pairs, so the page stays cheap. Nothing is deduplicated
+    // in the DATA: every attempt still exists and every attempt-level
+    // endpoint still returns all of them — this is a view decision.
+    const groups = await this.prisma.application.groupBy({
+      by: ['candidateId'],
+      where,
+      _max: { createdAt: true },
+    });
+    const total = groups.length;
+
+    // Newest attempt first, matching the previous ordering as closely as one
+    // row per person allows.
+    const ordered = groups
+      .slice()
+      .sort(
+        (a, b) =>
+          (b._max.createdAt?.getTime() ?? 0) -
+          (a._max.createdAt?.getTime() ?? 0),
+      )
+      .slice(query.skip, query.skip + query.limit);
+
+    // The CURRENT attempt for each person on this page: the newest one, which
+    // is the same attempt Candidate Detail treats as live.
+    const pageApplications = ordered.length
+      ? await this.prisma.application.findMany({
+          where: {
+            ...where,
+            candidateId: { in: ordered.map((group) => group.candidateId) },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            candidateId: true,
+            candidate: {
+              select: {
+                id: true,
+                fullName: true,
+                email: true,
+                phone: true,
+                location: true,
+                currentTitle: true,
+                totalExperienceYears: true,
+                _count: { select: { evidence: true } },
+                // The LIVE person: current name/email/avatar and CURRENT
+                // document count — the row must show who they are NOW, not a
+                // first-apply-time copy of them.
+                candidateAccount: {
+                  select: {
+                    user: {
+                      select: {
+                        fullName: true,
+                        email: true,
+                        avatarStorageKey: true,
+                      },
+                    },
+                    _count: {
+                      select: {
+                        personalDocuments: { where: { organizationId: null } },
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
-        },
-      }),
-      this.prisma.application.count({ where }),
-    ]);
+        })
+      : [];
+
+    const latestByCandidate = new Map<
+      string,
+      (typeof pageApplications)[number]
+    >();
+    for (const application of pageApplications) {
+      // Ordered newest-first, so the first one seen per candidate is the live
+      // attempt and later (older) ones are skipped.
+      if (!latestByCandidate.has(application.candidateId)) {
+        latestByCandidate.set(application.candidateId, application);
+      }
+    }
+    const rows = ordered
+      .map((group) => latestByCandidate.get(group.candidateId))
+      .filter(
+        (row): row is (typeof pageApplications)[number] => row !== undefined,
+      );
 
     return paginated(
-      rows.map((row) => ({
-        candidate: {
-          id: row.candidate.id,
-          fullName: row.candidate.fullName,
-          email: row.candidate.email,
-          phone: row.candidate.phone,
-          location: row.candidate.location,
-          currentTitle: row.candidate.currentTitle,
-          totalExperienceYears: row.candidate.totalExperienceYears,
-          documentCount: row.candidate._count.documents,
-          evidenceCount: row.candidate._count.evidence,
-        },
-        application: {
-          id: row.id,
-          status: row.status,
-          createdAt: row.createdAt,
-        },
-      })),
+      await Promise.all(
+        rows.map(async (row) => {
+          const account = row.candidate.candidateAccount;
+          return {
+            candidate: {
+              id: row.candidate.id,
+              fullName: account?.user.fullName ?? row.candidate.fullName,
+              email: account?.user.email ?? row.candidate.email,
+              phone: row.candidate.phone,
+              location: row.candidate.location,
+              currentTitle: row.candidate.currentTitle,
+              totalExperienceYears: row.candidate.totalExperienceYears,
+              avatarUrl: await signAvatarUrl(
+                this.storage,
+                account?.user.avatarStorageKey ?? null,
+              ),
+              documentCount: account?._count.personalDocuments ?? 0,
+              evidenceCount: row.candidate._count.evidence,
+            },
+            application: {
+              id: row.id,
+              status: row.status,
+              createdAt: row.createdAt,
+            },
+          };
+        }),
+      ),
       total,
       query.page,
       query.limit,
@@ -373,7 +499,9 @@ export class VacanciesService {
         },
       },
     });
-    return this.tenant.assertFound(vacancy, 'Vacancy');
+    const found = this.tenant.assertFound(vacancy, 'Vacancy');
+    const candidates = await this.candidateCounts([found.id]);
+    return { ...found, candidateCount: candidates.get(found.id) ?? 0 };
   }
 
   async update(

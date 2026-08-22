@@ -157,7 +157,7 @@ class TestSourceDiversity:
     def _hit(source: str, index: int, score: float) -> EvidenceHit:
         return EvidenceHit(
             chunkId=f"{source}-{index}",
-            candidateId="cand-1",
+            candidateAccountId="acct-1",
             documentId=source,
             fileName=source,
             section=None,
@@ -205,7 +205,7 @@ class TestCitationProvenance:
     def _url_hit() -> EvidenceHit:
         return EvidenceHit(
             chunkId="chunk-url-1",
-            candidateId="cand-1",
+            candidateAccountId="acct-1",
             documentId="src-1",
             fileName="Portfolio Website",
             section="projects",
@@ -220,8 +220,7 @@ class TestCitationProvenance:
 
     def test_citation_copies_the_url_from_the_retrieved_chunk(self):
         outcome = validate_citations(
-            ["chunk-url-1"], [self._url_hit()], organization_id="org-1",
-            candidate_id="cand-1",
+            ["chunk-url-1"], [self._url_hit()], allowed_account_ids={"acct-1"}
         )
         citation = outcome.citations[0]
         assert citation.sourceType == "URL"
@@ -233,8 +232,7 @@ class TestCitationProvenance:
         outcome = validate_citations(
             ["chunk-that-was-never-supplied"],
             [self._url_hit()],
-            organization_id="org-1",
-            candidate_id="cand-1",
+            allowed_account_ids={"acct-1"},
         )
         assert outcome.citations == []
         assert outcome.rejected_chunk_ids == ["chunk-that-was-never-supplied"]
@@ -243,7 +241,7 @@ class TestCitationProvenance:
         """Chunks indexed before URL evidence existed still cite correctly."""
         legacy = EvidenceHit(
             chunkId="chunk-file-1",
-            candidateId="cand-1",
+            candidateAccountId="acct-1",
             documentId="doc-1",
             fileName="resume.pdf",
             section="skills",
@@ -253,8 +251,7 @@ class TestCitationProvenance:
             retrievalScore=0.7,
         )
         outcome = validate_citations(
-            ["chunk-file-1"], [legacy], organization_id="org-1",
-            candidate_id="cand-1",
+            ["chunk-file-1"], [legacy], allowed_account_ids={"acct-1"}
         )
         citation = outcome.citations[0]
         assert citation.sourceType == "FILE"
@@ -274,7 +271,7 @@ class TestPromptFraming:
             [
                 EvidenceHit(
                     chunkId="c1",
-                    candidateId="cand-1",
+                    candidateAccountId="acct-1",
                     documentId="doc-1",
                     fileName="resume.pdf",
                     section="skills",
@@ -311,23 +308,27 @@ class TestSourceAgnosticRetrieval:
     Resume: React, Node. Portfolio: Kubernetes. GitHub: Terraform. Each must be
     independently retrievable, and a combined query must reach across all
     three — which is the whole point of one shared retrieval space.
+
+    All three live in the candidate's PERSONAL collection: application-time
+    snapshots are gone, so a file and a link submitted by the same person are
+    one body of current evidence rather than an org-owned copy of it.
     """
 
     @pytest.fixture()
-    def indexed(self, store, embedder):
+    def indexed(self, candidate_store, embedder):
+        from app.candidate.indexing import process_candidate_resume
         from app.config import get_settings
-        from app.retrieval import index_application_web_source, process_document
-        from app.models.schemas import IndexWebSourceRequest
+        from app.models.schemas import IndexCandidateWebSourceRequest
+        from app.retrieval import index_candidate_web_source
         from tests.fixtures.resumes import build_pdf
 
         settings = get_settings()
-        org = f"org-{uuid.uuid4()}"
-        candidate = f"cand-{uuid.uuid4()}"
+        account = f"acct-{uuid.uuid4()}"
         resume_id = f"doc-{uuid.uuid4()}"
         portfolio_id = f"src-{uuid.uuid4()}"
         github_id = f"src-{uuid.uuid4()}"
 
-        process_document(
+        process_candidate_resume(
             data=build_pdf(
                 "Ji-woo Han\nBackend Engineer\n\nSkills\nReact, Node.js, "
                 "TypeScript, PostgreSQL\n\nExperience\nBuilt React dashboards "
@@ -335,61 +336,43 @@ class TestSourceAgnosticRetrieval:
             ),
             file_name="jiwoo-resume.pdf",
             document_id=resume_id,
-            organization_id=org,
-            candidate_id=candidate,
+            candidate_account_id=account,
             settings=settings,
             embedder=embedder,
-            store=store,
+            store=candidate_store,
         )
-        index_application_web_source(
-            IndexWebSourceRequest(
-                organizationId=org,
-                candidateId=candidate,
-                applicationId=f"app-{uuid.uuid4()}",
-                sourceId=portfolio_id,
-                title="Portfolio Website",
-                url=PORTFOLIO_URL,
-                sections=PORTFOLIO_SECTIONS,
-            ),
-            settings=settings,
-            embedder=embedder,
-            store=store,
-        )
-        index_application_web_source(
-            IndexWebSourceRequest(
-                organizationId=org,
-                candidateId=candidate,
-                applicationId=f"app-{uuid.uuid4()}",
-                sourceId=github_id,
-                title="GitHub",
-                url=GITHUB_URL,
-                sections=GITHUB_SECTIONS,
-            ),
-            settings=settings,
-            embedder=embedder,
-            store=store,
-        )
+        for source_id, title, url, sections in (
+            (portfolio_id, "Portfolio Website", PORTFOLIO_URL, PORTFOLIO_SECTIONS),
+            (github_id, "GitHub", GITHUB_URL, GITHUB_SECTIONS),
+        ):
+            index_candidate_web_source(
+                IndexCandidateWebSourceRequest(
+                    candidateAccountId=account,
+                    sourceId=source_id,
+                    title=title,
+                    url=url,
+                    sections=sections,
+                ),
+                settings=settings,
+                embedder=embedder,
+                store=candidate_store,
+            )
 
-        yield {
-            "org": org,
-            "candidate": candidate,
+        return {
+            "account": account,
             "resume": resume_id,
             "portfolio": portfolio_id,
             "github": github_id,
         }
-
-        for source_id in (resume_id, portfolio_id, github_id):
-            store.delete_document(org, source_id)
 
     def _search(self, query, indexed, store, embedder, reranker, limit=8):
         from app.config import get_settings
         from app.retrieval import search_evidence
 
         return search_evidence(
-            organization_id=indexed["org"],
+            candidate_account_ids=[indexed["account"]],
             query=query,
             limit=limit,
-            candidate_id=indexed["candidate"],
             document_id=None,
             use_rerank=True,
             settings=get_settings(),
@@ -399,11 +382,11 @@ class TestSourceAgnosticRetrieval:
         )
 
     def test_a_skill_only_on_the_portfolio_is_retrievable(
-        self, indexed, store, embedder, reranker
+        self, indexed, candidate_store, embedder, reranker
     ):
         result = self._search(
-            "production Kubernetes cluster deployment", indexed, store, embedder,
-            reranker,
+            "production Kubernetes cluster deployment", indexed, candidate_store,
+            embedder, reranker,
         )
         top = result.hits[0]
         assert top.sourceType == "URL"
@@ -411,29 +394,30 @@ class TestSourceAgnosticRetrieval:
         assert "kubernetes" in top.text.lower()
 
     def test_a_skill_only_in_a_repository_link_is_retrievable(
-        self, indexed, store, embedder, reranker
+        self, indexed, candidate_store, embedder, reranker
     ):
         result = self._search(
-            "Terraform infrastructure modules", indexed, store, embedder, reranker
+            "Terraform infrastructure modules", indexed, candidate_store, embedder,
+            reranker,
         )
         assert result.hits[0].documentId == indexed["github"]
         assert result.hits[0].sourceUrl == GITHUB_URL
 
     def test_a_skill_only_in_the_resume_is_still_retrievable(
-        self, indexed, store, embedder, reranker
+        self, indexed, candidate_store, embedder, reranker
     ):
         result = self._search(
-            "React frontend dashboards", indexed, store, embedder, reranker
+            "React frontend dashboards", indexed, candidate_store, embedder, reranker
         )
         assert result.hits[0].documentId == indexed["resume"]
         assert result.hits[0].sourceType == "FILE"
 
     def test_a_combined_query_reaches_across_source_kinds(
-        self, indexed, store, embedder, reranker
+        self, indexed, candidate_store, embedder, reranker
     ):
         result = self._search(
-            "React Kubernetes Terraform", indexed, store, embedder, reranker,
-            limit=9,
+            "React Kubernetes Terraform", indexed, candidate_store, embedder,
+            reranker, limit=9,
         )
         sources = {hit.documentId for hit in result.hits}
         assert indexed["resume"] in sources
@@ -441,31 +425,37 @@ class TestSourceAgnosticRetrieval:
         assert indexed["github"] in sources
 
     def test_url_hits_carry_the_page_they_came_from(
-        self, indexed, store, embedder, reranker
+        self, indexed, candidate_store, embedder, reranker
     ):
         result = self._search(
-            "Helm charts autoscaling rollout", indexed, store, embedder, reranker
+            "Helm charts autoscaling rollout", indexed, candidate_store, embedder,
+            reranker,
         )
         hit = next(h for h in result.hits if h.documentId == indexed["portfolio"])
         assert hit.sourceUrl == f"{PORTFOLIO_URL}/projects"
         assert hit.sourceTitle == "Portfolio Website"
 
-    def test_another_organization_cannot_retrieve_these_url_chunks(
-        self, indexed, store, embedder, reranker
+    def test_another_account_cannot_retrieve_these_url_chunks(
+        self, indexed, candidate_store, embedder, reranker
     ):
+        """URL evidence is isolated by exactly the same key as file evidence.
+
+        Link chunks share the collection and payload shape with resume chunks,
+        so a filter that covered files but leaked links would be a silent,
+        source-kind-specific hole. It is asserted separately for that reason.
+        """
         from app.config import get_settings
         from app.retrieval import search_evidence
 
         result = search_evidence(
-            organization_id=f"org-{uuid.uuid4()}",
+            candidate_account_ids=[f"acct-{uuid.uuid4()}"],
             query="Kubernetes cluster",
             limit=10,
-            candidate_id=None,
             document_id=None,
             use_rerank=False,
             settings=get_settings(),
             embedder=embedder,
-            store=store,
+            store=candidate_store,
             reranker=None,
         )
         assert result.hits == []
@@ -532,19 +522,28 @@ class TestPersonalWebSourceIsolation:
 
 @pytest.mark.integration
 class TestWebSourceApi:
-    def test_index_endpoints_require_the_internal_token(self, client):
-        for path in ("/internal/web-sources/index", "/internal/candidate/web-sources/index"):
-            response = client.post(path, json={})
-            assert response.status_code == 401
+    def test_the_index_endpoint_requires_the_internal_token(self, client):
+        response = client.post("/internal/candidate/web-sources/index", json={})
+        assert response.status_code == 401
+
+    def test_the_org_snapshot_endpoint_no_longer_exists(self, client, auth_headers):
+        """Org link snapshots were removed with the rest of the snapshot model.
+
+        Asserted rather than assumed: a route left mounted would keep writing
+        org-owned copies of a candidate's link into the tenant collection,
+        where deleting the link could never reach them.
+        """
+        response = client.post(
+            "/internal/web-sources/index", headers=auth_headers, json={}
+        )
+        assert response.status_code == 404
 
     def test_rejects_a_payload_with_no_sections(self, client, auth_headers):
         response = client.post(
-            "/internal/web-sources/index",
+            "/internal/candidate/web-sources/index",
             headers=auth_headers,
             json={
-                "organizationId": "org-1",
-                "candidateId": "cand-1",
-                "applicationId": "app-1",
+                "candidateAccountId": "acct-1",
                 "sourceId": "src-1",
                 "title": "Portfolio",
                 "url": PORTFOLIO_URL,

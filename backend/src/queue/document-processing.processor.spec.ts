@@ -10,6 +10,9 @@ function makeJob(
   data: Partial<ProcessDocumentJobData> = {},
 ): Job<ProcessDocumentJobData> {
   return {
+    // Named, like every real job: the processor dispatches on the name and
+    // refuses one it does not recognise rather than guessing at the payload.
+    name: 'PROCESS_DOCUMENT',
     data: {
       documentId: 'd1',
       organizationId: ORG_A,
@@ -669,9 +672,13 @@ describe('DocumentProcessingProcessor', () => {
     });
   });
 
-  describe('application link snapshot jobs (organization-scoped path)', () => {
-    const snapshotJob = (over: Record<string, unknown> = {}) =>
-      ({
+  describe('the removed application-link snapshot path', () => {
+    it('refuses a job for the job type that no longer exists', async () => {
+      // Apply stopped copying evidence, so nothing enqueues this any more —
+      // but a job left in Redis from before the migration would still be
+      // delivered once. It must be rejected outright rather than silently
+      // succeeding, which is what an unhandled name does here.
+      const stale = {
         name: 'PROCESS_APPLICATION_LINK',
         data: {
           linkSourceId: 'link-src-1',
@@ -679,83 +686,9 @@ describe('DocumentProcessingProcessor', () => {
           candidateId: 'cand-1',
         },
         attemptsMade: 0,
-        ...over,
-      }) as never;
+      } as never;
 
-    it('NEVER re-fetches the page — the snapshot is the evidence', async () => {
-      await build().process(snapshotJob());
-
-      // Re-fetching would silently replace an application's evidence with
-      // whatever the site says today. That is the failure the whole snapshot
-      // model exists to prevent.
-      expect(web.ingest).not.toHaveBeenCalled();
-      expect(ai.indexApplicationWebSource.mock.calls[0][0].sections).toEqual([
-        expect.objectContaining({ text: 'Kubernetes deployment work' }),
-      ]);
-    });
-
-    it('indexes under the organization AND the candidate', async () => {
-      await build().process(snapshotJob());
-
-      expect(ai.indexApplicationWebSource.mock.calls[0][0]).toMatchObject({
-        organizationId: ORG_A,
-        candidateId: 'cand-1',
-        applicationId: 'app-1',
-        sourceId: 'link-src-1',
-      });
-      expect(ai.indexPersonalWebSource).not.toHaveBeenCalled();
-    });
-
-    it('scopes the lookup by organization so a malformed job cannot cross tenants', async () => {
-      await build().process(snapshotJob());
-      expect(
-        prisma.applicationLinkSource.findFirst.mock.calls[0][0].where,
-      ).toEqual({ id: 'link-src-1', organizationId: ORG_A });
-    });
-
-    it('marks the snapshot COMPLETED', async () => {
-      await build().process(snapshotJob());
-      expect(
-        prisma.applicationLinkSource.updateMany.mock.calls.at(-1)[0].data
-          .status,
-      ).toBe('COMPLETED');
-    });
-
-    it('marks it FAILED when indexing fails', async () => {
-      ai.indexApplicationWebSource.mockRejectedValue(new Error('qdrant down'));
-
-      await expect(build().process(snapshotJob())).rejects.toThrow();
-      expect(
-        prisma.applicationLinkSource.updateMany.mock.calls.at(-1)[0].data
-          .status,
-      ).toBe('FAILED');
-    });
-
-    it('evicts vectors when the snapshot no longer exists', async () => {
-      prisma.applicationLinkSource.findFirst.mockResolvedValue(null);
-
-      await expect(build().process(snapshotJob())).rejects.toBeInstanceOf(
-        UnrecoverableError,
-      );
-      expect(ai.deleteApplicationWebSource).toHaveBeenCalledWith(
-        ORG_A,
-        'link-src-1',
-      );
-    });
-
-    it('evicts on the delete job', async () => {
-      await build().process({
-        name: 'DELETE_APPLICATION_LINK_INDEX',
-        data: {
-          linkSourceId: 'link-src-1',
-          organizationId: ORG_A,
-          candidateId: 'cand-1',
-        },
-      } as never);
-      expect(ai.deleteApplicationWebSource).toHaveBeenCalledWith(
-        ORG_A,
-        'link-src-1',
-      );
+      await expect(build().process(stale)).rejects.toThrow(/Unknown job/i);
     });
   });
 });

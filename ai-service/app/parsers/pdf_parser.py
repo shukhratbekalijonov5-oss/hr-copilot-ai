@@ -60,11 +60,45 @@ def parse_pdf(data: bytes) -> ParsedDocument:
     if miner_pages is None and pypdf_pages is None:
         raise CorruptDocumentError("PDF could not be read by any extractor")
 
+    # Both strategies produced the same page structure: choose PER PAGE. A
+    # mixed-quality document (clean text pages next to glyph-positioned design
+    # pages — the portfolio-PDF shape) then keeps each strategy's good pages
+    # instead of accepting one strategy's bad ones everywhere. Whole-document
+    # selection below stays the fallback when the structures disagree.
+    if (
+        miner_pages is not None
+        and pypdf_pages is not None
+        and len(miner_pages) == len(pypdf_pages)
+    ):
+        merged = [
+            _better_page(miner, pypdf)
+            for miner, pypdf in zip(miner_pages, pypdf_pages)
+        ]
+        return _document("per-page", merged, _score(merged))
+
     # Lower degradation wins; the layout-aware strategy wins ties. At least
     # one side is non-None here, and a None side scores infinity.
     if miner_pages is not None and miner_score <= pypdf_score:
         return _document("pdfminer", miner_pages, miner_score)
     return _document("pypdf", pypdf_pages or [], pypdf_score)
+
+
+def _better_page(miner_text: str, pypdf_text: str) -> str:
+    """The less-degraded of two extractions of the SAME page.
+
+    An empty side loses to a non-empty side outright (degradation_score cannot
+    rank nothing against something), and pdfminer's layout-aware output wins
+    ties, matching the whole-document rule. One unreadable page can therefore
+    never fail the document — it merely contributes whatever its best
+    extraction found, possibly nothing.
+    """
+    if not miner_text.strip():
+        return pypdf_text
+    if not pypdf_text.strip():
+        return miner_text
+    if degradation_score(miner_text) <= degradation_score(pypdf_text):
+        return miner_text
+    return pypdf_text
 
 
 def _document(strategy: str, pages: list[str], score: float) -> ParsedDocument:

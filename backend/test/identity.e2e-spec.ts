@@ -449,7 +449,9 @@ describe('Identity & candidate platform (e2e, real database)', () => {
       expect(personal!.candidateAccountId).toBeTruthy();
     });
 
-    it('applies directly: application + linked org candidate + snapshot, source=DIRECT', async () => {
+    it('applies directly: application + linked org candidate, source=DIRECT', async () => {
+      const documentsBefore = await prisma.document.count();
+
       const res = await request(http)
         .post(`/public/jobs/${openSlug}/apply`)
         .set('Authorization', `Bearer ${seekerToken}`);
@@ -461,14 +463,20 @@ describe('Identity & candidate platform (e2e, real database)', () => {
 
       const application = await prisma.application.findUnique({
         where: { id: applicationId },
-        include: { candidate: true, submittedDocument: true },
+        include: { candidate: true },
       });
       expect(application!.candidate.candidateAccountId).toBeTruthy();
       expect(application!.candidate.fullName).toBe('E2E Seeker');
-      // The snapshot copy belongs to the VACANCY's organization.
-      expect(application!.submittedDocument!.organizationId).toBe(
-        application!.candidate.organizationId,
-      );
+
+      // An application is a RELATIONSHIP, not a copy: applying duplicates no
+      // evidence at all. The candidate's resume stays the single row under
+      // their own account, and the recruiter reads THAT.
+      expect(await prisma.document.count()).toBe(documentsBefore);
+      expect(
+        await prisma.document.count({
+          where: { candidateId: application!.candidateId },
+        }),
+      ).toBe(0);
     });
 
     it('a second application to the same vacancy is refused (409)', async () => {

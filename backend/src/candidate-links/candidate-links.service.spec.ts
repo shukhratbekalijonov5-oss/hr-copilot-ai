@@ -408,6 +408,22 @@ describe('CandidateLinksService', () => {
       expect(producer.enqueueCandidateLink).not.toHaveBeenCalled();
     });
 
+    it('allows retrying CONTENT_TOO_LARGE — page weight is a state, not a verdict', async () => {
+      const { service, prisma, producer } = build();
+      prisma.candidateLink.findFirst.mockResolvedValue(
+        linkRow({
+          status: LinkStatus.FAILED,
+          failureCode: LinkFailureCode.CONTENT_TOO_LARGE,
+        }),
+      );
+      prisma.candidateLink.update.mockResolvedValue(
+        linkRow({ status: LinkStatus.PENDING }),
+      );
+
+      await service.reprocess(ME, 'link-1');
+      expect(producer.enqueueCandidateLink).toHaveBeenCalled();
+    });
+
     it('refuses while a job is genuinely still running', async () => {
       const producer = createProducerMock();
       producer.hasLiveLinkJob.mockResolvedValue(true);

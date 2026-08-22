@@ -12,6 +12,7 @@ import type {
   CandidateAccountResponse,
   CandidateEvidenceStateResponse,
   CandidatePersonalDocumentsResponse,
+  CandidateResumeResponse,
   MyApplicationResponse,
   SavedJobResponse,
   JobMatchesResponse,
@@ -23,6 +24,7 @@ import type {
   CandidateEvidenceState,
   MyApplication,
   MyApplicationPage,
+  DocumentStatus,
   PersonalDocument,
   PersonalDocumentCollection,
   PersonalResume,
@@ -147,6 +149,18 @@ export function deletePersonalDocument(id: string): Promise<{ id: string }> {
   return apiFetch(`/candidate-account/me/documents/${id}`, {
     method: "DELETE",
   });
+}
+
+/**
+ * POST /candidate-account/me/documents/:id/reprocess — re-queues AI indexing
+ * for a FAILED document. 409 (DOCUMENT_NOT_RETRYABLE / DOCUMENT_BUSY) when the
+ * document is not failed or is already being worked.
+ */
+export function reprocessPersonalDocument(id: string): Promise<PersonalDocument> {
+  return apiFetch<CandidateResumeResponse & { status?: DocumentStatus }>(
+    `/candidate-account/me/documents/${id}/reprocess`,
+    { method: "POST" },
+  ).then(toPersonalDocument);
 }
 
 /** GET /candidate-account/me/resume — a short-lived signed URL. */

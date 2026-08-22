@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
 import {
-  documentPreviewPath,
+  currentDocumentPreviewPath,
+  currentDocumentUrlPath,
   isPdfMimeType,
   isSameDocumentPreview,
   pdfFrameSource,
@@ -21,7 +22,16 @@ import { cn, formatFileSize } from "@/lib/utils";
 import type { CandidateDocument, Citation } from "@/lib/types";
 
 interface DocumentViewerProps {
+  /**
+   * The applicant's CURRENT documents — the only document truth. A citation
+   * naming a source that is no longer here simply does not resolve; deleted
+   * files are not resurrected for display.
+   */
   documents: CandidateDocument[];
+  /** The applicant whose current file is being read. */
+  candidateId: string;
+  /** The owned-vacancy context every fetch is re-authorized under. */
+  vacancyId: string;
   activeDocumentId: string | null;
   page: number;
   activeCitation: Citation | null;
@@ -62,6 +72,8 @@ interface PdfPreviewState {
  */
 export function DocumentViewer({
   documents,
+  candidateId,
+  vacancyId,
   activeDocumentId,
   page,
   activeCitation,
@@ -72,6 +84,8 @@ export function DocumentViewer({
   const { d, f } = useI18n();
   const active = documents.find((doc) => doc.id === activeDocumentId) ?? null;
   const activeId = active?.id ?? null;
+  /** The picker offers exactly the current files — unique ids, up to 3. */
+  const options = documents;
   const isPdf = isPdfMimeType(active?.mimeType);
   const [signed, setSigned] = useState<SignedUrlState>({
     documentId: null,
@@ -91,7 +105,7 @@ export function DocumentViewer({
 
     let cancelled = false;
 
-    fetch(`/api/documents/${activeId}/url`)
+    fetch(currentDocumentUrlPath(candidateId, vacancyId, activeId))
       .then(async (response) => {
         if (!response.ok) throw new Error(String(response.status));
         return (await response.json()) as { url: string };
@@ -118,7 +132,7 @@ export function DocumentViewer({
     return () => {
       cancelled = true;
     };
-  }, [activeId, d.candidates.documentOpenFailed, isPdf]);
+  }, [activeId, candidateId, vacancyId, d.candidates.documentOpenFailed, isPdf]);
 
   useEffect(() => {
     if (!activeId || !isPdf) return;
@@ -139,7 +153,7 @@ export function DocumentViewer({
       });
     }, 15000);
 
-    fetch(documentPreviewPath(documentId), {
+    fetch(currentDocumentPreviewPath(candidateId, vacancyId, documentId), {
       cache: "no-store",
       signal: controller.signal,
     })
@@ -182,7 +196,7 @@ export function DocumentViewer({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [activeId, d.candidates.documentOpenFailed, isPdf]);
+  }, [activeId, candidateId, vacancyId, d.candidates.documentOpenFailed, isPdf]);
 
   if (!active) {
     return (
@@ -203,7 +217,11 @@ export function DocumentViewer({
 
   const pageCount = active.pageCount;
   const canPage = isPdf && pageCount !== null && pageCount > 1;
-  const previewPath = documentPreviewPath(active.id);
+  const previewPath = currentDocumentPreviewPath(
+    candidateId,
+    vacancyId,
+    active.id,
+  );
   const previewForActive = isSameDocumentPreview(
     pdfPreview.documentId,
     active.id,
@@ -230,14 +248,14 @@ export function DocumentViewer({
     >
       <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
         <FileIcon className="size-4 shrink-0 text-ink-subtle" />
-        {documents.length > 1 ? (
+        {options.length > 1 ? (
           <select
             aria-label={d.candidates.selectDocument}
             value={active.id}
             onChange={(event) => onSelectDocument(event.target.value)}
             className="min-w-0 flex-1 truncate bg-transparent text-[13px] font-medium text-ink outline-none"
           >
-            {documents.map((document) => (
+            {options.map((document) => (
               <option key={document.id} value={document.id}>
                 {document.originalFileName}
               </option>

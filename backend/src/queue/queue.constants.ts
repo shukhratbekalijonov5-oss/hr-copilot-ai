@@ -16,16 +16,6 @@ export const PROCESS_CANDIDATE_LINK_JOB = 'PROCESS_CANDIDATE_LINK';
 /** Remove a deleted/replaced personal link's vectors. */
 export const DELETE_CANDIDATE_LINK_INDEX_JOB = 'DELETE_CANDIDATE_LINK_INDEX';
 /**
- * ORG-scoped application link snapshot → index into the tenant collection.
- * Deliberately does NOT fetch anything: the content was frozen at apply time
- * and re-fetching would break snapshot immutability.
- */
-export const PROCESS_APPLICATION_LINK_JOB = 'PROCESS_APPLICATION_LINK';
-/** Remove a deleted application link snapshot's vectors. */
-export const DELETE_APPLICATION_LINK_INDEX_JOB =
-  'DELETE_APPLICATION_LINK_INDEX';
-
-/**
  * Job payloads carry identifiers only — never file contents, buffers, signed
  * URLs or anything derived from a secret. The worker re-reads whatever it
  * needs from Postgres and object storage using these ids.
@@ -55,18 +45,11 @@ export interface CandidateLinkJobData {
   candidateAccountId: string;
 }
 
-export interface ApplicationLinkJobData {
-  linkSourceId: string;
-  organizationId: string;
-  candidateId: string;
-}
-
 export type ResumeQueueJobData =
   | ProcessDocumentJobData
   | PersonalResumeJobData
   | SyncVacancyIndexJobData
-  | CandidateLinkJobData
-  | ApplicationLinkJobData;
+  | CandidateLinkJobData;
 
 /** Progress checkpoints reported back to ProcessingJob.progress. */
 export const PROCESSING_PROGRESS = {

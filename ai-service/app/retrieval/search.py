@@ -8,37 +8,44 @@ cited back to its source.
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from app.common import metrics
 from app.common.logging import get_logger
 from app.config import Settings
 from app.embeddings import EmbeddingModel
 from app.models.schemas import EvidenceHit, SearchResponse
-from app.vectorstore import QdrantStore
+
+if TYPE_CHECKING:
+    # Type-only: importing app.candidate at runtime would come back here
+    # through app.candidate.job_match -> app.mapping.service, which imports
+    # search_evidence from this module.
+    from app.candidate.store import CandidateResumeStore
 
 logger = get_logger(__name__)
 
 
 def search_evidence(
     *,
-    organization_id: str,
+    candidate_account_ids: list[str],
     query: str,
     limit: int,
-    candidate_id: str | None,
     document_id: str | None,
     use_rerank: bool,
     settings: Settings,
     embedder: EmbeddingModel,
-    store: QdrantStore,
+    store: "CandidateResumeStore",
     reranker=None,
     allowed_source_ids: list[str] | None = None,
 ) -> SearchResponse:
-    """Retrieve passages for one organization.
+    """Retrieve passages from CURRENT candidate evidence.
 
-    ``allowed_source_ids`` is the surviving-source filter every candidate-scoped
-    caller passes (see ``AllowedSourceIds``): it is applied in the vector query
-    itself, so deleted evidence cannot occupy a slot in the returned set, let
-    alone reach generation.
+    ``candidate_account_ids`` is the authorized universe the backend resolved;
+    an empty list retrieves nothing. ``allowed_source_ids`` is the
+    surviving-source filter every candidate-scoped caller passes (see
+    ``AllowedSourceIds``): it is applied in the vector query itself, so
+    deleted evidence cannot occupy a slot in the returned set, let alone
+    reach generation.
     """
     started = time.perf_counter()
 
@@ -49,10 +56,9 @@ def search_evidence(
     with metrics.timed(metrics.RETRIEVAL_DURATION):
         query_vector = embedder.encode_query(query)
         raw_hits = store.search(
-            organization_id=organization_id,
+            candidate_account_ids=candidate_account_ids,
             query_vector=query_vector,
             limit=pool,
-            candidate_id=candidate_id,
             document_id=document_id,
             allowed_source_ids=allowed_source_ids,
         )
@@ -74,7 +80,7 @@ def search_evidence(
             # working search into an error. Vector order is still meaningful.
             logger.warning(
                 "Reranking failed; returning vector-search order",
-                extra={"organizationId": organization_id, "errorType": type(exc).__name__},
+                extra={"errorType": type(exc).__name__},
             )
             hits.sort(key=lambda h: h.retrievalScore, reverse=True)
     else:
@@ -85,8 +91,7 @@ def search_evidence(
     logger.info(
         "Evidence search completed",
         extra={
-            "organizationId": organization_id,
-            "candidateId": candidate_id,
+            "accountsInUniverse": len(candidate_account_ids),
             "stage": "search",
             "considered": considered,
             "returned": len(hits),
@@ -166,7 +171,7 @@ def _to_evidence(payload: dict, score: float) -> EvidenceHit:
     file_name = payload.get("fileName")
     return EvidenceHit(
         chunkId=payload.get("chunkId", ""),
-        candidateId=payload.get("candidateId"),
+        candidateAccountId=payload.get("candidateAccountId"),
         documentId=payload.get("documentId", ""),
         fileName=file_name,
         section=payload.get("section"),

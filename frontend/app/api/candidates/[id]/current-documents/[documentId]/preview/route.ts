@@ -5,25 +5,37 @@ import { getSessionToken } from "@/lib/api/session";
 const PDF_CONTENT_TYPE = "application/pdf";
 
 /**
- * Streams an authorised document through the frontend origin.
+ * Streams one of an applicant's CURRENT documents through the frontend
+ * origin, for the embedded viewer.
  *
- * The backend/storage signed URL remains server-side. Browsers get a normal
- * same-origin PDF response, which avoids embedded-viewer quirks around private
- * cross-origin signed URLs while preserving the backend as the authority.
+ * The backend/storage signed URL remains server-side, and the backend
+ * re-verifies the owned-vacancy + applicant + current-ownership chain on
+ * every call — a deleted or substituted document id is a 404, never a file.
  */
 export async function GET(
-  _request: Request,
-  context: RouteContext<"/api/documents/[id]/preview">,
+  request: Request,
+  context: RouteContext<"/api/candidates/[id]/current-documents/[documentId]/preview">,
 ): Promise<Response> {
   const token = await getSessionToken();
   if (!token) {
     return NextResponse.json({ message: "Not signed in." }, { status: 401 });
   }
 
-  const { id } = await context.params;
+  const { id, documentId } = await context.params;
+  const vacancyId = new URL(request.url).searchParams.get("vacancyId");
+  if (!vacancyId) {
+    return NextResponse.json(
+      { message: "vacancyId is required." },
+      { status: 400 },
+    );
+  }
 
   try {
-    const { url } = await api.getDocumentDownloadUrl(id);
+    const { url } = await api.getCandidateCurrentDocumentUrl(
+      id,
+      vacancyId,
+      documentId,
+    );
     const upstream = await fetch(url, { cache: "no-store" });
 
     if (!upstream.ok) {

@@ -27,6 +27,7 @@ function createPrismaMock() {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn(),
+      update: jest.fn(),
       delete: jest.fn(),
     },
     application: {
@@ -76,6 +77,7 @@ function createProducerMock() {
   return {
     enqueuePersonalResume: jest.fn().mockResolvedValue('job-1'),
     enqueuePersonalResumeIndexDeletion: jest.fn().mockResolvedValue('job-2'),
+    hasLivePersonalResumeJob: jest.fn().mockResolvedValue(false),
   };
 }
 
@@ -536,6 +538,76 @@ describe('CandidateAccountService', () => {
       // The ranking is locale-independent; the locale selects which stored
       // translation of the prose is served for this page.
       expect(ranking.explainPage.mock.calls[0][1]).toBe('ko');
+    });
+  });
+
+  describe('reprocessPersonalDocument — retry without re-upload', () => {
+    beforeEach(() => {
+      prisma.candidateAccount.findUnique.mockResolvedValue({
+        id: MY_ACCOUNT,
+        resumeDocumentId: null,
+      });
+    });
+
+    it('re-queues a FAILED document and resets it to UPLOADED', async () => {
+      prisma.document.findFirst.mockResolvedValue({
+        id: 'doc-1',
+        status: 'FAILED',
+      });
+      prisma.document.update.mockResolvedValue({
+        id: 'doc-1',
+        status: 'UPLOADED',
+      });
+
+      await service.reprocessPersonalDocument(ME, 'doc-1');
+
+      expect(prisma.document.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: 'UPLOADED' },
+        }),
+      );
+      expect(producer.enqueuePersonalResume).toHaveBeenCalledWith(
+        { documentId: 'doc-1', candidateAccountId: MY_ACCOUNT },
+        { replaceExisting: true },
+      );
+    });
+
+    it('refuses a document that has not failed', async () => {
+      prisma.document.findFirst.mockResolvedValue({
+        id: 'doc-1',
+        status: 'COMPLETED',
+      });
+
+      await expect(
+        service.reprocessPersonalDocument(ME, 'doc-1'),
+      ).rejects.toMatchObject({
+        response: { code: 'DOCUMENT_NOT_RETRYABLE' },
+      });
+      expect(producer.enqueuePersonalResume).not.toHaveBeenCalled();
+    });
+
+    it('refuses while an indexing job is genuinely live', async () => {
+      prisma.document.findFirst.mockResolvedValue({
+        id: 'doc-1',
+        status: 'FAILED',
+      });
+      producer.hasLivePersonalResumeJob.mockResolvedValue(true);
+
+      await expect(
+        service.reprocessPersonalDocument(ME, 'doc-1'),
+      ).rejects.toMatchObject({
+        response: { code: 'DOCUMENT_BUSY' },
+      });
+      expect(producer.enqueuePersonalResume).not.toHaveBeenCalled();
+    });
+
+    it('404s a foreign or organization-side document id', async () => {
+      prisma.document.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.reprocessPersonalDocument(ME, 'someone-elses-doc'),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(producer.enqueuePersonalResume).not.toHaveBeenCalled();
     });
   });
 

@@ -115,13 +115,42 @@ class TestErrorHandling:
         assert response.status_code == 422
         assert response.json()["code"] == "validation_error"
 
-    def test_search_rejects_an_empty_organization_id(self, client, auth_headers):
+    def test_search_rejects_the_removed_organization_id(self, client, auth_headers):
+        """The tenant key is gone from the search contract, and enforceably so.
+
+        Retrieval reads the candidate personal collection now, which carries no
+        organizationId at all. A backend still sending the old key must fail
+        loudly (extra="forbid") rather than have it silently ignored while the
+        request is served with no scoping the caller believes it asked for.
+        """
         response = client.post(
             "/internal/search",
             headers=auth_headers,
-            json={"organizationId": "", "query": "kubernetes"},
+            json={
+                "organizationId": "org-a",
+                "candidateAccountIds": ["acct-1"],
+                "query": "kubernetes",
+            },
         )
         assert response.status_code == 422
+        assert response.json()["code"] == "validation_error"
+
+    def test_an_empty_authorized_universe_is_200_with_no_hits(
+        self, client, auth_headers
+    ):
+        """"Nobody" is an authorization ANSWER, not a malformed request.
+
+        A recruiter with no applicants of their own resolves to exactly this,
+        and it must come back as an empty result rather than a 422 the caller
+        might be tempted to "fix" by widening the list.
+        """
+        response = client.post(
+            "/internal/search",
+            headers=auth_headers,
+            json={"candidateAccountIds": [], "query": "kubernetes", "rerank": False},
+        )
+        assert response.status_code == 200
+        assert response.json()["hits"] == []
 
 
 class TestRerankEndpoint:
@@ -144,11 +173,20 @@ class TestProcessAndSearchOverHttp:
     def test_process_then_search_end_to_end(
         self, client, auth_headers, qdrant_available, embedder
     ):
+        """Two pipelines, exercised the way the backend drives them.
+
+        Org ingestion (`/internal/documents/process`) is unchanged and still
+        tenant-keyed. Recruiter retrieval reads the CANDIDATE collection, so
+        the searchable evidence is indexed through the candidate route and the
+        search names the authorized account universe.
+        """
         if not qdrant_available:
             pytest.skip("Qdrant is not running")
 
         org = f"org-{uuid.uuid4()}"
         doc = f"doc-{uuid.uuid4()}"
+        account = f"acct-{uuid.uuid4()}"
+        personal_doc = f"doc-{uuid.uuid4()}"
 
         process = client.post(
             "/internal/documents/process",
@@ -166,32 +204,55 @@ class TestProcessAndSearchOverHttp:
         assert body["vectorsIndexed"] > 0
         assert body["embeddingDimension"] == 384
 
-        search = client.post(
-            "/internal/search",
+        personal = client.post(
+            "/internal/candidate/documents/process",
             headers=auth_headers,
-            json={
-                "organizationId": org,
-                "query": "production Kubernetes experience",
-                "limit": 5,
-                "rerank": False,
+            files={"file": ("jiwoo-han.pdf", build_pdf(JIWOO_HAN_TEXT), "application/pdf")},
+            data={
+                "documentId": personal_doc,
+                "candidateAccountId": account,
+                "fileName": "jiwoo-han.pdf",
             },
         )
-        assert search.status_code == 200
-        hits = search.json()["hits"]
-        assert hits
-        assert any("kubernetes" in hit["text"].lower() for hit in hits)
+        assert personal.status_code == 200, personal.text
+        assert personal.json()["vectorsIndexed"] > 0
 
-        # Another organization must retrieve nothing.
-        other = client.post(
-            "/internal/search",
-            headers=auth_headers,
-            json={
-                "organizationId": f"org-{uuid.uuid4()}",
-                "query": "production Kubernetes experience",
-                "rerank": False,
-            },
-        )
-        assert other.json()["hits"] == []
+        try:
+            search = client.post(
+                "/internal/search",
+                headers=auth_headers,
+                json={
+                    "candidateAccountIds": [account],
+                    "query": "production Kubernetes experience",
+                    "limit": 5,
+                    "rerank": False,
+                },
+            )
+            assert search.status_code == 200
+            hits = search.json()["hits"]
+            assert hits
+            assert any("kubernetes" in hit["text"].lower() for hit in hits)
+            assert all(hit["candidateAccountId"] == account for hit in hits)
+
+            # A caller whose authorized universe is somebody else retrieves
+            # nothing — the isolation property, over HTTP.
+            other = client.post(
+                "/internal/search",
+                headers=auth_headers,
+                json={
+                    "candidateAccountIds": [f"acct-{uuid.uuid4()}"],
+                    "query": "production Kubernetes experience",
+                    "rerank": False,
+                },
+            )
+            assert other.json()["hits"] == []
+        finally:
+            removed = client.post(
+                "/internal/candidate/documents/delete",
+                headers=auth_headers,
+                json={"candidateAccountId": account, "documentId": personal_doc},
+            )
+            assert removed.status_code == 200
 
         deleted = client.post(
             "/internal/documents/delete",
@@ -211,18 +272,19 @@ class TestFreshDeployment:
         if not qdrant_available:
             pytest.skip("Qdrant is not running")
 
+        from app.candidate.store import CandidateResumeStore
         from app.config import get_settings
         from app.retrieval import search_evidence
-        from app.vectorstore import QdrantStore
 
         settings = get_settings()
-        store = QdrantStore(settings.qdrant_url, f"never_created_{uuid.uuid4().hex}")
+        store = CandidateResumeStore(
+            settings.qdrant_url, f"never_created_{uuid.uuid4().hex}"
+        )
 
         response = search_evidence(
-            organization_id="org-a",
+            candidate_account_ids=["acct-a"],
             query="production Kubernetes experience",
             limit=5,
-            candidate_id=None,
             document_id=None,
             use_rerank=False,
             settings=settings,

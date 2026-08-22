@@ -33,6 +33,7 @@ function createPrismaMock() {
     application: {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     jobRequirement: {
       create: jest.fn(),
@@ -58,6 +59,7 @@ function createPrismaMock() {
 describe('VacanciesService', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
   let producer: { enqueueVacancyIndexSync: jest.Mock };
+  let storage: { getSignedUrl: jest.Mock };
   let chat: { purgeVacancyConversationsTx: jest.Mock };
   let events: { publish: jest.Mock };
   let service: VacanciesService;
@@ -65,10 +67,12 @@ describe('VacanciesService', () => {
   beforeEach(() => {
     prisma = createPrismaMock();
     producer = { enqueueVacancyIndexSync: jest.fn().mockResolvedValue('j1') };
+    storage = { getSignedUrl: jest.fn().mockResolvedValue('https://signed') };
     chat = { purgeVacancyConversationsTx: jest.fn().mockResolvedValue([]) };
     events = { publish: jest.fn() };
     service = new VacanciesService(
       prisma as unknown as PrismaService,
+      storage as never,
       new TenantService(),
       producer as never,
       chat as never,
@@ -352,6 +356,14 @@ describe('VacanciesService', () => {
         },
       ]);
       prisma.vacancy.count.mockResolvedValue(1);
+      // Four distinct people on v1 — the count query returns PAIRS, one per
+      // (vacancy, candidate), never one per application.
+      prisma.application.findMany.mockResolvedValue([
+        { vacancyId: 'v1', candidateId: 'c1' },
+        { vacancyId: 'v1', candidateId: 'c2' },
+        { vacancyId: 'v1', candidateId: 'c3' },
+        { vacancyId: 'v1', candidateId: 'c4' },
+      ]);
 
       const result = await service.findMine(ORG_A, HR_A, {
         page: 1,
@@ -369,6 +381,62 @@ describe('VacanciesService', () => {
       });
       // No description/publicSlug/creator internals in selector rows.
       expect(result.data[0]).not.toHaveProperty('description');
+    });
+
+    it('counts PEOPLE, so a re-applicant is one candidate, not three', async () => {
+      // The selector label reads "N candidates". Since reapply-after-rejection
+      // `_count.applications` counts attempts, so it would say 5 where three
+      // people applied — and disagree with the applicant list it labels.
+      prisma.vacancy.findMany.mockResolvedValue([
+        {
+          id: 'v1',
+          title: 'Senior QA Engineer',
+          status: VacancyStatus.OPEN,
+          createdAt: new Date('2026-01-01'),
+          _count: { applications: 5, requirements: 7 },
+        },
+      ]);
+      prisma.vacancy.count.mockResolvedValue(1);
+      prisma.application.findMany.mockResolvedValue([
+        { vacancyId: 'v1', candidateId: 'clara' },
+        { vacancyId: 'v1', candidateId: 'aziz' },
+        { vacancyId: 'v1', candidateId: 'sofia' },
+      ]);
+
+      const result = await service.findMine(ORG_A, HR_A, {
+        page: 1,
+        limit: 20,
+        skip: 0,
+      });
+
+      expect(
+        (result.data[0] as { candidateCount: number }).candidateCount,
+      ).toBe(3);
+
+      // Distinct on the PAIR, under the same applicant scope as every other
+      // surface — anything else counts a different universe than it labels.
+      const call = prisma.application.findMany.mock.calls[0][0];
+      expect(call.distinct).toEqual(['vacancyId', 'candidateId']);
+      expect(call.where.vacancyId).toEqual({ in: ['v1'] });
+      expect(call.where.source).toBe('DIRECT');
+      expect(call.where.candidate).toEqual({
+        candidateAccountId: { not: null },
+      });
+    });
+
+    it('reports zero for a vacancy nobody applied to, without a stray query', async () => {
+      prisma.vacancy.findMany.mockResolvedValue([]);
+      prisma.vacancy.count.mockResolvedValue(0);
+
+      const result = await service.findMine(ORG_A, HR_A, {
+        page: 1,
+        limit: 20,
+        skip: 0,
+      });
+
+      expect(result.data).toEqual([]);
+      // No vacancies on the page means nothing to count.
+      expect(prisma.application.findMany).not.toHaveBeenCalled();
     });
   });
 
@@ -389,8 +457,11 @@ describe('VacanciesService', () => {
         skip: 0,
       });
 
-      const args = prisma.application.findMany.mock.calls[0][0];
-      expect(args.where).toMatchObject({
+      // The grouping query is what defines the universe now: one entry per
+      // PERSON, filtered to real applicants.
+      const grouped = prisma.application.groupBy.mock.calls[0][0];
+      expect(grouped.by).toEqual(['candidateId']);
+      expect(grouped.where).toMatchObject({
         vacancyId: 'v1',
         source: 'DIRECT',
         candidate: {
@@ -398,10 +469,6 @@ describe('VacanciesService', () => {
           candidateAccountId: { not: null },
         },
       });
-      // Every row is an applicant, so no source/account labelling is
-      // selected — the "manual vs platform" distinction no longer exists.
-      expect(args.select.source).toBeUndefined();
-      expect(args.select.candidate.select.candidateAccountId).toBeUndefined();
     });
 
     it('keeps the applicant filter alongside a name search', async () => {
@@ -412,9 +479,48 @@ describe('VacanciesService', () => {
         search: 'kim',
       });
 
-      const where = prisma.application.findMany.mock.calls[0][0].where;
+      const where = prisma.application.groupBy.mock.calls[0][0].where;
       expect(where.candidate.candidateAccountId).toEqual({ not: null });
       expect(where.candidate.OR).toHaveLength(2);
+    });
+
+    it('renders ONE row per person even with several attempts', async () => {
+      // Two attempts by one candidate, one by another: the list must show two
+      // people, each on their newest attempt — not three rows.
+      prisma.application.groupBy.mockResolvedValue([
+        { candidateId: 'c1', _max: { createdAt: new Date('2026-02-01') } },
+        { candidateId: 'c2', _max: { createdAt: new Date('2026-01-01') } },
+      ]);
+      const candidate = (id: string) => ({
+        id,
+        fullName: id,
+        email: `${id}@example.test`,
+        phone: null,
+        location: null,
+        currentTitle: null,
+        totalExperienceYears: null,
+        _count: { documents: 1, evidence: 0 },
+      });
+      prisma.application.findMany.mockResolvedValue([
+        { id: 'a-new', status: 'NEW', createdAt: new Date('2026-02-01'), candidateId: 'c1', candidate: candidate('c1') },
+        { id: 'a-old', status: 'REJECTED', createdAt: new Date('2025-06-01'), candidateId: 'c1', candidate: candidate('c1') },
+        { id: 'b1', status: 'NEW', createdAt: new Date('2026-01-01'), candidateId: 'c2', candidate: candidate('c2') },
+      ]);
+
+      const result = (await service.listVacancyCandidates(ORG_A, HR_A, 'v1', {
+        page: 1,
+        limit: 20,
+        skip: 0,
+      })) as {
+        data: { candidate: { id: string }; application: { id: string } }[];
+        meta: { total: number };
+      };
+
+      expect(result.data).toHaveLength(2);
+      expect(result.meta.total).toBe(2);
+      expect(result.data.map((row) => row.candidate.id)).toEqual(['c1', 'c2']);
+      // The LIVE attempt, not the superseded rejected one.
+      expect(result.data[0].application.id).toBe('a-new');
     });
   });
 

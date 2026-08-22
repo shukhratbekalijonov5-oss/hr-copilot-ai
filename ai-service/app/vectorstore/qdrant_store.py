@@ -284,12 +284,16 @@ def build_payload(chunk) -> dict[str, Any]:
     ``sourceUrl`` of a URL chunk is the PUBLIC page a candidate submitted, not
     an internal address, and is meant to be shown.
 
-    ``documentId`` is the source key for BOTH kinds of evidence — a Document id
-    for a file, an ApplicationLinkSource id for a link — which is what lets
-    deletion, idempotent re-indexing and per-source filtering stay a single
-    code path. ``sourceId`` is the same value under the name the rest of the
-    system uses; it is duplicated rather than renamed so chunks indexed before
-    URL evidence existed keep working untouched.
+    ``documentId`` is the source key, which is what lets deletion, idempotent
+    re-indexing and per-source filtering stay a single code path. ``sourceId``
+    is the same value under the name the rest of the system uses; it is
+    duplicated rather than renamed so chunks indexed before URL evidence
+    existed keep working untouched.
+
+    This is the ORGANIZATION collection, which since the removal of
+    application-time evidence snapshots holds only an organization's OWN
+    documents. Candidate evidence lives exclusively in the candidate-scoped
+    collection (see app/candidate/store.py) and is never copied here.
     """
     return {
         # Stable, deterministic identity for this chunk. Citations reference

@@ -246,10 +246,8 @@ describe("toMyApplication", () => {
         employmentType: "Full-time",
         organization: { name: "Northwind Labs" },
       },
-      submittedDocument: { originalFileName: "resume-v1.pdf" },
     });
 
-    expect(application.submittedFileName).toBe("resume-v1.pdf");
     expect(application.job.organizationName).toBe("Northwind Labs");
     expect(application.source).toBe("DIRECT");
   });
@@ -268,11 +266,15 @@ describe("toMyApplication", () => {
         employmentType: null,
         organization: { name: "Org" },
       },
-      submittedDocument: null,
     }) as unknown as Record<string, unknown>;
 
     for (const forbidden of ["notes", "evidence", "candidateId", "rank"]) {
       expect(Object.keys(application)).not.toContain(forbidden);
+    }
+    // An application is pure history: it names no frozen resume, because
+    // applying no longer copies one.
+    for (const removed of ["submittedFileName", "submittedDocument"]) {
+      expect(Object.keys(application)).not.toContain(removed);
     }
   });
 });

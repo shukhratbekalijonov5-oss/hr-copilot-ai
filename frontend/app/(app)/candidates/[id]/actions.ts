@@ -47,6 +47,36 @@ export async function setApplicationStatusAction(
   }
 }
 
+/**
+ * Signed URL for one of the applicant's CURRENT documents. Read-only, minted
+ * at click time so it stays short-lived; the storage key never reaches the
+ * browser.
+ */
+export async function getCurrentDocumentUrlAction(
+  candidateId: string,
+  vacancyId: string,
+  documentId: string,
+): Promise<
+  | { ok: true; url: string; originalFileName: string }
+  | { ok: false; message?: string }
+> {
+  try {
+    const result = await api.getCandidateCurrentDocumentUrl(
+      candidateId,
+      vacancyId,
+      documentId,
+    );
+    return {
+      ok: true,
+      url: result.url,
+      originalFileName: result.originalFileName,
+    };
+  } catch (error) {
+    if (error instanceof ApiError) return { ok: false, message: error.message };
+    return { ok: false };
+  }
+}
+
 export async function inviteToInterviewAction(
   applicationId: string,
   candidateId: string,

@@ -80,6 +80,9 @@ const RETRYABLE_FAILURES: readonly LinkFailureCode[] = [
   "UPSTREAM_ERROR",
   "RENDER_FAILED",
   "INDEXING_FAILED",
+  // Page weight changes — with the site, and with the backend's fetch caps —
+  // so oversize is a state, not a verdict. The backend allows this retry too.
+  "CONTENT_TOO_LARGE",
 ];
 
 export function linkFailureIsRetryable(

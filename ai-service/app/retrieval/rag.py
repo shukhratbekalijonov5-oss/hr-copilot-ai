@@ -40,9 +40,8 @@ _NO_EVIDENCE_MESSAGE = {
 
 def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the API layer
     *,
-    organization_id: str,
+    candidate_account_ids: list[str],
     query: str,
-    candidate_id: str | None,
     locale: str,
     limit: int,
     settings: Settings,
@@ -56,11 +55,11 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
     started = time.perf_counter()
     metrics.increment(metrics.RAG_REQUESTS)
 
+    allowed_accounts = set(candidate_account_ids)
     retrieval = search_evidence(
-        organization_id=organization_id,
+        candidate_account_ids=candidate_account_ids,
         query=query,
         limit=limit,
-        candidate_id=candidate_id,
         document_id=None,
         use_rerank=True,
         settings=settings,
@@ -69,9 +68,7 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
         reranker=reranker,
         allowed_source_ids=allowed_source_ids,
     )
-    context = scrub_context(
-        retrieval.hits, organization_id=organization_id, candidate_id=candidate_id
-    )
+    context = scrub_context(retrieval.hits, allowed_account_ids=allowed_accounts)
 
     if not context:
         metrics.increment(metrics.RAG_INSUFFICIENT_EVIDENCE)
@@ -80,8 +77,7 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
         logger.info(
             "RAG returned no evidence; generation skipped",
             extra={
-                "organizationId": organization_id,
-                "candidateId": candidate_id,
+                "accountsInUniverse": len(candidate_account_ids),
                 "stage": "rag",
                 "status": "INSUFFICIENT_EVIDENCE",
             },
@@ -112,8 +108,7 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
     outcome = validate_citations(
         generated.cited_chunk_ids,
         context,
-        organization_id=organization_id,
-        candidate_id=candidate_id,
+        allowed_account_ids=allowed_accounts,
     )
     status = _resolve_status(generated.status, outcome.citations)
     if outcome.rejected_chunk_ids:
@@ -123,8 +118,7 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
     logger.info(
         "RAG answer generated",
         extra={
-            "organizationId": organization_id,
-            "candidateId": candidate_id,
+            "accountsInUniverse": len(candidate_account_ids),
             "stage": "rag",
             "status": status,
             "evidenceConsidered": len(context),
@@ -150,8 +144,7 @@ def answer_question(  # noqa: PLR0913 - explicit dependencies, injected by the A
 
 def summarise_candidate(
     *,
-    organization_id: str,
-    candidate_id: str,
+    candidate_account_id: str,
     locale: str,
     limit: int,
     settings: Settings,
@@ -175,10 +168,9 @@ def summarise_candidate(
         requirement_terms = " ".join(r.text for r in vacancy.requirements)
         base_query = f"{vacancy.title} {requirement_terms} {base_query}"[:1000]
     retrieval = search_evidence(
-        organization_id=organization_id,
+        candidate_account_ids=[candidate_account_id],
         query=base_query,
         limit=limit,
-        candidate_id=candidate_id,
         document_id=None,
         use_rerank=False,
         settings=settings,
@@ -188,7 +180,7 @@ def summarise_candidate(
         allowed_source_ids=allowed_source_ids,
     )
     context = scrub_context(
-        retrieval.hits, organization_id=organization_id, candidate_id=candidate_id
+        retrieval.hits, allowed_account_ids={candidate_account_id}
     )
 
     if not context:
@@ -208,8 +200,7 @@ def summarise_candidate(
     outcome = validate_citations(
         generated.cited_chunk_ids,
         context,
-        organization_id=organization_id,
-        candidate_id=candidate_id,
+        allowed_account_ids={candidate_account_id},
     )
 
     return CandidateSummaryResponse(

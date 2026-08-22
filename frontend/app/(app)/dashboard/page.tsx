@@ -227,7 +227,11 @@ export default async function DashboardPage() {
                     href={`/candidates/${candidate.id}`}
                     className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-muted/60"
                   >
-                    <Avatar name={candidate.fullName} size="sm" />
+                    <Avatar
+                      name={candidate.fullName}
+                      src={candidate.avatarUrl}
+                      size="sm"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13.5px] font-medium text-ink">
                         {candidate.fullName}

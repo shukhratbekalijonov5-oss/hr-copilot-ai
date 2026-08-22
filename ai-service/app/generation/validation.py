@@ -45,16 +45,15 @@ def validate_citations(
     claimed_chunk_ids: list[str],
     context: list[EvidenceHit],
     *,
-    organization_id: str,
-    candidate_id: str | None = None,
+    allowed_account_ids: set[str] | None = None,
 ) -> ValidationOutcome:
     """Turns model-claimed chunk ids into verified citations.
 
     Args:
         claimed_chunk_ids: what the model said it used.
         context: the passages actually sent to the model.
-        organization_id: the tenant the request was made for.
-        candidate_id: when set, citations about any other candidate are dropped.
+        allowed_account_ids: when set, citations whose passage belongs to any
+            other candidate account are dropped.
     """
     by_id = {hit.chunkId: hit for hit in context if hit.chunkId}
 
@@ -84,7 +83,10 @@ def validate_citations(
             rejected.append(chunk_id)
             continue
 
-        if candidate_id is not None and hit.candidateId != candidate_id:
+        if (
+            allowed_account_ids is not None
+            and hit.candidateAccountId not in allowed_account_ids
+        ):
             rejected.append(chunk_id)
             continue
 
@@ -110,8 +112,6 @@ def validate_citations(
         logger.warning(
             "Rejected citations not present in retrieved context",
             extra={
-                "organizationId": organization_id,
-                "candidateId": candidate_id,
                 "rejectedCount": len(rejected),
                 "acceptedCount": len(citations),
             },
@@ -121,20 +121,24 @@ def validate_citations(
 
 
 def scrub_context(
-    hits: list[EvidenceHit], *, organization_id: str, candidate_id: str | None
+    hits: list[EvidenceHit], *, allowed_account_ids: set[str] | None
 ) -> list[EvidenceHit]:
     """Last check on what is about to be sent to the model.
 
-    Retrieval already filters by tenant. This re-checks immediately before the
-    text leaves the process for a third-party API, because that is the one
-    place where a mistake becomes an external data disclosure.
+    Retrieval already filters by the authorized accounts. This re-checks
+    immediately before the text leaves the process for a third-party API,
+    because that is the one place where a mistake becomes an external data
+    disclosure.
     """
     safe: list[EvidenceHit] = []
     for hit in hits:
-        if candidate_id is not None and hit.candidateId != candidate_id:
+        if (
+            allowed_account_ids is not None
+            and hit.candidateAccountId not in allowed_account_ids
+        ):
             logger.error(
-                "Dropped a retrieved passage for the wrong candidate",
-                extra={"organizationId": organization_id, "stage": "scrub"},
+                "Dropped a retrieved passage for the wrong candidate account",
+                extra={"stage": "scrub"},
             )
             continue
         safe.append(hit)
