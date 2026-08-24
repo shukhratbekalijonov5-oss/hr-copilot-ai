@@ -2039,6 +2039,26 @@ const ko: Dictionary = {
     whyMatchGenerate: "설명 생성",
     whyMatchStrengths: "강점",
     whyMatchGaps: "보완할 점",
+    aiToolsTitle: "AI 도구",
+    coverLetterTab: "자기소개서",
+    coverLetterTitle: "자기소개서",
+    coverLetterInvite:
+      "프로필을 바탕으로 이 공고에 맞는 자기소개서 초안을 작성합니다. 복사한 뒤 지원하는 곳에서 수정할 수 있습니다.",
+    coverLetterGenerate: "자기소개서 생성",
+    coverLetterSubject: "제목",
+    coverLetterCopyLabel: "자기소개서 복사",
+    interviewPrepTab: "면접 준비",
+    interviewPrepTitle: "면접 준비",
+    interviewPrepInvite:
+      "이 공고에서 나올 만한 면접 질문과 그 이유, 준비 방법을 알려 드립니다.",
+    interviewPrepGenerate: "면접 준비 생성",
+    interviewQuestions: "예상 면접 질문",
+    interviewFocusAreas: "중점 준비 항목",
+    matchBreakdownTab: "매칭 상세",
+    matchBreakdownTitle: "매칭 상세",
+    matchBreakdownInvite:
+      "기술, 근무지, 급여 등 항목별로 이 공고가 프로필과 얼마나 맞는지 확인해 보세요.",
+    matchBreakdownGenerate: "매칭 상세 생성",
     tabsLabel: "공고가 게시된 곳",
 
     searchLabel: "외부 채용공고 검색",
@@ -2270,6 +2290,9 @@ const ko: Dictionary = {
           "Pro의 모든 기능",
           "외부 AI 채용 검색",
           "왜 이 공고가 맞는지 AI 설명",
+          "AI 자기소개서",
+          "AI 면접 준비",
+          "고급 매칭 상세 분석",
           "저장한 외부 공고",
           "외부 지원 현황 기록",
         ],
@@ -2288,6 +2311,33 @@ const ko: Dictionary = {
     jobGone: "이 채용공고는 더 이상 게시되지 않아 설명할 내용이 없습니다.",
     strengthLabel: "강점",
     gapLabel: "보완할 점",
+    copy: "복사",
+    copied: "복사됨",
+    copyFailed: "복사하지 못했습니다. 텍스트를 직접 선택해 주세요.",
+    questionNumber: "질문 {number}",
+    whyAsked: "이 질문을 하는 이유",
+    howToPrepare: "준비 방법",
+  },
+
+
+  matchBreakdown: {
+    status: {
+      STRONG: "잘 맞음",
+      PARTIAL: "부분적으로 맞음",
+      GAP: "부족한 부분",
+      UNKNOWN: "정보 부족",
+    },    dimensions: {
+      skills: "기술",
+      seniority: "경력 수준",
+      workMode: "근무 형태",
+      employmentType: "고용 형태",
+      location: "근무지",
+      salary: "급여",
+      languages: "언어",
+    },
+
+    matched: "일치하는 항목",
+    missing: "부족한 항목",
   },
 
 };

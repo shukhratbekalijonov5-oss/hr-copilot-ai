@@ -76,11 +76,29 @@ export interface PremiumMatchFacts {
   alignmentNotes: string[];
 }
 
+/**
+ * One RAW preference-alignment verdict, exactly as the shared matchers
+ * returned it. Present only for dimensions the candidate actually stated a
+ * preference on — absence of a dimension here IS the fact that no preference
+ * exists, and consumers must not fill that silence in.
+ *
+ * Added for the Advanced Match Breakdown, which needs the unfiltered states
+ * (including UNKNOWN) to classify dimensions deterministically. The prose
+ * features keep reading `facts.alignmentNotes`, which still drops UNKNOWN.
+ */
+export interface PremiumAlignment {
+  dimension: string;
+  state: string;
+  reason: string;
+}
+
 export interface PremiumAiContext {
   candidateAccountId: string;
   candidate: PremiumCandidateContext;
   job: PremiumJobContext;
   facts: PremiumMatchFacts;
+  /** Raw stated-preference verdicts; NOT sent to models by the prose features. */
+  alignments: PremiumAlignment[];
   /**
    * Identity of THIS candidate state + THIS job content.
    *
@@ -184,13 +202,18 @@ export class ExternalPremiumAiContextService {
 
     const candidate = this.candidateContext(account, links, documents, intent);
     const jobContext = this.jobContext(job);
-    const facts = await this.deterministicFacts(job, intent, account.skills);
+    const { facts, alignments } = await this.deterministicFacts(
+      job,
+      intent,
+      account.skills,
+    );
 
     return {
       candidateAccountId,
       candidate,
       job: jobContext,
       facts,
+      alignments,
       fingerprint: this.fingerprintOf({
         candidateAccountId,
         evidenceRevision: account.evidenceRevision,
@@ -313,7 +336,7 @@ export class ExternalPremiumAiContextService {
     },
     intent: CandidateJobIntent,
     candidateSkills: string[],
-  ): Promise<PremiumMatchFacts> {
+  ): Promise<{ facts: PremiumMatchFacts; alignments: PremiumAlignment[] }> {
     const normalized = new Map(
       candidateSkills.map((skill) => [skill.trim().toLowerCase(), skill]),
     );
@@ -362,16 +385,27 @@ export class ExternalPremiumAiContextService {
     const alignment = searchAlignment(features, filters, table);
 
     return {
-      score: null,
-      band: null,
-      matchedSkills,
-      missingSkills,
-      alignmentNotes: alignment.alignments
-        // UNKNOWN means the employer said nothing on that dimension. Passing
-        // it as a "note" would invite prose describing the employer's silence
-        // as a finding about the candidate.
-        .filter((entry) => entry.state !== 'UNKNOWN')
-        .map((entry) => `${entry.dimension}: ${entry.state} (${entry.reason})`),
+      facts: {
+        score: null,
+        band: null,
+        matchedSkills,
+        missingSkills,
+        alignmentNotes: alignment.alignments
+          // UNKNOWN means the employer said nothing on that dimension.
+          // Passing it as a "note" would invite prose describing the
+          // employer's silence as a finding about the candidate.
+          .filter((entry) => entry.state !== 'UNKNOWN')
+          .map(
+            (entry) => `${entry.dimension}: ${entry.state} (${entry.reason})`,
+          ),
+      },
+      // Unfiltered: the breakdown's deterministic classifier needs UNKNOWN
+      // as a state, and it renders silence as UNKNOWN — never as weakness.
+      alignments: alignment.alignments.map((entry) => ({
+        dimension: entry.dimension,
+        state: entry.state,
+        reason: entry.reason,
+      })),
     };
   }
 

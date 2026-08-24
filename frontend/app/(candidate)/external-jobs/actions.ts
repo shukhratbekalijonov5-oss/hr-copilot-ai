@@ -7,7 +7,10 @@ import type { CandidatePlan } from "@/lib/entitlements/plan";
 import type {
   ExternalApplicationStatus,
   ExternalJobDetail,
+  ExternalCoverLetter,
+  ExternalInterviewPrep,
   ExternalJobTracking,
+  ExternalMatchBreakdown,
   ExternalWhyMatch,
 } from "@/lib/types";
 
@@ -241,19 +244,60 @@ export async function removeExternalApplicationAction(
 
 export type ExternalWhyMatchResult =
   | { ok: true; explanation: ExternalWhyMatch }
-  | {
-      ok: false;
-      reason: "plan_required" | "unavailable" | "gone" | "error";
-      /** Set only for `plan_required`, so the paywall can name the plan. */
-      requiredPlan?: CandidatePlan;
+  | PremiumAiFailure;
+
+export type PremiumAiFailure = {
+  ok: false;
+  reason: "plan_required" | "unavailable" | "gone" | "error";
+  /** Set only for `plan_required`, so the paywall can name the plan. */
+  requiredPlan?: CandidatePlan;
+};
+
+/**
+ * One mapping for all three MAX tools, so they cannot drift apart.
+ *
+ * Three near-identical copies of this would drift the moment one of them
+ * learned about a new status code, and the drift would be invisible: the
+ * cover letter would start showing "something went wrong" for a refusal the
+ * explanation correctly presents as a paywall, and nothing would fail.
+ */
+function premiumAiFailure(error: unknown): PremiumAiFailure {
+  const upgrade = planUpgradeFrom(error, "EXTERNAL_AI_SEARCH");
+  if (upgrade) {
+    return {
+      ok: false,
+      reason: "plan_required",
+      requiredPlan: upgrade.requiredPlan,
     };
+  }
+
+  if (error instanceof ApiError) {
+    // The listing is gone, or the id is not one. Either way there is nothing
+    // to generate and nothing to retry.
+    if (error.status === 404 || error.status === 400) {
+      return { ok: false, reason: "gone" };
+    }
+    // 503 is the model or its queue being briefly unable; 429 is this reader
+    // having asked too often; 504 is it taking too long. All three clear on
+    // their own, so all three are worth a retry — and none of them is
+    // "something went wrong on our side".
+    if (error.status === 503 || error.status === 429 || error.status === 504) {
+      return { ok: false, reason: "unavailable" };
+    }
+  }
+
+  return { ok: false, reason: "error" };
+}
+
+/**
+ * The locale, read server-side from the same cookie the page rendered from,
+ * so generated prose cannot arrive in a different language from the screen
+ * around it. The browser never chooses this.
+ */
 
 export async function explainExternalMatchAction(
   externalJobId: string,
 ): Promise<ExternalWhyMatchResult> {
-  // Read server-side from the same cookie the page rendered from, so the
-  // explanation cannot arrive in a different language from the screen around
-  // it. The browser never chooses this.
   const locale = await getLocale();
 
   try {
@@ -262,29 +306,78 @@ export async function explainExternalMatchAction(
       explanation: await api.explainExternalMatch(externalJobId, locale),
     };
   } catch (error) {
-    const upgrade = planUpgradeFrom(error, "EXTERNAL_AI_SEARCH");
-    if (upgrade) {
-      return {
-        ok: false,
-        reason: "plan_required",
-        requiredPlan: upgrade.requiredPlan,
-      };
-    }
+    return premiumAiFailure(error);
+  }
+}
 
-    if (error instanceof ApiError) {
-      // The listing is gone, or the id is not one. Either way there is nothing
-      // to explain and nothing to retry.
-      if (error.status === 404 || error.status === 400) {
-        return { ok: false, reason: "gone" };
-      }
-      // 503 is the model or its queue being briefly unable; 429 is this
-      // reader having asked too often. Both clear on their own, so both are
-      // worth a retry — and neither is "something went wrong on our side".
-      if (error.status === 503 || error.status === 429 || error.status === 504) {
-        return { ok: false, reason: "unavailable" };
-      }
-    }
+/* -------------------------------------------------------------------------- */
+/* Cover letter and interview prep                                             */
+/* -------------------------------------------------------------------------- */
 
-    return { ok: false, reason: "error" };
+/**
+ * ## Nothing here is stored
+ *
+ * A generated letter is returned to the reader and held for as long as they
+ * are looking at it. This task saves no drafts, so there is no write path, no
+ * record, and nothing that could later be mistaken for something the candidate
+ * actually sent. The backend may cache the generation; that is its business
+ * and is not a record of the candidate's either.
+ */
+
+export type ExternalCoverLetterResult =
+  | { ok: true; letter: ExternalCoverLetter }
+  | PremiumAiFailure;
+
+export async function generateCoverLetterAction(
+  externalJobId: string,
+): Promise<ExternalCoverLetterResult> {
+  const locale = await getLocale();
+
+  try {
+    return {
+      ok: true,
+      letter: await api.generateExternalCoverLetter(externalJobId, locale),
+    };
+  } catch (error) {
+    return premiumAiFailure(error);
+  }
+}
+
+export type ExternalInterviewPrepResult =
+  | { ok: true; prep: ExternalInterviewPrep }
+  | PremiumAiFailure;
+
+export async function generateInterviewPrepAction(
+  externalJobId: string,
+): Promise<ExternalInterviewPrepResult> {
+  const locale = await getLocale();
+
+  try {
+    return {
+      ok: true,
+      prep: await api.generateExternalInterviewPrep(externalJobId, locale),
+    };
+  } catch (error) {
+    return premiumAiFailure(error);
+  }
+}
+
+
+export type ExternalMatchBreakdownResult =
+  | { ok: true; breakdown: ExternalMatchBreakdown }
+  | PremiumAiFailure;
+
+export async function generateMatchBreakdownAction(
+  externalJobId: string,
+): Promise<ExternalMatchBreakdownResult> {
+  const locale = await getLocale();
+
+  try {
+    return {
+      ok: true,
+      breakdown: await api.generateExternalMatchBreakdown(externalJobId, locale),
+    };
+  } catch (error) {
+    return premiumAiFailure(error);
   }
 }

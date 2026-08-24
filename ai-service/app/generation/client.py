@@ -119,6 +119,146 @@ def bounded_why_match(payload: Any) -> ExternalWhyMatch:
     )
 
 
+
+@dataclass
+class ExternalCoverLetter:
+    """One cover letter draft. Prose only — no score, band or rank field."""
+
+    subject: str
+    content: str
+
+
+@dataclass
+class InterviewPrepQuestion:
+    question: str
+    why_asked: str
+    preparation: str
+
+
+@dataclass
+class InterviewFocusArea:
+    title: str
+    guidance: str
+
+
+@dataclass
+class ExternalInterviewPrep:
+    """One interview-preparation answer. Advice only — never scripted answers,
+    and (like every premium output) no numeric field a ranking could be
+    contradicted through."""
+
+    questions: list[InterviewPrepQuestion]
+    focus_areas: list[InterviewFocusArea]
+
+
+#: Bounds for a cover letter, enforced on OUR side after validation. The
+#: subject is clamped hard; the content ceiling is far above the asked-for
+#: 250-450 words and exists only to stop a runaway generation from shipping
+#: pages downstream.
+MAX_COVER_LETTER_SUBJECT_CHARS = 200
+MAX_COVER_LETTER_CHARS = 6000
+
+#: Bounds for interview prep. Upper bounds only: the prompt asks for 5-8
+#: questions and 2-4 focus areas, but when the model honestly has fewer
+#: grounded items, fewer is the correct answer — there is no lower bound
+#: enforced by padding, because padding means inventing.
+MAX_INTERVIEW_PREP_QUESTIONS = 8
+MAX_INTERVIEW_FOCUS_AREAS = 4
+
+
+def bounded_cover_letter(payload: Any) -> ExternalCoverLetter:
+    """Validated payload -> bounded dataclass. Trims and clamps, never pads."""
+    subject = " ".join((payload.subject or "").split())
+    if len(subject) > MAX_COVER_LETTER_SUBJECT_CHARS:
+        subject = subject[:MAX_COVER_LETTER_SUBJECT_CHARS].rstrip()
+    content = (payload.content or "").strip()
+    if len(content) > MAX_COVER_LETTER_CHARS:
+        content = content[:MAX_COVER_LETTER_CHARS].rstrip()
+    return ExternalCoverLetter(subject=subject, content=content)
+
+
+def bounded_interview_prep(payload: Any) -> ExternalInterviewPrep:
+    """Validated payload -> bounded dataclass.
+
+    Drops items with any missing part rather than rendering a half-empty
+    card, and clamps both lists. Never pads: a question invented to reach a
+    count is exactly the fabrication the feature must not commit.
+    """
+
+    questions: list[InterviewPrepQuestion] = []
+    for item in payload.questions or []:
+        question = (item.question or "").strip()
+        why_asked = (item.whyAsked or "").strip()
+        preparation = (item.preparation or "").strip()
+        if not question or not why_asked or not preparation:
+            continue
+        questions.append(
+            InterviewPrepQuestion(
+                question=question,
+                why_asked=why_asked,
+                preparation=preparation,
+            )
+        )
+        if len(questions) == MAX_INTERVIEW_PREP_QUESTIONS:
+            break
+
+    focus_areas: list[InterviewFocusArea] = []
+    for item in payload.focusAreas or []:
+        title = (item.title or "").strip()
+        guidance = (item.guidance or "").strip()
+        if not title or not guidance:
+            continue
+        focus_areas.append(InterviewFocusArea(title=title, guidance=guidance))
+        if len(focus_areas) == MAX_INTERVIEW_FOCUS_AREAS:
+            break
+
+    return ExternalInterviewPrep(questions=questions, focus_areas=focus_areas)
+
+
+
+@dataclass
+class ExternalMatchBreakdown:
+    """Prose for an already-decided breakdown: a summary plus one
+    explanation per supplied dimension key. No status, score, rank or
+    percentage field exists here — the system decided those before the
+    model was called, and this structure has nowhere to hold a rival."""
+
+    summary: str
+    #: {dimension key: explanation}. Keys not supplied by the caller are
+    #: dropped by `bounded_match_breakdown`.
+    explanations: dict[str, str]
+
+
+#: Explanations longer than this are clipped — a "1-2 sentence" field that
+#: comes back as an essay should not ship pages downstream.
+MAX_BREAKDOWN_EXPLANATION_CHARS = 700
+
+
+def bounded_match_breakdown(payload: Any, allowed_keys: list[str]) -> ExternalMatchBreakdown:
+    """Validated payload -> bounded dataclass.
+
+    Keeps only explanations for keys the CALLER supplied (a model-invented
+    dimension has no status and must not exist), first occurrence wins, and
+    clips runaway prose. Missing keys are left missing — the caller falls
+    back to the deterministic reason, never to invented text.
+    """
+
+    allowed = set(allowed_keys)
+    explanations: dict[str, str] = {}
+    for item in payload.explanations or []:
+        key = (item.key or "").strip()
+        text = (item.explanation or "").strip()
+        if not key or not text or key not in allowed or key in explanations:
+            continue
+        if len(text) > MAX_BREAKDOWN_EXPLANATION_CHARS:
+            text = text[:MAX_BREAKDOWN_EXPLANATION_CHARS].rstrip()
+        explanations[key] = text
+    return ExternalMatchBreakdown(
+        summary=(payload.summary or "").strip(),
+        explanations=explanations,
+    )
+
+
 class GenerationClient(ABC):
     """Provider-agnostic grounded generation."""
 
@@ -193,6 +333,37 @@ class GenerationClient(ABC):
         """
         raise GenerationDisabledError("generate an external match explanation")
 
+    def generate_external_cover_letter(
+        self, *, context: str, locale: str
+    ) -> ExternalCoverLetter:
+        """A cover letter draft for ONE external job, in the candidate's voice.
+
+        Same contract as `generate_external_why_match`: lazy, single-job,
+        user-initiated, grounded only in the supplied context. Non-abstract so
+        a provider that cannot do it refuses honestly instead of breaking
+        instantiation.
+        """
+        raise GenerationDisabledError("generate an external cover letter")
+
+    def generate_external_interview_prep(
+        self, *, context: str, locale: str
+    ) -> ExternalInterviewPrep:
+        """Interview preparation for ONE external job and ONE candidate.
+
+        Same contract as the other premium generations; non-abstract for the
+        same honest-refusal reason.
+        """
+        raise GenerationDisabledError("generate external interview preparation")
+
+    def generate_external_match_breakdown(
+        self, *, context: str, locale: str, dimension_keys: list[str]
+    ) -> ExternalMatchBreakdown:
+        """Prose for an already-decided dimension breakdown of ONE external
+        job. Same lazy, single-job, honest-refusal contract as the other
+        premium generations; `dimension_keys` bounds which explanation keys
+        may come back."""
+        raise GenerationDisabledError("generate an external match breakdown")
+
 
 class DisabledGenerationClient(GenerationClient):
     """Used when no provider is configured. Refuses, never improvises."""
@@ -219,6 +390,15 @@ class DisabledGenerationClient(GenerationClient):
 
     def generate_external_why_match(self, **_: object) -> ExternalWhyMatch:
         raise GenerationDisabledError("generate an external match explanation")
+
+    def generate_external_cover_letter(self, **_: object) -> ExternalCoverLetter:
+        raise GenerationDisabledError("generate an external cover letter")
+
+    def generate_external_interview_prep(self, **_: object) -> ExternalInterviewPrep:
+        raise GenerationDisabledError("generate external interview preparation")
+
+    def generate_external_match_breakdown(self, **_: object) -> ExternalMatchBreakdown:
+        raise GenerationDisabledError("generate an external match breakdown")
 
 
 class AnthropicGenerationClient(GenerationClient):
@@ -384,6 +564,59 @@ class AnthropicGenerationClient(GenerationClient):
             operation="generate an external match explanation",
         )
         return bounded_why_match(payload)
+
+
+    def generate_external_cover_letter(
+        self, *, context: str, locale: str
+    ) -> ExternalCoverLetter:
+        from app.generation.prompts import (
+            EXTERNAL_COVER_LETTER_RULES,
+            build_external_cover_letter_prompt,
+        )
+        from app.generation.schemas import ExternalCoverLetterPayload
+
+        payload = self._parse(
+            system=EXTERNAL_COVER_LETTER_RULES,
+            prompt=build_external_cover_letter_prompt(context, locale),
+            output_format=ExternalCoverLetterPayload,
+            operation="generate an external cover letter",
+        )
+        return bounded_cover_letter(payload)
+
+    def generate_external_interview_prep(
+        self, *, context: str, locale: str
+    ) -> ExternalInterviewPrep:
+        from app.generation.prompts import (
+            EXTERNAL_INTERVIEW_PREP_RULES,
+            build_external_interview_prep_prompt,
+        )
+        from app.generation.schemas import ExternalInterviewPrepPayload
+
+        payload = self._parse(
+            system=EXTERNAL_INTERVIEW_PREP_RULES,
+            prompt=build_external_interview_prep_prompt(context, locale),
+            output_format=ExternalInterviewPrepPayload,
+            operation="generate external interview preparation",
+        )
+        return bounded_interview_prep(payload)
+
+
+    def generate_external_match_breakdown(
+        self, *, context: str, locale: str, dimension_keys: list[str]
+    ) -> ExternalMatchBreakdown:
+        from app.generation.prompts import (
+            EXTERNAL_MATCH_BREAKDOWN_RULES,
+            build_external_match_breakdown_prompt,
+        )
+        from app.generation.schemas import ExternalMatchBreakdownPayload
+
+        payload = self._parse(
+            system=EXTERNAL_MATCH_BREAKDOWN_RULES,
+            prompt=build_external_match_breakdown_prompt(context, locale),
+            output_format=ExternalMatchBreakdownPayload,
+            operation="generate an external match breakdown",
+        )
+        return bounded_match_breakdown(payload, dimension_keys)
 
     # -- transport ---------------------------------------------------------
 

@@ -2199,6 +2199,26 @@ const en = {
     whyMatchGenerate: "Generate explanation",
     whyMatchStrengths: "Strengths",
     whyMatchGaps: "Potential gaps",
+    aiToolsTitle: "AI tools",
+    coverLetterTab: "Cover letter",
+    coverLetterTitle: "Cover letter",
+    coverLetterInvite:
+      "Draft a cover letter for this job from your profile. You can copy it and edit it wherever you send it.",
+    coverLetterGenerate: "Generate cover letter",
+    coverLetterSubject: "Subject",
+    coverLetterCopyLabel: "Copy the cover letter",
+    interviewPrepTab: "Interview prep",
+    interviewPrepTitle: "Interview prep",
+    interviewPrepInvite:
+      "Get likely interview questions for this job, why they may come up, and how to prepare.",
+    interviewPrepGenerate: "Generate interview prep",
+    interviewQuestions: "Likely interview questions",
+    interviewFocusAreas: "Focus areas",
+    matchBreakdownTab: "Match breakdown",
+    matchBreakdownTitle: "Match breakdown",
+    matchBreakdownInvite:
+      "See how this job lines up with your profile, one area at a time — skills, location, pay and the rest.",
+    matchBreakdownGenerate: "Generate breakdown",
     tabsLabel: "Where the job was published",
 
     searchLabel: "Search external jobs",
@@ -2448,6 +2468,9 @@ const en = {
           "Everything in Pro",
           "External AI Job Search",
           "Why this match — AI explanations",
+          "AI cover letters",
+          "AI interview prep",
+          "Advanced match breakdown",
           "Saved external jobs",
           "Track where you applied externally",
         ],
@@ -2473,6 +2496,40 @@ const en = {
     jobGone: "This job is no longer listed, so there is nothing to explain.",
     strengthLabel: "strength",
     gapLabel: "possible gap",
+    copy: "Copy",
+    copied: "Copied",
+    copyFailed: "Could not copy — select the text instead.",
+    questionNumber: "Question {number}",
+    whyAsked: "Why they may ask",
+    howToPrepare: "How to prepare",
+  },
+
+
+  /**
+   * The breakdown's own vocabulary.
+   *
+   * `UNKNOWN` reads "Not enough information" and never anything resembling a
+   * verdict: an employer who did not publish a salary has not published a bad
+   * one, and this label is the last place that distinction could be lost.
+   */
+  matchBreakdown: {
+    status: {
+      STRONG: "Strong",
+      PARTIAL: "Partial match",
+      GAP: "Gap",
+      UNKNOWN: "Not enough information",
+    },    dimensions: {
+      skills: "Skills",
+      seniority: "Seniority",
+      workMode: "Work mode",
+      employmentType: "Employment type",
+      location: "Location",
+      salary: "Salary",
+      languages: "Languages",
+    },
+
+    matched: "Matched",
+    missing: "Missing",
   },
 
 };

@@ -19,12 +19,18 @@ from typing import Any
 
 from app.common.logging import get_logger
 from app.generation.client import (
+    ExternalCoverLetter,
+    ExternalInterviewPrep,
+    ExternalMatchBreakdown,
     ExternalWhyMatch,
     GeneratedQuestion,
     GenerationClient,
     GenerationDisabledError,
     GenerationFailedError,
     GroundedAnswer,
+    bounded_cover_letter,
+    bounded_interview_prep,
+    bounded_match_breakdown,
     bounded_why_match,
 )
 from app.models.schemas import EvidenceHit
@@ -207,6 +213,59 @@ class GeminiGenerationClient(GenerationClient):
         )
         # Bounds are ours to enforce, not the model's to respect.
         return bounded_why_match(payload)
+
+
+    def generate_external_cover_letter(
+        self, *, context: str, locale: str
+    ) -> ExternalCoverLetter:
+        from app.generation.prompts import (
+            EXTERNAL_COVER_LETTER_RULES,
+            build_external_cover_letter_prompt,
+        )
+        from app.generation.schemas import ExternalCoverLetterPayload
+
+        payload = self._generate(
+            system=EXTERNAL_COVER_LETTER_RULES,
+            prompt=build_external_cover_letter_prompt(context, locale),
+            schema=ExternalCoverLetterPayload,
+            operation="generate an external cover letter",
+        )
+        return bounded_cover_letter(payload)
+
+    def generate_external_interview_prep(
+        self, *, context: str, locale: str
+    ) -> ExternalInterviewPrep:
+        from app.generation.prompts import (
+            EXTERNAL_INTERVIEW_PREP_RULES,
+            build_external_interview_prep_prompt,
+        )
+        from app.generation.schemas import ExternalInterviewPrepPayload
+
+        payload = self._generate(
+            system=EXTERNAL_INTERVIEW_PREP_RULES,
+            prompt=build_external_interview_prep_prompt(context, locale),
+            schema=ExternalInterviewPrepPayload,
+            operation="generate external interview preparation",
+        )
+        return bounded_interview_prep(payload)
+
+
+    def generate_external_match_breakdown(
+        self, *, context: str, locale: str, dimension_keys: list[str]
+    ) -> ExternalMatchBreakdown:
+        from app.generation.prompts import (
+            EXTERNAL_MATCH_BREAKDOWN_RULES,
+            build_external_match_breakdown_prompt,
+        )
+        from app.generation.schemas import ExternalMatchBreakdownPayload
+
+        payload = self._generate(
+            system=EXTERNAL_MATCH_BREAKDOWN_RULES,
+            prompt=build_external_match_breakdown_prompt(context, locale),
+            schema=ExternalMatchBreakdownPayload,
+            operation="generate an external match breakdown",
+        )
+        return bounded_match_breakdown(payload, dimension_keys)
 
     # -- transport ---------------------------------------------------------
 

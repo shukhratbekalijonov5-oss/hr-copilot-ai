@@ -2131,6 +2131,98 @@ export interface ExternalWhyMatch {
   generatedAt: ISODateString | null;
 }
 
+/**
+ * A cover letter written for one job.
+ *
+ * Held in memory for as long as the reader is looking at it and never sent
+ * back: this task stores no drafts, so nothing here is a record of anything.
+ * The reader copies it and it is theirs.
+ */
+export interface ExternalCoverLetter {
+  externalJobId: ID;
+  version: string | null;
+  locale: string | null;
+  subject: string | null;
+  /** Plain text. Paragraphs are blank-line separated, rendered as text nodes. */
+  content: string | null;
+  generatedAt: ISODateString | null;
+}
+
+/** One question a reader might be asked, and what to do about it. */
+export interface AiInterviewQuestion {
+  question: string;
+  /** Why an interviewer would ask it. May be empty. */
+  whyAsked: string;
+  /** How to prepare. May be empty. */
+  preparation: string;
+}
+
+/**
+ * Interview preparation for one job.
+ *
+ * Questions somebody MIGHT be asked and how to think about them — never a
+ * predicted score, never a model-authored claim about the reader's own
+ * experience. Everything displayed comes from the backend; nothing is inferred
+ * on this side.
+ */
+export interface ExternalInterviewPrep {
+  externalJobId: ID;
+  version: string | null;
+  locale: string | null;
+  questions: AiInterviewQuestion[];
+  /** May legitimately be empty — the section then does not render. */
+  focusAreas: AiInsight[];
+  generatedAt: ISODateString | null;
+}
+
+/**
+ * How one dimension of a match stands.
+ *
+ * `UNKNOWN` is NOT a weak `GAP`. A gap says the product looked and the thing
+ * is missing; UNKNOWN says nobody stated it — an employer who did not publish
+ * a salary has not published a bad salary. Collapsing the two would let this
+ * product invent a deficiency out of an employer's silence, which is the
+ * single most damaging thing a "match breakdown" could do to a job seeker.
+ */
+export const MATCH_BREAKDOWN_STATUSES = [
+  "STRONG",
+  "PARTIAL",
+  "GAP",
+  "UNKNOWN",
+] as const;
+export type MatchBreakdownStatus = (typeof MATCH_BREAKDOWN_STATUSES)[number];
+
+/** One row of the breakdown — skills, location, pay, and so on. */
+export interface MatchBreakdownDimension {
+  /** Machine key, kept for React keys and tests. Never rendered. */
+  key: string;
+  /** The backend's display text. A dimension without one is not rendered. */
+  label: string;
+  status: MatchBreakdownStatus;
+  /** May be empty when the model gave only a status. */
+  explanation: string;
+  /** Both may legitimately be empty — an UNKNOWN dimension has neither. */
+  matched: string[];
+  missing: string[];
+}
+
+/**
+ * A dimension-by-dimension account of an already-computed ranking.
+ *
+ * Like every premium tool here it EXPLAINS the deterministic score and never
+ * produces one. There is deliberately no numeric field anywhere in this type:
+ * no percentage, no weight, no per-dimension rating a reader could mistake for
+ * the ranker's own number or, worse, average themselves.
+ */
+export interface ExternalMatchBreakdown {
+  externalJobId: ID;
+  version: string | null;
+  locale: string | null;
+  summary: string | null;
+  dimensions: MatchBreakdownDimension[];
+  generatedAt: ISODateString | null;
+}
+
 export interface ExternalJobTracking {
   id: ID;
   status: ExternalApplicationStatus;

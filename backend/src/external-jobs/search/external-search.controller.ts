@@ -21,7 +21,11 @@ import { CandidateScoped } from '../../common/decorators/candidate-scoped.decora
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequiresCapability } from '../../entitlements/requires-capability.decorator';
 import { ExternalWhyMatchService } from '../premium-ai/external-why-match.service';
+import { ExternalCoverLetterService } from '../premium-ai/external-cover-letter.service';
+import { ExternalInterviewPrepService } from '../premium-ai/external-interview-prep.service';
+import { ExternalMatchBreakdownService } from '../premium-ai/external-match-breakdown.service';
 import { WhyMatchDto } from '../premium-ai/dto/why-match.dto';
+import { PremiumAiLocaleDto } from '../premium-ai/dto/premium-ai-locale.dto';
 
 /**
  * Candidate-facing routes over the external job catalogue: search, detail,
@@ -62,6 +66,9 @@ export class ExternalSearchController {
     private readonly saved: SavedExternalJobsService,
     private readonly tracking: ExternalApplicationTrackingService,
     private readonly whyMatchService: ExternalWhyMatchService,
+    private readonly coverLetterService: ExternalCoverLetterService,
+    private readonly interviewPrepService: ExternalInterviewPrepService,
+    private readonly matchBreakdownService: ExternalMatchBreakdownService,
   ) {}
 
   /**
@@ -152,6 +159,69 @@ export class ExternalSearchController {
     @Body() dto: WhyMatchDto,
   ) {
     return this.whyMatchService.whyMatch(userId, externalJobId, dto.locale);
+  }
+
+  /**
+   * A cover-letter draft for one external job, in the candidate's voice.
+   *
+   * Same premium contract as why-match: lazy (one user action, one
+   * generation, then cache hits), grounded only in the caller's CURRENT
+   * profile plus this job's stored facts, and MAX-gated by inheritance from
+   * the class-level `EXTERNAL_AI_SEARCH` capability — no new capability.
+   * POST because it may create a generation and a cache entry; it never
+   * creates an Application, a saved job, or a tracker.
+   */
+  @Post(':externalJobId/cover-letter')
+  @HttpCode(HttpStatus.OK)
+  coverLetter(
+    @CurrentUser('id') userId: string,
+    @Param('externalJobId', ParseUUIDPipe) externalJobId: string,
+    @Body() dto: PremiumAiLocaleDto,
+  ) {
+    return this.coverLetterService.coverLetter(
+      userId,
+      externalJobId,
+      dto.locale,
+    );
+  }
+
+  /**
+   * Interview preparation for one external job — questions this specific
+   * employer would plausibly ask, with preparation advice grounded in what
+   * this candidate actually states. Same premium contract as above.
+   */
+  @Post(':externalJobId/interview-prep')
+  @HttpCode(HttpStatus.OK)
+  interviewPrep(
+    @CurrentUser('id') userId: string,
+    @Param('externalJobId', ParseUUIDPipe) externalJobId: string,
+    @Body() dto: PremiumAiLocaleDto,
+  ) {
+    return this.interviewPrepService.interviewPrep(
+      userId,
+      externalJobId,
+      dto.locale,
+    );
+  }
+
+  /**
+   * The Advanced Match Breakdown: dimension-by-dimension STRONG / PARTIAL /
+   * GAP / UNKNOWN, classified deterministically by the backend, explained
+   * in prose by the model. Same premium contract as the three above — MAX
+   * by inheritance, lazy, read + cache only.
+   */
+  @Post(':externalJobId/match-breakdown')
+  @HttpCode(HttpStatus.OK)
+  matchBreakdown(
+    @CurrentUser('id') userId: string,
+    @Param('externalJobId', ParseUUIDPipe) externalJobId: string,
+    @Body() dto: PremiumAiLocaleDto,
+  ) {
+    return this.matchBreakdownService.matchBreakdown(
+      userId,
+      externalJobId,
+      dto.locale,
+    );
   }
 
   /**

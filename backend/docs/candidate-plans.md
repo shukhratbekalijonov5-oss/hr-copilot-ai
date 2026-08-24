@@ -11,6 +11,9 @@ definition; the enforceable version of it lives in
 | **Internal AI Job Search** (`POST …/me/job-matches`) | — | ✓ | ✓ |
 | **External AI Job Search** (search, detail, saved, tracking) | — | — | ✓ |
 | **Gemini "why this match"** (Task 4C.6) | — | — | ✓ |
+| **AI Cover Letter** | — | — | ✓ |
+| **AI Interview Prep** | — | — | ✓ |
+| **Advanced Match Breakdown** | — | — | ✓ |
 
 Capabilities are the unit of enforcement, plans are the unit of sale:
 

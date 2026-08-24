@@ -168,13 +168,16 @@ describe("the deterministic score is untouched", () => {
   it("puts the generated panel BELOW the computed score and reasons", () => {
     // Fluent prose above the computed facts would make the facts look like
     // supporting detail for the prose. The relationship runs the other way.
+    //
+    // The explanation now lives inside the AI Tools strip, which is where the
+    // ordering is enforced — the strip as a whole sits below the score.
     const drawer = code("components/external/ExternalJobDetailDrawer.tsx");
-    expect(drawer.indexOf("d.externalJobs.scoreValue")).toBeLessThan(
-      drawer.indexOf("<ExternalWhyMatch"),
-    );
-    expect(drawer.indexOf("externalReasonLines")).toBeLessThan(
-      drawer.indexOf("<ExternalWhyMatch"),
-    );
+    const toolsAt = drawer.indexOf("<ExternalAiTools");
+    expect(toolsAt, "the AI tools are no longer mounted in the drawer").toBeGreaterThan(-1);
+    expect(drawer.indexOf("d.externalJobs.scoreValue")).toBeLessThan(toolsAt);
+    expect(drawer.indexOf("externalReasonLines")).toBeLessThan(toolsAt);
+    // And the explanation is still the first tool in that strip.
+    expect(code("components/external/ExternalAiTools.tsx")).toContain("ExternalWhyMatch");
   });
 });
 
@@ -354,9 +357,14 @@ describe("every string is translated, in all four locales", () => {
     for (const { locale, dictionary } of ALL_DICTIONARIES) {
       const features = dictionary.plans.cards.MAX.features;
       expect(features.length, locale).toBeGreaterThan(3);
-      // Shipped features only — no "coming soon" for cover letter, interview
-      // prep or the match breakdown, none of which exist yet.
-      for (const unshipped of [/cover letter/i, /interview prep/i, /coming soon/i]) {
+      /*
+       * Shipped features only. Cover letter, interview prep and the advanced
+       * match breakdown were all unshipped when this guard was written and are
+       * now real, so the assertion that they ARE listed lives in
+       * `match-breakdown-boundary.test.ts`. What survives here is the rule that
+       * outlasts any particular feature: nothing may be sold as forthcoming.
+       */
+      for (const unshipped of [/coming soon/i]) {
         for (const feature of features) {
           expect(feature, `${locale} advertises an unshipped feature`).not.toMatch(unshipped);
         }

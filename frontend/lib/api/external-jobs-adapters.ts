@@ -19,6 +19,9 @@
  * not as a guess.
  */
 import type {
+  ExternalCoverLetterResponse,
+  ExternalMatchBreakdownResponse,
+  ExternalInterviewPrepResponse,
   ExternalWhyMatchResponse,
   ExternalJobApplicationResponse,
   ExternalPagedResponse,
@@ -36,10 +39,12 @@ import {
   EXTERNAL_JOB_LIFECYCLES,
   EXTERNAL_JOB_SORTS,
   MATCH_BANDS,
+  MATCH_BREAKDOWN_STATUSES,
   PAY_PERIODS,
   SENIORITY_LEVELS,
   WORK_MODES,
   type AiInsight,
+  type AiInterviewQuestion,
   type EmploymentType,
   type ExternalApplicationStatus,
   type ExternalJobApplication,
@@ -52,6 +57,10 @@ import {
   type ExternalJobReason,
   type ExternalJobResult,
   type ExternalJobSalary,
+  type ExternalCoverLetter,
+  type ExternalInterviewPrep,
+  type ExternalMatchBreakdown,
+  type MatchBreakdownDimension,
   type ExternalJobSearchPage,
   type ExternalWhyMatch,
   type JobIntentSource,
@@ -638,4 +647,218 @@ export function isEmptyWhyMatch(explanation: ExternalWhyMatch): boolean {
     explanation.strengths.length === 0 &&
     explanation.gaps.length === 0
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Cover letter and interview prep                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The same narrowing discipline as `toExternalWhyMatch`, applied to the other
+ * two generated documents.
+ *
+ * Same reasons, restated because they are easy to relax one field at a time:
+ * the shape is a convention rather than a schema, so an absent field is normal
+ * and becomes null; the content is untrusted, so it stays plain strings that
+ * downstream renders as text nodes; and no score, confidence or percentage is
+ * read from any of them, because the ranker's number is the only number this
+ * product has about a job.
+ */
+
+/** A letter longer than this is not a letter; something has gone wrong. */
+const MAX_COVER_LETTER_CHARS = 12_000;
+/** More questions than anyone will read before an interview. */
+const MAX_QUESTIONS = 12;
+
+export function toExternalCoverLetter(
+  externalJobId: string,
+  response: ExternalCoverLetterResponse | null | undefined,
+): ExternalCoverLetter {
+  const content = text(response?.content);
+
+  return {
+    // The id asked about, never the one the body claims — a letter rendered
+    // under the wrong job's title is a letter somebody sends to the wrong
+    // employer.
+    externalJobId,
+    version: text(response?.version),
+    locale: text(response?.locale),
+    subject: text(response?.subject),
+    // Truncated rather than refused: a reader with an over-long letter is
+    // better served by most of it than by an error, and the cap exists so a
+    // runaway generation cannot lock up a drawer.
+    content: content ? content.slice(0, MAX_COVER_LETTER_CHARS) : null,
+    generatedAt: toPostedAt(response?.generatedAt),
+  };
+}
+
+export function isEmptyCoverLetter(letter: ExternalCoverLetter): boolean {
+  // The body is what makes it a letter. A subject alone is not one.
+  return !letter.content;
+}
+
+function toInterviewQuestion(value: unknown): AiInterviewQuestion | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as {
+    question?: unknown;
+    whyAsked?: unknown;
+    preparation?: unknown;
+  };
+
+  // No question text, no question. The two supporting fields are commentary
+  // on it and cannot stand alone.
+  const question = text(raw.question);
+  if (!question) return null;
+
+  return {
+    question,
+    whyAsked: text(raw.whyAsked) ?? "",
+    preparation: text(raw.preparation) ?? "",
+  };
+}
+
+/** `{title, guidance}` on the wire → the same `AiInsight` strengths use. */
+function toFocusArea(value: unknown): AiInsight | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as { title?: unknown; guidance?: unknown };
+
+  const title = text(raw.title);
+  if (!title) return null;
+
+  return { title, explanation: text(raw.guidance) ?? "" };
+}
+
+export function toExternalInterviewPrep(
+  externalJobId: string,
+  response: ExternalInterviewPrepResponse | null | undefined,
+): ExternalInterviewPrep {
+  const questions = Array.isArray(response?.questions)
+    ? response.questions
+        .map(toInterviewQuestion)
+        .filter((item): item is AiInterviewQuestion => item !== null)
+        .slice(0, MAX_QUESTIONS)
+    : [];
+
+  const focusAreas = Array.isArray(response?.focusAreas)
+    ? response.focusAreas
+        .map(toFocusArea)
+        .filter((item): item is AiInsight => item !== null)
+        .slice(0, MAX_INSIGHTS)
+    : [];
+
+  return {
+    externalJobId,
+    version: text(response?.version),
+    locale: text(response?.locale),
+    questions,
+    focusAreas,
+    generatedAt: toPostedAt(response?.generatedAt),
+  };
+}
+
+/**
+ * Questions are the point of this feature; focus areas are the extra.
+ *
+ * So prep with focus areas but no questions counts as empty — it would render
+ * as a heading and a short list with the thing the reader pressed the button
+ * for missing entirely, which reads as broken rather than as sparse.
+ */
+export function isEmptyInterviewPrep(prep: ExternalInterviewPrep): boolean {
+  return prep.questions.length === 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Advanced match breakdown                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** More rows than a drawer can show without becoming a spreadsheet. */
+const MAX_DIMENSIONS = 10;
+/** Matched/missing lists are evidence, not an inventory. */
+const MAX_DIMENSION_ITEMS = 12;
+
+/** Short, non-empty strings only — a bullet with nothing in it is not a bullet. */
+function bullets(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0)
+    .slice(0, MAX_DIMENSION_ITEMS);
+}
+
+function toBreakdownDimension(value: unknown): MatchBreakdownDimension | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as {
+    key?: unknown;
+    label?: unknown;
+    status?: unknown;
+    explanation?: unknown;
+    matched?: unknown;
+    missing?: unknown;
+  };
+
+  /*
+   * The LABEL is what makes a row renderable, not the key.
+   *
+   * `key` is a machine token — `workMode`, `salary` — and rendering one because
+   * a label was missing would put a raw code on screen in every locale at once.
+   * A row we cannot name honestly is dropped.
+   *
+   * The key IS translated at render time for the seven dimensions the backend
+   * emits (see `breakdownDimensionLabel`), because those labels arrive
+   * hardcoded in English. This adapter still keeps the backend's label, which
+   * is what any dimension outside that set falls back to.
+   */
+  const label = text(raw.label);
+  if (!label) return null;
+
+  return {
+    key: text(raw.key) ?? label,
+    label,
+    /*
+     * An unreadable status becomes UNKNOWN — "nobody stated this" — and never
+     * GAP. Reading a value we do not recognise as a deficiency would invent a
+     * shortcoming in the reader's profile out of our own parsing failure.
+     */
+    status: oneOf(MATCH_BREAKDOWN_STATUSES, raw.status) ?? "UNKNOWN",
+    explanation: text(raw.explanation) ?? "",
+    matched: bullets(raw.matched),
+    missing: bullets(raw.missing),
+  };
+}
+
+export function toExternalMatchBreakdown(
+  externalJobId: string,
+  response: ExternalMatchBreakdownResponse | null | undefined,
+): ExternalMatchBreakdown {
+  const dimensions = Array.isArray(response?.dimensions)
+    ? response.dimensions
+        .map(toBreakdownDimension)
+        .filter((item): item is MatchBreakdownDimension => item !== null)
+        .slice(0, MAX_DIMENSIONS)
+    : [];
+
+  return {
+    // The id asked about, never the one the body claims.
+    externalJobId,
+    version: text(response?.version),
+    locale: text(response?.locale),
+    summary: text(response?.summary),
+    dimensions,
+    generatedAt: toPostedAt(response?.generatedAt),
+    // No score, weight or percentage is read, even if one is sent: the
+    // deterministic ranker owns the only number this product shows about a job.
+  };
+}
+
+/**
+ * The dimensions are the feature; the summary is the preamble.
+ *
+ * A breakdown with a summary and no rows has broken down nothing — it would
+ * render as a heading and a paragraph where the reader expected a table, which
+ * reads as a failure rather than as brevity.
+ */
+export function isEmptyMatchBreakdown(
+  breakdown: ExternalMatchBreakdown,
+): boolean {
+  return breakdown.dimensions.length === 0;
 }

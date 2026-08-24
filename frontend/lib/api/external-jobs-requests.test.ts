@@ -306,3 +306,44 @@ describe('the "why this match" generation request', () => {
     expect(result).not.toHaveProperty("cached");
   });
 });
+
+describe("the other MAX tool requests", () => {
+  const TOOLS = [
+    { name: "generateExternalCoverLetter", path: "cover-letter" },
+    { name: "generateExternalInterviewPrep", path: "interview-prep" },
+    { name: "generateExternalMatchBreakdown", path: "match-breakdown" },
+  ] as const;
+
+  it.each(TOOLS)("$name POSTs to the job's own $path path", async ({ name, path }) => {
+    const service = await import("@/lib/api/external-jobs.service");
+    fetchMock.mockImplementation(respondWith({}));
+
+    await (service[name] as (id: string, locale?: string) => Promise<unknown>)(JOB, "en");
+
+    const call = lastCall();
+    expect(call.method).toBe("POST");
+    expect(new URL(call.url).pathname).toBe(
+      `/api/candidate-account/me/external-jobs/${JOB}/${path}`,
+    );
+  });
+
+  it.each(TOOLS)("$name sends the locale and nothing else", async ({ name }) => {
+    const service = await import("@/lib/api/external-jobs.service");
+    fetchMock.mockImplementation(respondWith({}));
+
+    await (service[name] as (id: string, locale?: string) => Promise<unknown>)(JOB, "ko");
+
+    // No profile, no resume, no prompt: the backend reads the candidate's
+    // evidence server-side and owns the model instruction.
+    expect(lastCall().body).toEqual({ locale: "ko" });
+  });
+
+  it.each(TOOLS)("$name makes exactly one request per call", async ({ name }) => {
+    const service = await import("@/lib/api/external-jobs.service");
+    fetchMock.mockImplementation(respondWith({}));
+
+    await (service[name] as (id: string, locale?: string) => Promise<unknown>)(JOB, "en");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

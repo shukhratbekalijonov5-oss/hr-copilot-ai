@@ -440,6 +440,44 @@ export interface AiWhyMatchResult {
   durationMs?: number;
 }
 
+export interface AiCoverLetterResult {
+  jobId: string;
+  locale: SupportedLocale;
+  subject: string;
+  content: string;
+  model?: string;
+  durationMs?: number;
+}
+
+export interface AiInterviewPrepResult {
+  jobId: string;
+  locale: SupportedLocale;
+  questions: { question: string; whyAsked: string; preparation: string }[];
+  focusAreas: { title: string; guidance: string }[];
+  model?: string;
+  durationMs?: number;
+}
+
+/** One dimension the BACKEND already classified. Status is decided, not asked. */
+export interface AiBreakdownDimension {
+  key: string;
+  label: string;
+  status: string;
+  matched: string[];
+  missing: string[];
+  reason: string;
+}
+
+export interface AiMatchBreakdownResult {
+  jobId: string;
+  locale: SupportedLocale;
+  summary: string;
+  /** Per-key prose. The response carries NO status field by design. */
+  explanations: { key: string; explanation: string }[];
+  model?: string;
+  durationMs?: number;
+}
+
 @Injectable()
 export class AiServiceClient {
   private readonly logger = new Logger(AiServiceClient.name);
@@ -693,6 +731,81 @@ export class AiServiceClient {
       job: input.job,
       facts: input.facts,
     });
+  }
+
+  /**
+   * A cover-letter draft for ONE external job. Same grounding contract as
+   * `externalWhyMatch`: the SAME minimized candidate/job/facts shapes travel,
+   * and nothing else — the two features must not drift apart in what a model
+   * is allowed to see.
+   */
+  async externalCoverLetter(input: {
+    jobId: string;
+    locale: SupportedLocale;
+    candidate: AiWhyMatchCandidate;
+    job: AiWhyMatchJob;
+    facts: AiWhyMatchFacts;
+  }): Promise<AiCoverLetterResult> {
+    this.assertEnabled('generate an external cover letter');
+    return this.request<AiCoverLetterResult>(
+      '/internal/external-jobs/cover-letter',
+      {
+        jobId: input.jobId,
+        locale: input.locale,
+        candidate: input.candidate,
+        job: input.job,
+        facts: input.facts,
+      },
+    );
+  }
+
+  /** Interview preparation for ONE external job. Same grounding contract. */
+  async externalInterviewPrep(input: {
+    jobId: string;
+    locale: SupportedLocale;
+    candidate: AiWhyMatchCandidate;
+    job: AiWhyMatchJob;
+    facts: AiWhyMatchFacts;
+  }): Promise<AiInterviewPrepResult> {
+    this.assertEnabled('generate external interview preparation');
+    return this.request<AiInterviewPrepResult>(
+      '/internal/external-jobs/interview-prep',
+      {
+        jobId: input.jobId,
+        locale: input.locale,
+        candidate: input.candidate,
+        job: input.job,
+        facts: input.facts,
+      },
+    );
+  }
+
+  /**
+   * Prose for the Advanced Match Breakdown. The backend sends its OWN
+   * deterministic classification in `dimensions`; the AI service returns a
+   * summary and per-key explanations, and nothing else — statuses cannot
+   * come back through this contract.
+   */
+  async externalMatchBreakdown(input: {
+    jobId: string;
+    locale: SupportedLocale;
+    candidate: AiWhyMatchCandidate;
+    job: AiWhyMatchJob;
+    facts: AiWhyMatchFacts;
+    dimensions: AiBreakdownDimension[];
+  }): Promise<AiMatchBreakdownResult> {
+    this.assertEnabled('generate an external match breakdown');
+    return this.request<AiMatchBreakdownResult>(
+      '/internal/external-jobs/match-breakdown',
+      {
+        jobId: input.jobId,
+        locale: input.locale,
+        candidate: input.candidate,
+        job: input.job,
+        facts: input.facts,
+        dimensions: input.dimensions,
+      },
+    );
   }
 
   /** Removes a document's vectors, e.g. when the document is deleted. */

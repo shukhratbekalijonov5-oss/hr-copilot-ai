@@ -34,6 +34,15 @@ from app.models.schemas import (
     ExternalJobIndexRequest,
     ExternalJobIndexResponse,
     ExternalJobSearchRequest,
+    BreakdownExplanation,
+    ExternalCoverLetterRequest,
+    ExternalCoverLetterResponse,
+    ExternalMatchBreakdownRequest,
+    ExternalMatchBreakdownResponse,
+    ExternalInterviewPrepRequest,
+    ExternalInterviewPrepResponse,
+    InterviewFocusAreaModel,
+    InterviewPrepQuestionModel,
     ExternalWhyMatchRequest,
     ExternalWhyMatchResponse,
     ExternalJobSearchResponse,
@@ -73,6 +82,9 @@ from app.candidate.external_jobs import (
     index_external_jobs,
     search_external_jobs,
 )
+from app.candidate.external_cover_letter import write_cover_letter
+from app.candidate.external_match_breakdown import breakdown_external_match
+from app.candidate.external_interview_prep import prepare_interview
 from app.candidate.external_why_match import explain_external_match
 from app.candidate.job_match import explain_matches
 from app.retrieval import (
@@ -530,6 +542,99 @@ async def external_why_match_endpoint(
         gaps=[
             WhyMatchItem(title=item.title, explanation=item.explanation)
             for item in result.gaps
+        ],
+        model=generator.model if generator else "",
+        durationMs=int((time.perf_counter() - started) * 1000),
+    )
+
+
+@router.post(
+    "/external-jobs/cover-letter", response_model=ExternalCoverLetterResponse
+)
+async def external_cover_letter_endpoint(
+    payload: ExternalCoverLetterRequest,
+    generator=Depends(get_generator),
+) -> ExternalCoverLetterResponse:
+    """A cover-letter draft for ONE external job the caller chose.
+
+    Lazy and single-job, like why-match: it runs when a person asks for a
+    letter, never as part of a search, reads no store and ranks nothing.
+    Raises the shared 503 `generation_unavailable` on any provider failure;
+    every other external surface keeps working because none of them call
+    this path.
+    """
+    started = time.perf_counter()
+    result = write_cover_letter(request=payload, generator=generator)
+    return ExternalCoverLetterResponse(
+        jobId=payload.jobId,
+        locale=payload.locale,
+        subject=result.subject,
+        content=result.content,
+        model=generator.model if generator else "",
+        durationMs=int((time.perf_counter() - started) * 1000),
+    )
+
+
+@router.post(
+    "/external-jobs/interview-prep",
+    response_model=ExternalInterviewPrepResponse,
+)
+async def external_interview_prep_endpoint(
+    payload: ExternalInterviewPrepRequest,
+    generator=Depends(get_generator),
+) -> ExternalInterviewPrepResponse:
+    """Interview preparation for ONE external job the caller chose.
+
+    Same lazy, single-job, read-nothing contract as the other premium
+    generations.
+    """
+    started = time.perf_counter()
+    result = prepare_interview(request=payload, generator=generator)
+    return ExternalInterviewPrepResponse(
+        jobId=payload.jobId,
+        locale=payload.locale,
+        questions=[
+            InterviewPrepQuestionModel(
+                question=item.question,
+                whyAsked=item.why_asked,
+                preparation=item.preparation,
+            )
+            for item in result.questions
+        ],
+        focusAreas=[
+            InterviewFocusAreaModel(title=item.title, guidance=item.guidance)
+            for item in result.focus_areas
+        ],
+        model=generator.model if generator else "",
+        durationMs=int((time.perf_counter() - started) * 1000),
+    )
+
+
+@router.post(
+    "/external-jobs/match-breakdown",
+    response_model=ExternalMatchBreakdownResponse,
+)
+async def external_match_breakdown_endpoint(
+    payload: ExternalMatchBreakdownRequest,
+    generator=Depends(get_generator),
+) -> ExternalMatchBreakdownResponse:
+    """Prose for a dimension breakdown the backend ALREADY classified.
+
+    The statuses in `payload.dimensions` are decided facts; this endpoint
+    returns a summary and per-key explanations and nothing else — there is
+    no field through which a status, score or order could come back. Same
+    lazy, single-job, read-nothing contract as the other premium
+    generations.
+    """
+    started = time.perf_counter()
+    result = breakdown_external_match(request=payload, generator=generator)
+    return ExternalMatchBreakdownResponse(
+        jobId=payload.jobId,
+        locale=payload.locale,
+        summary=result.summary,
+        explanations=[
+            BreakdownExplanation(key=key, explanation=explanation)
+            for key, explanation in result.explanations.items()
         ],
         model=generator.model if generator else "",
         durationMs=int((time.perf_counter() - started) * 1000),

@@ -1332,6 +1332,72 @@ export interface ExternalWhyMatchResponse {
   generatedAt: string;
 }
 
+/**
+ * POST /candidate-account/me/external-jobs/:id/cover-letter
+ *
+ * Same envelope conventions as why-match: every field optional in practice,
+ * because this is model output behind a cache and a missing subject is an
+ * ordinary Tuesday rather than a malformed response.
+ */
+export interface ExternalCoverLetterResponse {
+  jobId?: string;
+  version?: string | null;
+  locale?: string | null;
+  subject?: string | null;
+  /** The letter body. Plain text with blank-line paragraph breaks. */
+  content?: string | null;
+  /** Backend cache metadata. Read, then intentionally dropped. */
+  cached?: boolean;
+  generatedAt?: string | null;
+}
+
+/** POST /candidate-account/me/external-jobs/:id/interview-prep */
+export interface ExternalInterviewPrepResponse {
+  jobId?: string;
+  version?: string | null;
+  locale?: string | null;
+  questions?:
+    | {
+        question?: string | null;
+        whyAsked?: string | null;
+        preparation?: string | null;
+      }[]
+    | null;
+  /**
+   * `{title, guidance}` on the wire. The adapter maps it onto the same
+   * `AiInsight` the why-match strengths use, because it is the same shape
+   * serving the same purpose — a titled point with a paragraph under it — and
+   * a second near-identical type would mean a second near-identical renderer.
+   */
+  focusAreas?: { title?: string | null; guidance?: string | null }[] | null;
+  cached?: boolean;
+  generatedAt?: string | null;
+}
+
+/** POST /candidate-account/me/external-jobs/:id/match-breakdown */
+export interface ExternalMatchBreakdownResponse {
+  jobId?: string;
+  version?: string | null;
+  locale?: string | null;
+  summary?: string | null;
+  dimensions?:
+    | {
+        /** Machine key, e.g. `SKILLS`. Never displayed — `label` is. */
+        key?: string | null;
+        /** The backend's own display text for this dimension. */
+        label?: string | null;
+        /** STRONG | PARTIAL | GAP | UNKNOWN. Anything else is read as UNKNOWN. */
+        status?: string | null;
+        explanation?: string | null;
+        matched?: string[] | null;
+        missing?: string[] | null;
+      }[]
+    | null;
+  /** Backend cache metadata. Read, then intentionally dropped. */
+  cached?: boolean;
+  generatedAt?: string | null;
+}
+
 export interface ExternalAlreadyTrackedResponse {
   message: string;
   trackingId: string | null;

@@ -2,6 +2,9 @@ import "server-only";
 
 import { apiFetch } from "@/lib/api/http";
 import {
+  toExternalCoverLetter,
+  toExternalInterviewPrep,
+  toExternalMatchBreakdown,
   toExternalJobApplicationPage,
   toExternalWhyMatch,
   toExternalJobDetail,
@@ -10,6 +13,9 @@ import {
   toSavedExternalJobPage,
 } from "@/lib/api/external-jobs-adapters";
 import type {
+  ExternalCoverLetterResponse,
+  ExternalMatchBreakdownResponse,
+  ExternalInterviewPrepResponse,
   ExternalJobApplicationResponse,
   ExternalWhyMatchResponse,
   ExternalPagedResponse,
@@ -21,6 +27,9 @@ import type {
 } from "@/lib/api/contracts";
 import type {
   ExternalApplicationStatus,
+  ExternalCoverLetter,
+  ExternalInterviewPrep,
+  ExternalMatchBreakdown,
   ExternalWhyMatch,
   ExternalJobApplicationPage,
   ExternalJobDetail,
@@ -307,4 +316,54 @@ export async function explainExternalMatch(
     { method: "POST", body: locale ? { locale } : {} },
   );
   return toExternalWhyMatch(externalJobId, response);
+}
+
+/**
+ * The other two on-demand MAX tools, on the same terms as the explanation.
+ *
+ * POST for the same reasons: generation is not a safe cacheable read, it
+ * spends a rate-limited model budget, and a GET invites a prefetch to spend it
+ * for nobody. `locale` is the ONLY thing sent — the backend reads the
+ * candidate's evidence server-side and owns the prompt, so no profile, resume
+ * or model instruction is assembled in a browser.
+ *
+ * Each is called from exactly one component, from a click handler. Nothing in
+ * a search, a card, a list or a drawer-open path reaches them.
+ */
+
+export async function generateExternalCoverLetter(
+  externalJobId: string,
+  locale?: string,
+): Promise<ExternalCoverLetter> {
+  const response = await apiFetch<ExternalCoverLetterResponse>(
+    jobPath(externalJobId, "/cover-letter"),
+    { method: "POST", body: locale ? { locale } : {} },
+  );
+  return toExternalCoverLetter(externalJobId, response);
+}
+
+export async function generateExternalInterviewPrep(
+  externalJobId: string,
+  locale?: string,
+): Promise<ExternalInterviewPrep> {
+  const response = await apiFetch<ExternalInterviewPrepResponse>(
+    jobPath(externalJobId, "/interview-prep"),
+    { method: "POST", body: locale ? { locale } : {} },
+  );
+  return toExternalInterviewPrep(externalJobId, response);
+}
+
+/**
+ * The dimension-by-dimension breakdown. Same terms as the other three tools:
+ * POST, locale only, one job, called from one click handler.
+ */
+export async function generateExternalMatchBreakdown(
+  externalJobId: string,
+  locale?: string,
+): Promise<ExternalMatchBreakdown> {
+  const response = await apiFetch<ExternalMatchBreakdownResponse>(
+    jobPath(externalJobId, "/match-breakdown"),
+    { method: "POST", body: locale ? { locale } : {} },
+  );
+  return toExternalMatchBreakdown(externalJobId, response);
 }

@@ -106,7 +106,12 @@ describe('no model decides anything here', () => {
    */
   const MAY_GENERATE = new Set([
     'premium-ai/external-why-match.service.ts',
+    'premium-ai/external-cover-letter.service.ts',
+    'premium-ai/external-interview-prep.service.ts',
+    'premium-ai/external-match-breakdown.service.ts',
+    'premium-ai/premium-ai.cache.ts',
     'premium-ai/dto/why-match.dto.ts',
+    'premium-ai/dto/premium-ai-locale.dto.ts',
     // The controller hands one route to the service above; the class it lives
     // on is already the external workspace's MAX-gated controller.
     'search/external-search.controller.ts',

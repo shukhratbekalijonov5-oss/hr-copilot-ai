@@ -152,6 +152,9 @@ export const api = {
   deleteExternalApplication: externalJobs.deleteExternalApplication,
   getExternalApplications: externalJobs.getExternalApplications,
   explainExternalMatch: externalJobs.explainExternalMatch,
+  generateExternalCoverLetter: externalJobs.generateExternalCoverLetter,
+  generateExternalInterviewPrep: externalJobs.generateExternalInterviewPrep,
+  generateExternalMatchBreakdown: externalJobs.generateExternalMatchBreakdown,
 
   getPublicJobs: publicJobs.getPublicJobs,
   getPublicJob: publicJobs.getPublicJob,

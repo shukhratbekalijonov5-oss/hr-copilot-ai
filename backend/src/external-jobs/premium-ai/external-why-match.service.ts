@@ -4,17 +4,14 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { HttpStatus } from '@nestjs/common';
-import { RedisService } from '../../redis/redis.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { AiServiceClient, isSupportedLocale } from '../../ai/ai-service.client';
+import { AiServiceClient } from '../../ai/ai-service.client';
 import type { SupportedLocale } from '../../ai/ai-service.client';
 import { ExternalPremiumAiContextService } from './external-premium-ai.context';
+import { PremiumAiCacheService } from './premium-ai.cache';
 import {
   AI_EXPLANATION_UNAVAILABLE,
   MAX_GAPS,
   MAX_STRENGTHS,
-  PREMIUM_AI_CACHE_PREFIX,
-  WHY_MATCH_CACHE_TTL_SECONDS,
   WHY_MATCH_VERSION,
 } from './external-premium-ai.policy';
 
@@ -64,7 +61,9 @@ interface CachedWhyMatch {
  *
  * TTL exists only so Redis eventually forgets entries nobody will ask for
  * again. Correctness never depends on it — an expiry that never fired would
- * still not serve a stale explanation.
+ * still not serve a stale explanation. The key/read/write/locale plumbing is
+ * shared with Cover Letter and Interview Prep (`PremiumAiCacheService`) so
+ * the degradation contract cannot drift between features.
  *
  * ## Failure is contained
  *
@@ -79,8 +78,7 @@ export class ExternalWhyMatchService {
   constructor(
     private readonly context: ExternalPremiumAiContextService,
     private readonly ai: AiServiceClient,
-    private readonly redis: RedisService,
-    private readonly prisma: PrismaService,
+    private readonly cache: PremiumAiCacheService,
   ) {}
 
   /**
@@ -97,8 +95,9 @@ export class ExternalWhyMatchService {
     // Throws 404 for an id that is not an external job, before any model or
     // cache work happens.
     const grounded = await this.context.load(userId, externalJobId);
-    const locale = requestedLocale ?? (await this.preferredLocale(userId));
-    const key = this.cacheKey(grounded.fingerprint, locale);
+    const locale =
+      requestedLocale ?? (await this.cache.preferredLocale(userId));
+    const key = this.cache.key(WHY_MATCH_VERSION, locale, grounded.fingerprint);
 
     const cached = await this.read(key);
     if (cached) {
@@ -195,73 +194,20 @@ export class ExternalWhyMatchService {
     };
   }
 
-  /** The account's own language, defaulting to English. */
-  private async preferredLocale(userId: string): Promise<SupportedLocale> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { preferredLocale: true },
-    });
-    const locale = user?.preferredLocale;
-    return locale && isSupportedLocale(locale) ? locale : 'en';
-  }
-
-  /**
-   * The version is IN the key, not merely in the value: bumping
-   * WHY_MATCH_VERSION after a prompt or shape change makes every old entry
-   * unreachable without a migration or a flush.
-   */
-  private cacheKey(fingerprint: string, locale: SupportedLocale): string {
-    return [
-      PREMIUM_AI_CACHE_PREFIX,
-      WHY_MATCH_VERSION,
-      locale,
-      fingerprint,
-    ].join(':');
-  }
-
-  /** Cache unavailable degrades to a miss — never to an error, never to stale. */
+  /** Shared plumbing validates JSON; the SHAPE is this feature's to check. */
   private async read(key: string): Promise<CachedWhyMatch | null> {
-    let raw: string | null;
-    try {
-      raw = await this.redis.client.get(key);
-    } catch (error) {
-      this.logger.warn(
-        `Why-match cache read failed, generating instead: ${
-          (error as Error).message
-        }`,
-      );
-      return null;
-    }
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as CachedWhyMatch;
-      if (!parsed?.summary || !parsed.generatedAt) return null;
-      return {
-        summary: parsed.summary,
-        strengths: bounded(parsed.strengths, MAX_STRENGTHS),
-        gaps: bounded(parsed.gaps, MAX_GAPS),
-        generatedAt: parsed.generatedAt,
-      };
-    } catch {
-      return null;
-    }
+    const parsed = await this.cache.read<CachedWhyMatch>(key);
+    if (!parsed?.summary || !parsed.generatedAt) return null;
+    return {
+      summary: parsed.summary,
+      strengths: bounded(parsed.strengths, MAX_STRENGTHS),
+      gaps: bounded(parsed.gaps, MAX_GAPS),
+      generatedAt: parsed.generatedAt,
+    };
   }
 
   private async write(key: string, value: CachedWhyMatch): Promise<void> {
-    try {
-      await this.redis.client.set(
-        key,
-        JSON.stringify(value),
-        'EX',
-        WHY_MATCH_CACHE_TTL_SECONDS,
-      );
-    } catch (error) {
-      // A write failure costs a re-generation next time; it must never cost
-      // the answer the candidate is waiting for.
-      this.logger.warn(
-        `Why-match cache write failed: ${(error as Error).message}`,
-      );
-    }
+    await this.cache.write(key, value);
   }
 
   private unavailable(): ServiceUnavailableException {

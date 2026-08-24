@@ -4,6 +4,7 @@ import {
   AI_EXPLANATION_UNAVAILABLE,
   WHY_MATCH_VERSION,
 } from './external-premium-ai.policy';
+import { PremiumAiCacheService } from './premium-ai.cache';
 import type { ExternalPremiumAiContextService } from './external-premium-ai.context';
 import type { AiServiceClient } from '../../ai/ai-service.client';
 import type { RedisService } from '../../redis/redis.service';
@@ -78,7 +79,11 @@ function build(options: { fingerprint?: string; aiEnabled?: boolean } = {}) {
   } as unknown as PrismaService;
 
   return {
-    service: new ExternalWhyMatchService(context, ai, redis, prisma),
+    service: new ExternalWhyMatchService(
+      context,
+      ai,
+      new PremiumAiCacheService(redis, prisma),
+    ),
     load,
     externalWhyMatch,
     get,

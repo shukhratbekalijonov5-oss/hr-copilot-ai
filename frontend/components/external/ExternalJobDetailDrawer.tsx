@@ -7,7 +7,7 @@ import { SkeletonText } from "@/components/ui/LoadingSkeleton";
 import { CloseIcon, ExternalLinkIcon } from "@/components/ui/icons";
 import { ExternalSaveButton } from "@/components/external/ExternalSaveButton";
 import { ExternalTrackingControl } from "@/components/external/ExternalTrackingControl";
-import { ExternalWhyMatch } from "@/components/external/ExternalWhyMatch";
+import { ExternalAiTools } from "@/components/external/ExternalAiTools";
 import { useI18n } from "@/lib/i18n/context";
 import type { ExternalPersonalStateApi } from "@/lib/candidate/external-personal-state";
 import { getExternalJobAction } from "@/app/(candidate)/external-jobs/actions";
@@ -289,8 +289,8 @@ export function ExternalJobDetailDrawer({
           ) : null}
 
           {/*
-            The generated explanation sits AFTER the deterministic reasons and
-            below the score, never above them.
+            The AI tools sit AFTER the deterministic reasons and below the
+            score, never above them.
 
             The score and the reason chips are what this product computed and
             can stand behind; the panel below is a language model's account of
@@ -298,13 +298,14 @@ export function ExternalJobDetailDrawer({
             look like supporting detail for the prose, when the relationship
             runs precisely the other way.
 
-            It renders for every reader who can see this drawer — which is a
-            MAX reader, because the whole external product is MAX-gated. The
-            panel still handles a plan refusal, because the backend is the
-            authority and a plan can lapse between opening a page and pressing
-            a button.
+            Every tool in it generates only when its own button is pressed, so
+            opening this drawer costs nothing. They render for every reader who
+            can see it — a MAX reader, because the whole external product is
+            MAX-gated — and each still handles a plan refusal, because the
+            backend is the authority and a plan can lapse between opening a
+            page and pressing a button.
           */}
-          <ExternalWhyMatch externalJobId={job.externalJobId} />
+          <ExternalAiTools externalJobId={job.externalJobId} />
 
           <section className="flex flex-col gap-1.5 border-t border-line pt-4 text-[13px]">
             <p className="text-ink">

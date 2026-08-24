@@ -2137,6 +2137,26 @@ const uz: Dictionary = {
     whyMatchGenerate: "Tushuntirish olish",
     whyMatchStrengths: "Kuchli tomonlar",
     whyMatchGaps: "Mumkin bo‘lgan kamchiliklar",
+    aiToolsTitle: "AI vositalari",
+    coverLetterTab: "Motivatsion xat",
+    coverLetterTitle: "Motivatsion xat",
+    coverLetterInvite:
+      "Profilingiz asosida ushbu ish o‘rni uchun motivatsion xat qoralamasini tayyorlaymiz. Uni nusxalab, ariza yuboradigan joyingizda tahrirlashingiz mumkin.",
+    coverLetterGenerate: "Motivatsion xat yozish",
+    coverLetterSubject: "Mavzu",
+    coverLetterCopyLabel: "Motivatsion xatni nusxalash",
+    interviewPrepTab: "Suhbatga tayyorgarlik",
+    interviewPrepTitle: "Suhbatga tayyorgarlik",
+    interviewPrepInvite:
+      "Ushbu ish o‘rni bo‘yicha ehtimoliy suhbat savollari, ular nega so‘ralishi va qanday tayyorlanish haqida ma’lumot oling.",
+    interviewPrepGenerate: "Tayyorgarlik olish",
+    interviewQuestions: "Ehtimoliy suhbat savollari",
+    interviewFocusAreas: "E’tibor qaratish kerak bo‘lgan yo‘nalishlar",
+    matchBreakdownTab: "Moslik tahlili",
+    matchBreakdownTitle: "Moslik tahlili",
+    matchBreakdownInvite:
+      "Bu ish o‘rni profilingizga qay darajada mos kelishini yo‘nalishlar bo‘yicha ko‘ring: ko‘nikmalar, joylashuv, maosh va boshqalar.",
+    matchBreakdownGenerate: "Tahlil olish",
     tabsLabel: "E’lon qayerda joylangan",
 
     searchLabel: "Tashqi ish o‘rinlarini qidirish",
@@ -2375,6 +2395,9 @@ const uz: Dictionary = {
           "Pro’dagi hamma narsa",
           "Tashqi AI ish qidiruvi",
           "«Nega bu ish mos» — AI tushuntirishi",
+          "AI motivatsion xatlar",
+          "AI suhbatga tayyorgarlik",
+          "Batafsil moslik tahlili",
           "Saqlangan tashqi ishlar",
           "Tashqi arizalaringiz hisobi",
         ],
@@ -2393,6 +2416,33 @@ const uz: Dictionary = {
     jobGone: "Bu ish o‘rni endi e’lon qilinmagan, tushuntiradigan narsa yo‘q.",
     strengthLabel: "kuchli tomon",
     gapLabel: "mumkin bo‘lgan kamchilik",
+    copy: "Nusxalash",
+    copied: "Nusxalandi",
+    copyFailed: "Nusxalab bo‘lmadi — matnni o‘zingiz belgilang.",
+    questionNumber: "{number}-savol",
+    whyAsked: "Nega so‘rashlari mumkin",
+    howToPrepare: "Qanday tayyorlanish kerak",
+  },
+
+
+  matchBreakdown: {
+    status: {
+      STRONG: "To‘liq mos",
+      PARTIAL: "Qisman mos",
+      GAP: "Yetishmayotgan jihat",
+      UNKNOWN: "Ma’lumot yetarli emas",
+    },    dimensions: {
+      skills: "Ko‘nikmalar",
+      seniority: "Daraja",
+      workMode: "Ish formati",
+      employmentType: "Bandlik turi",
+      location: "Joylashuv",
+      salary: "Maosh",
+      languages: "Tillar",
+    },
+
+    matched: "Mos keladi",
+    missing: "Yetishmaydi",
   },
 
 };

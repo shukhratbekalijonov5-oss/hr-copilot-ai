@@ -31,6 +31,10 @@ import { ExternalJobCardService } from './candidate/external-job-card.service';
 import { ExternalApplicationsController } from './candidate/external-applications.controller';
 import { ExternalPremiumAiContextService } from './premium-ai/external-premium-ai.context';
 import { ExternalWhyMatchService } from './premium-ai/external-why-match.service';
+import { PremiumAiCacheService } from './premium-ai/premium-ai.cache';
+import { ExternalCoverLetterService } from './premium-ai/external-cover-letter.service';
+import { ExternalInterviewPrepService } from './premium-ai/external-interview-prep.service';
+import { ExternalMatchBreakdownService } from './premium-ai/external-match-breakdown.service';
 import { FxModule } from '../fx/fx.module';
 import { AiModule } from '../ai/ai.module';
 
@@ -93,7 +97,11 @@ import { AiModule } from '../ai/ai.module';
     // "why this match"; Cover Letter / Interview Prep / Match Breakdown will
     // consume the same grounded context without touching search or ranking.
     ExternalPremiumAiContextService,
+    PremiumAiCacheService,
     ExternalWhyMatchService,
+    ExternalCoverLetterService,
+    ExternalInterviewPrepService,
+    ExternalMatchBreakdownService,
     ExternalSearchRetrieval,
     ExternalIndexService,
     ExternalProviderRegistry,

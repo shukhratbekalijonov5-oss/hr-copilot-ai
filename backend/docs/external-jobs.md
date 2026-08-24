@@ -1162,10 +1162,130 @@ card: search, detail, saved and tracking are unaffected by it.
 with its real lifecycle state; the detail route keeps 404-ing non-current
 jobs, unchanged.
 
+## AI Cover Letter + AI Interview Prep — API CONTRACT
+
+Both MAX only, inheriting `EXTERNAL_AI_SEARCH` exactly like why-match — **no
+new capability exists for either**. Same premium architecture end to end: the
+grounded context comes from the shared `ExternalPremiumAiContextService`
+(current candidate profile + ONE canonical job + deterministic facts), the
+cache key carries the same Rule-N1 fingerprint under a per-feature version
+namespace, and failure is contained to the one endpoint.
+
+```
+POST /candidate-account/me/external-jobs/:externalJobId/cover-letter
+  Body: { "locale"?: "en" | "ko" | "ru" | "uz" }   // omit = the account's own
+  → 200 {
+      "jobId": "<uuid>",
+      "version": "external-cover-letter-v1",
+      "locale": "en",
+      "subject": "Application for …",
+      "content": "…",                      // ~250–450 words, PLAIN text
+      "cached": true | false,
+      "generatedAt": "ISO"
+    }
+  → 403 PLAN_UPGRADE_REQUIRED (requiredPlan MAX) for FREE/PRO
+  → 404 for an id that is not an external job
+  → 503 { "code": "AI_COVER_LETTER_UNAVAILABLE", … } when generation fails
+
+POST /candidate-account/me/external-jobs/:externalJobId/interview-prep
+  Body: { "locale"?: "en" | "ko" | "ru" | "uz" }
+  → 200 {
+      "jobId": "<uuid>",
+      "version": "external-interview-prep-v1",
+      "locale": "en",
+      "questions": [                        // 1–8 (5–8 asked for; honest fewer possible)
+        { "question": "…", "whyAsked": "…", "preparation": "…" }
+      ],
+      "focusAreas": [                       // 0–4 (2–4 asked for)
+        { "title": "…", "guidance": "…" }
+      ],
+      "cached": true | false,
+      "generatedAt": "ISO"
+    }
+  → 403 / 404 / 503 as above, failure code AI_INTERVIEW_PREP_UNAVAILABLE
+```
+
+**Honesty rules for rendering.**
+
+- The letter is a DRAFT in the candidate's voice, grounded only in their
+  stated profile — a thin profile produces a shorter, conservative letter,
+  never invented experience. It deliberately ends without a signature name
+  (the sender's name is never sent to the model); the UI or the user adds it.
+- `content` is plain text — render it as paragraphs, not markdown.
+- Sparse-but-honest interview prep is correct output: 3 grounded questions
+  beat 8 padded ones, and `focusAreas` may be empty. Never pad client-side.
+- Preparation advice can name a genuine gap ("prepare to discuss your real
+  Kubernetes level honestly") — that is the feature working, not a bug.
+- No score, band or percentage appears anywhere in either response, same as
+  why-match.
+- Generating is read+cache only: it never creates an Application, never
+  saves the job, never touches a tracker, never moves a ranking.
+- One user action → one request. Never fan either endpoint over a list.
+
+**Cache semantics** (shared with why-match): repeat with unchanged context →
+`cached: true` with the original `generatedAt`; profile/evidence/preference
+edits or a meaningful job change regenerate; crawler re-observations do not;
+each feature and locale caches under its own version namespace, so warming
+one never warms another.
+
+## Advanced Match Breakdown — API CONTRACT
+
+MAX only, inheriting `EXTERNAL_AI_SEARCH` like the other premium tools — no
+new capability. The split of responsibilities is the contract's core: **every
+`status` is classified deterministically by the backend** (from stored values
+and the same shared matchers the ranking uses); the model contributes only
+the `summary` and per-dimension `explanation` prose, and its response schema
+has no status field, so a classification cannot be overridden.
+
+```
+POST /candidate-account/me/external-jobs/:externalJobId/match-breakdown
+  Body: { "locale"?: "en" | "ko" | "ru" | "uz" }   // omit = the account's own
+  → 200 {
+      "jobId": "<uuid>",
+      "version": "external-match-breakdown-v1",
+      "locale": "en",
+      "summary": "…",                      // ~60–120 words
+      "dimensions": [                      // 0–9, canonical order, never padded
+        {
+          "key": "skills",                 // skills | seniority | workMode |
+                                           // employmentType | location |
+                                           // salary | languages
+          "label": "Skills",               // canonical English; localize by key
+          "status": "STRONG" | "PARTIAL" | "GAP" | "UNKNOWN",
+          "explanation": "…",
+          "matched": ["Go"],               // ≤12; non-empty for skills/languages
+          "missing": ["Kubernetes"]        // ≤12
+        }
+      ],
+      "cached": true | false,
+      "generatedAt": "ISO"
+    }
+  → 403 PLAN_UPGRADE_REQUIRED (requiredPlan MAX) for FREE/PRO
+  → 404 for an id that is not an external job
+  → 503 { "code": "AI_MATCH_BREAKDOWN_UNAVAILABLE", … } when generation fails
+```
+
+**Status semantics.** STRONG/PARTIAL/GAP are verdicts over facts BOTH sides
+actually stated. UNKNOWN means the comparison could not honestly be made —
+employer silent, candidate silent, or not comparable — and must be rendered
+as missing information, never as a weakness: a job with no stated salary is
+UNKNOWN, not GAP. A dimension where **neither** side said anything is omitted
+entirely; do not render placeholders for absent keys. Languages can be
+STRONG/PARTIAL/UNKNOWN but never GAP (self-reported language names are free
+text, so a failed match is unconfirmed, not disproved). Education and
+experience are not emitted: external jobs carry no structured fields for
+them, and a status would be inference.
+
+**No numbers.** There is no score, band, percentage, probability or rank
+anywhere in this payload, and the model is given none. The deterministic
+search ranking remains the only source of ordering.
+
+Cache semantics are the shared premium ones (fingerprint = Rule N1; own
+version namespace; per-locale; crawler sweeps don't invalidate). One user
+action → one request; never fan it over a list.
+
 ## Not yet built
 
-Dismissed external jobs; alerts; AI Cover Letter, AI Interview Prep and the
-Advanced Match Breakdown (all three will reuse the Task 4C.6 premium-AI
-context foundation); recruiter-side anything for external jobs (saved rows
-and trackers are candidate-private); auto-detection that an external
-application was submitted.
+Dismissed external jobs; alerts; recruiter-side anything for external jobs
+(saved rows and trackers are candidate-private); auto-detection that an
+external application was submitted.
