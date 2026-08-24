@@ -74,6 +74,23 @@ enum ApplicationSource {
   MANUAL_UPLOAD
 }
 
+/// What the candidate PAYS FOR — the product tier gating AI surfaces.
+///
+/// FREE  = ordinary internal job search and applying.
+/// PRO   = + Internal AI Job Search (the AI Job Match over HR Copilot
+///         vacancies).
+/// MAX   = + the External Jobs product in full: external AI search, detail,
+///         saved external jobs and external apply tracking (and, later,
+///         Gemini explanations for external results — Task 4C.6).
+///
+/// The plan→capability mapping itself lives in ONE place in code
+/// (src/entitlements/candidate-plan.policy.ts), never in controllers.
+enum CandidatePlan {
+  FREE
+  PRO
+  MAX
+}
+
 enum ProfileVisibility {
   PRIVATE
   PUBLIC
@@ -91,6 +108,138 @@ enum RequirementType {
   EXPERIENCE
   EDUCATION
   LANGUAGE
+  OTHER
+}
+
+/**
+ * --------------------------------------------------------------------------
+ */
+/**
+ * Structured vacancy vocabulary
+ */
+/**
+ */
+/**
+ * These enums are the shared feature vocabulary a job is described in. They
+ */
+/**
+ * are deliberately employer-agnostic: an externally sourced job will later
+ */
+/**
+ * normalize INTO these same values, so nothing here may encode an assumption
+ */
+/**
+ * that only holds for vacancies created inside HR Copilot.
+ */
+/**
+ * --------------------------------------------------------------------------
+ */
+
+enum PayPeriod {
+  HOURLY
+  MONTHLY
+  YEARLY
+}
+
+enum WorkMode {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
+/// Whether the employer will sponsor a work visa. UNKNOWN is a real answer and
+/// the correct default: an employer who did not say must not be recorded as
+/// having said "no".
+enum VisaSponsorship {
+  YES
+  NO
+  UNKNOWN
+}
+
+/// Citizenship is NOT a proxy for work authorization — it applies only when an
+/// employer genuinely restricts the role (public sector, cleared work). NONE is
+/// the default; SPECIFIC requires an explicit nationality list.
+enum CitizenshipRequirement {
+  NONE
+  SPECIFIC
+}
+
+enum SeniorityLevel {
+  INTERN
+  JUNIOR
+  MID
+  SENIOR
+  LEAD
+  STAFF
+  MANAGER
+}
+
+/// ONE language scale, CEFR plus NATIVE.
+///
+/// "Business" / "conversational" are a second, incompatible way of saying the
+/// same thing, and mixing the two makes levels unorderable — so they are
+/// deliberately absent rather than added as extra members.
+enum LanguageProficiency {
+  A1
+  A2
+  B1
+  B2
+  C1
+  C2
+  NATIVE
+}
+
+/// Ordered least-to-most; ordering is what lets a future matcher decide that a
+/// master's degree satisfies a bachelor's requirement.
+enum EducationLevel {
+  HIGH_SCHOOL
+  ASSOCIATE
+  BACHELOR
+  MASTER
+  DOCTORATE
+}
+
+enum HiringUrgency {
+  LOW
+  NORMAL
+  HIGH
+}
+
+/// Normalized employment type — the shared value both sides of a match speak.
+///
+/// `Vacancy.employmentType` is still the ORIGINAL free-text column ("Full-time",
+/// "Contract"): 206 vacancies carry those strings and rewriting them was out of
+/// scope and unnecessary. `normalizeEmploymentType()` in
+/// src/common/vacancy/job-vocabulary.ts is the one bridge between the two, so
+/// there is a single vocabulary with an explicit translation point rather than
+/// two competing ones.
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+  TEMPORARY
+}
+
+/// Whether a stated place is somewhere the candidate WANTS to work or somewhere
+/// they have ruled out. One table, one discriminator — the two are the same
+/// shape and must normalize against jobs identically.
+enum PreferredLocationKind {
+  PREFERRED
+  EXCLUDED
+}
+
+enum JobBenefit {
+  HEALTH_INSURANCE
+  MEAL_ALLOWANCE
+  HOUSING_SUPPORT
+  RELOCATION_SUPPORT
+  EDUCATION_BUDGET
+  REMOTE_ALLOWANCE
+  FLEXIBLE_HOURS
+  STOCK_OPTIONS
+  BONUS
+  PAID_LEAVE
   OTHER
 }
 
@@ -230,15 +379,15 @@ enum NotificationType {
 // ---------------------------------------------------------------------------
 
 model Organization {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String   @unique
+  id         String   @id @default(uuid())
+  name       String
+  slug       String   @unique
   /// The organization's own public web address (careers site, homepage).
   /// Optional and free of any product behaviour — it is displayed, never
   /// fetched, so it carries none of the SSRF surface a candidate link does.
   websiteUrl String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   members        OrganizationMember[]
   vacancies      Vacancy[]
@@ -259,12 +408,12 @@ model Organization {
 /// organizationId here: an ORGANIZATION account may hold different roles in
 /// different organizations (multi-org stays supported).
 model User {
-  id              String      @id @default(uuid())
-  email           String      @unique
-  passwordHash    String
-  fullName        String
-  accountType     AccountType
-  preferredLocale Locale      @default(en)
+  id               String      @id @default(uuid())
+  email            String      @unique
+  passwordHash     String
+  fullName         String
+  accountType      AccountType
+  preferredLocale  Locale      @default(en)
   /// Object key of the account's profile picture, or null for "no picture" —
   /// which is the normal state, not a missing value: the UI falls back to
   /// initials. Only ever a key: the bytes live in StorageService like every
@@ -274,8 +423,8 @@ model User {
   /// The stored picture's content type, kept so it can be served back with the
   /// type it was validated as rather than one sniffed at read time.
   avatarMimeType   String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
   memberships      OrganizationMember[]
   candidateAccount CandidateAccount?
@@ -360,6 +509,15 @@ model CandidateAccount {
   education         Json?
   resumeDocumentId  String?           @unique
   profileVisibility ProfileVisibility @default(PRIVATE)
+  /// TRANSITIONAL plan source of truth — server-authoritative, default FREE.
+  ///
+  /// The real subscription/billing authority will be the Java Payment
+  /// Service; when it exists, CandidateEntitlementsService.planFor swaps its
+  /// read from this column to that service and NOTHING else changes — no
+  /// controller, guard or route knows where the plan comes from. Until then
+  /// this column is written only by migrations/fixtures/operators: no public
+  /// API mutates it, so a candidate cannot grant themselves a tier.
+  plan              CandidatePlan     @default(FREE)
   /// Monotonic counter over the account's EVIDENCE SET — bumped when a file or
   /// link is added, deleted, re-pointed at a different URL, or re-fetched with
   /// changed content. Never bumped by profile edits: a new headline does not
@@ -372,12 +530,12 @@ model CandidateAccount {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// The CURRENT profile resume — the one candidate-evidence truth. Nothing
   /// snapshots it any more: an application references the candidate
   /// relationship, and every HR/AI surface reads whatever is current here.
-  resumeDocument    Document?       @relation("CandidateAccountResume", fields: [resumeDocumentId], references: [id], onDelete: SetNull)
-  personalDocuments Document[]      @relation("PersonalDocuments")
+  resumeDocument    Document?                @relation("CandidateAccountResume", fields: [resumeDocumentId], references: [id], onDelete: SetNull)
+  personalDocuments Document[]               @relation("PersonalDocuments")
   /// The OTHER half of personal evidence. Files and links are independent
   /// source kinds with independent limits (3 each), never one pooled budget.
   personalLinks     CandidateLink[]
@@ -386,8 +544,123 @@ model CandidateAccount {
   conversations     Conversation[]
   /// The candidate's current ranked job-match snapshot, if one has been run.
   jobMatchRun       CandidateJobMatchRun?
+  /// What the candidate is LOOKING FOR, if they have said. At most one, always
+  /// current — never a history of what they used to want.
+  jobPreferences    CandidateJobPreferences?
+  /// Stored external-search result pages. Several, unlike the single job-match
+  /// run: a candidate runs many different searches, and each one's ranking has
+  /// to stay stable while they page through it.
+  externalSearchRuns CandidateExternalSearchRun[]
+  /// External jobs this candidate bookmarked. References, never copies.
+  savedExternalJobs CandidateSavedExternalJob[]
+  /// The candidate's SELF-REPORTED external application trackers. Unrelated
+  /// to the internal Application model by design.
+  externalJobApplications CandidateExternalJobApplication[]
 
   @@map("candidate_accounts")
+}
+
+/// WHAT JOB THE CANDIDATE WANTS — candidate-owned, current-only.
+///
+/// Deliberately NOT the same thing as any of its neighbours:
+///
+///   CandidateAccount  = facts about the person (headline, skills, languages)
+///   Candidate evidence = what they can demonstrate (files, links)
+///   THIS               = what they are looking for
+///   Vacancy            = what an employer offers
+///
+/// A candidate who knows Kubernetes has EVIDENCE; a candidate who wants a
+/// DevOps job has a PREFERENCE. Nothing here may be inferred from a resume, an
+/// application, a past search or a model — a preference exists only because the
+/// candidate stated it (Rule N1 + the AI boundary).
+///
+/// EXACTLY ONE current record per account (`candidateAccountId @unique`). There
+/// is no history table and no per-application copy: changing "Seoul" to
+/// "Busan" must leave nothing behind that any surface could still retrieve.
+///
+/// UNKNOWN IS A VALUE. An empty list means "stated no preference on this
+/// dimension", never "rejects everything"; a null salary means "named no
+/// threshold", never zero; a null `willingToRelocate` means "did not say",
+/// never false. Every consumer must preserve that distinction.
+model CandidateJobPreferences {
+  id                 String @id @default(uuid())
+  candidateAccountId String @unique
+
+  /// Desired ROLES, not skills. "DevOps Engineer", never "Kubernetes".
+  preferredJobTitles       String[]
+  preferredWorkModes       WorkMode[]
+  preferredEmploymentTypes EmploymentType[]
+  /// Levels the candidate wants to be considered for — job INTENT, never a
+  /// claim about what they have actually done. Factual experience lives on the
+  /// profile and evidence, and this must never overwrite it.
+  preferredSeniorityLevels SeniorityLevel[]
+
+  /// A FLOOR, not a range: "do not show me below this". Null means no
+  /// threshold was stated. Requires a currency and a pay period, because a
+  /// bare number is not compensation.
+  /// The floor the candidate stated. Null = they named no expectation at all,
+  /// which is NOT zero and never rejects a job.
+  desiredSalaryMin Int?
+  /// The top of the range they had in mind. Optional, and deliberately NOT a
+  /// ceiling: a job paying above it still matches (see SalaryMatcher). Added
+  /// in Task 3B; every pre-existing row keeps null, which reads exactly as it
+  /// did before — a floor-only expectation.
+  desiredSalaryMax Int?
+  salaryCurrency   String?
+  payPeriod        PayPeriod?
+
+  /// Tri-state. Null = not stated, and is never inferred from the presence of
+  /// a foreign preferred location.
+  willingToRelocate Boolean?
+
+  /// Secondary, softer intent — never hard filters.
+  preferredIndustries String[]
+  preferredBenefits   JobBenefit[]
+
+  /// Explicit NEGATIVE intent, stated by the candidate. Never learned from a
+  /// dismiss/skip action — behavioural signals are a separate future layer and
+  /// must not be mixed into stated preferences.
+  excludedCompanies String[]
+  excludedJobTitles String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  candidateAccount CandidateAccount             @relation(fields: [candidateAccountId], references: [id], onDelete: Cascade)
+  /// Both wanted and excluded places; see CandidatePreferredLocation.
+  locations        CandidatePreferredLocation[]
+
+  @@map("candidate_job_preferences")
+}
+
+/// One place the candidate wants (or refuses) to work.
+///
+/// A structured triple rather than parallel `countries[]`/`cities[]` arrays,
+/// because those cannot say which city belongs to which country: "KR + CA +
+/// Seoul + Toronto" has four readings, and "Cambridge"/"Richmond"/"Springfield"
+/// are ambiguous worldwide without one. `countryCode` is ISO 3166-1 alpha-2 and
+/// is the only part that is canonical today; region/city are normalized
+/// user-entered text and are NOT geocoded — the shape exists so a real place
+/// provider can be introduced later without a data migration.
+///
+/// No unique constraint on (preferences, kind, country, region, city): Postgres
+/// treats NULLs as distinct, so it would silently allow the duplicate rows that
+/// matter most (two bare "KR" entries). Deduplication is done in the service,
+/// case-insensitively, and updates replace the whole set inside a transaction.
+model CandidatePreferredLocation {
+  id            String                @id @default(uuid())
+  preferencesId String
+  kind          PreferredLocationKind @default(PREFERRED)
+  /// ISO 3166-1 alpha-2, uppercase.
+  countryCode   String
+  region        String?
+  city          String?
+
+  preferences CandidateJobPreferences @relation(fields: [preferencesId], references: [id], onDelete: Cascade)
+
+  @@index([preferencesId])
+  @@index([preferencesId, kind])
+  @@map("candidate_preferred_locations")
 }
 
 /// One professional link a job seeker offers as evidence about themselves —
@@ -472,28 +745,110 @@ model SavedJob {
 // Hiring
 // ---------------------------------------------------------------------------
 
+/// An internal vacancy: what the company needs, in structured form.
+///
+/// Every field added beyond the original free-text set is NULLABLE by design.
+/// A vacancy created before the structured model existed, or one whose author
+/// simply did not state a salary, must read as "not specified" — never as a
+/// value the employer never gave. Nothing in this model is ever inferred from
+/// the description prose.
+///
+/// The field NAMES are the shared job feature vocabulary (see
+/// src/common/vacancy/job-vocabulary.ts). An externally sourced job will later
+/// normalize into the same names, so an internal-only synonym here would
+/// become a translation layer there.
 model Vacancy {
   id              String        @id @default(uuid())
   organizationId  String
   title           String
   department      String?
+  /// LEGACY free-text location, e.g. "Tashkent, Uzbekistan · Hybrid".
+  /// Superseded by country/region/city + workMode for matching, but kept and
+  /// still displayed as a fallback: every vacancy written before the
+  /// structured fields existed has only this.
   location        String?
   employmentType  String?
   description     String?
   experienceLevel String?
   status          VacancyStatus @default(DRAFT)
+
+  // -- Compensation --------------------------------------------------------
+  /// Stored in MAJOR currency units (55000000 = ₩55,000,000), never minor:
+  /// job ads are quoted in whole units and no arithmetic here needs cents.
+  salaryMin        Int?
+  salaryMax        Int?
+  /// ISO-4217 alpha-3, validated against SUPPORTED_CURRENCIES. Required by
+  /// the service whenever either bound is set — an amount with no currency is
+  /// not a salary.
+  currency         String?
+  payPeriod        PayPeriod?
+  salaryNegotiable Boolean    @default(false)
+
+  // -- Location & work arrangement -----------------------------------------
+  /// ISO 3166-1 alpha-2, uppercase. A code rather than a name so it is stable
+  /// across the four UI languages and comparable with external jobs.
+  country                String?
+  region                 String?
+  city                   String?
+  workMode               WorkMode?
+  /// 0–7, and only meaningful for ONSITE/HYBRID.
+  officeDaysPerWeek      Int?
+  /// ISO 3166-1 alpha-2 codes; only meaningful for REMOTE.
+  remoteCountriesAllowed String[]
+
+  // -- Work authorization --------------------------------------------------
+  /// TRI-STATE on purpose: null = the employer did not say. Defaulting to
+  /// false would silently advertise every unspecified vacancy as closed to
+  /// foreign applicants.
+  foreignApplicantsAccepted         Boolean?
+  visaSponsorship                   VisaSponsorship        @default(UNKNOWN)
+  /// Tri-state for the same reason as foreignApplicantsAccepted.
+  existingWorkAuthorizationRequired Boolean?
+  /// Free-form visa codes ("E-7", "F-2", "H-1B"). Deliberately NOT an enum:
+  /// visa classes are per-country and change by regulation, and a schema that
+  /// only spells Korean ones could not describe a job anywhere else.
+  eligibleVisaTypes                 String[]
+  citizenshipRequirement            CitizenshipRequirement @default(NONE)
+  /// ISO 3166-1 alpha-2 codes. Non-empty iff citizenshipRequirement=SPECIFIC.
+  eligibleNationalities             String[]
+
+  // -- Seniority & experience ----------------------------------------------
+  seniorityLevel           SeniorityLevel?
+  minExperienceYears       Int?
+  preferredExperienceYears Int?
+
+  // -- Education, certifications, domain ------------------------------------
+  requiredEducation       EducationLevel?
+  preferredEducation      EducationLevel?
+  requiredCertifications  String[]
+  preferredCertifications String[]
+  domainExperience        String[]
+
+  // -- Benefits -------------------------------------------------------------
+  benefits      JobBenefit[]
+  /// Only meaningful when `benefits` contains OTHER.
+  benefitsOther String?
+
+  // -- Hiring lifecycle -----------------------------------------------------
+  applicationDeadline    DateTime?
+  expectedStartDate      DateTime?
+  openingsCount          Int?
+  hiringUrgency          HiringUrgency?
+  /// Only meaningful for fixed-term work; null = permanent or unstated.
+  contractDurationMonths Int?
   /// Stable shareable identifier for public job pages, e.g.
   /// `senior-backend-engineer-northwind-labs-3fa9c1`. Generated once at
   /// creation (title + org slug + random suffix) and never regenerated on
   /// title edits — a published link must keep working.
-  publicSlug      String        @unique
-  createdById     String
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  publicSlug             String         @unique
+  createdById            String
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 
-  organization  Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy     User                     @relation("VacancyCreatedBy", fields: [createdById], references: [id])
+  organization  Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy     User                         @relation("VacancyCreatedBy", fields: [createdById], references: [id])
   requirements  JobRequirement[]
+  languages     VacancyLanguageRequirement[]
   applications  Application[]
   evidence      CandidateEvidence[]
   evidenceMaps  RequirementEvidenceMap[]
@@ -519,6 +874,32 @@ model JobRequirement {
 
   @@index([vacancyId])
   @@map("job_requirements")
+}
+
+/// One language the role needs, at one level.
+///
+/// A relation rather than a column so a job can require Korean B1 AND prefer
+/// English B2 without a parsing convention. `languageCode` is a BCP-47 primary
+/// subtag (lowercase "ko", "en", "uz") and is intentionally NOT limited to the
+/// product's four UI locales — a Seoul job may require Japanese even though the
+/// interface does not speak it.
+model VacancyLanguageRequirement {
+  id           String              @id @default(uuid())
+  vacancyId    String
+  languageCode String
+  level        LanguageProficiency
+  /// true = must have, false = nice to have. Same meaning as
+  /// JobRequirement.required, so a future matcher reads one convention.
+  required     Boolean             @default(true)
+
+  vacancy Vacancy @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+
+  /// One requirement per language per vacancy: "Korean B1 required" and
+  /// "Korean C1 preferred" on the same job contradict each other, and the
+  /// database is where that stays unrepresentable.
+  @@unique([vacancyId, languageCode])
+  @@index([vacancyId])
+  @@map("vacancy_language_requirements")
 }
 
 /// The ORGANIZATION-side recruitment record — distinct from CandidateAccount
@@ -557,26 +938,26 @@ model Candidate {
 }
 
 model Application {
-  id                  String            @id @default(uuid())
-  vacancyId           String
-  candidateId         String
-  status              ApplicationStatus @default(NEW)
+  id          String            @id @default(uuid())
+  vacancyId   String
+  candidateId String
+  status      ApplicationStatus @default(NEW)
   /// How this application entered the system. DIRECT — the candidate applied
   /// through HR Copilot themselves — is the ONLY value new rows can carry:
   /// recruiter-created applications were removed from the product. Historical
   /// rows may still read MANUAL_UPLOAD; those associations are deliberately
   /// invisible to the active recruiter workflow (see applicantAssociation()).
-  source              ApplicationSource @default(DIRECT)
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  source      ApplicationSource @default(DIRECT)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
   /// An application is PURE METADATA: id, vacancy, candidate relationship,
   /// status/attempt history, timestamps. It deliberately references no
   /// evidence — the candidate's CURRENT documents and links (reached through
   /// candidate.candidateAccount) are the only evidence truth, and applying
   /// establishes the authorization relationship without copying anything.
-  vacancy           Vacancy                 @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
-  candidate         Candidate               @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  vacancy   Vacancy   @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
   /// Re-application after rejection.
   ///
@@ -891,25 +1272,51 @@ model ProcessingJob {
 /// One row per candidate: a candidate has exactly one current ranking, and a
 /// re-run replaces it.
 model CandidateJobMatchRun {
-  id                 String   @id @default(uuid())
-  candidateAccountId String   @unique
+  id                 String    @id @default(uuid())
+  candidateAccountId String    @unique
   /// The evidence revision this ranking was computed from. A change means the
   /// candidate's files or links moved and the ranking describes evidence that
   /// no longer exists.
   evidenceRevision   Int
-  /// Fingerprint of the eligible vacancy catalogue — count plus the latest
-  /// mutation timestamp. A vacancy opened, edited or closed changes it, which
-  /// is what makes the ranking recompute without a per-vacancy event.
+  /// Semantic hash of the ranking-relevant state of the OPEN catalogue (see
+  /// vacancyRankingFingerprint). A vacancy opened, closed, or edited in any
+  /// field the ranking reads changes it; a display-only edit does not.
   vacancyFingerprint String
-  /// How many vacancies were ranked. The total the UI pages through.
+  /// Semantic hash of the candidate's CURRENT job intent (see
+  /// intentFingerprint). Preferences now affect rank, so a stored run is only
+  /// reusable while the intent it was computed from is still the intent —
+  /// this is how Rule N1 reaches the ranking cache. Null on pre-v2 rows,
+  /// which therefore never match and recompute on their next read.
+  intentFingerprint  String?
+  /// MATCH_ALGORITHM_VERSION at compute time. A weights/code change bumps the
+  /// version and strands every stored run, even though no data moved.
+  algorithmVersion   String?
+  /// The exchange-rate snapshot this ranking's salary comparisons used, and
+  /// when it was fetched. Traceability, deliberately NOT part of the reuse
+  /// check: rates refresh every 30 minutes and invalidating every candidate's
+  /// ranking that often would be pure churn for third-decimal movements. A
+  /// run recomputed for any other reason picks up current rates. Null when no
+  /// cross-currency comparison took part.
+  fxSnapshotVersion  String?
+  fxFetchedAt        DateTime?
+  /// How many vacancies were ranked. The total the UI pages through, and —
+  /// bar an index gap being reconciled — equal to totalEligible: LOW MATCH
+  /// IS NOT HIDDEN, so every eligible vacancy is in here.
   totalRanked        Int
-  /// How many the backend declared eligible. A gap means the AI index is
-  /// behind the database for some of them.
-  totalEligible      Int      @default(0)
+  /// The rankable universe: OPEN vacancies minus the candidate's own explicit
+  /// hard exclusions. Nothing else shrinks it — not scores, not thresholds,
+  /// not vector retrieval.
+  totalEligible      Int       @default(0)
+  /// How many OPEN vacancies the candidate's explicit exclusions removed.
+  totalExcluded      Int       @default(0)
+  /// The removed vacancies with their machine-readable reasons:
+  /// [{ vacancyId, reason: EXCLUDED_COMPANY | EXCLUDED_TITLE | EXCLUDED_LOCATION }].
+  /// An excluded job is stated here, never faked as a score-0 row.
+  excluded           Json?
   /// What the ranking knew about the candidate (skills, role families, which
   /// sources contributed). Kept for diagnostics and honest reporting.
   capability         Json?
-  generatedAt        DateTime @default(now())
+  generatedAt        DateTime  @default(now())
 
   candidateAccount CandidateAccount         @relation(fields: [candidateAccountId], references: [id], onDelete: Cascade)
   entries          CandidateJobMatchEntry[]
@@ -919,37 +1326,763 @@ model CandidateJobMatchRun {
 
 /// One vacancy's place in a ranking.
 model CandidateJobMatchEntry {
-  id        String @id @default(uuid())
-  runId     String
-  vacancyId String
+  id                      String   @id @default(uuid())
+  runId                   String
+  vacancyId               String
   /// 1-based position. Ordering is (score desc, vacancyId asc) — the tiebreak
   /// is load-bearing, because pagination slices this list and two vacancies on
   /// the same score must not swap places between page 1 and page 2.
-  rank      Int
-  /// 0-100. Orders the list; never a probability of being hired.
-  score     Int
-  /// STRONG | PARTIAL | WEAK, derived from `score` so the two cannot disagree.
-  tier      String
+  rank                    Int
+  /// 0-100 CANONICAL score. Orders the list — and only orders it: no floor or
+  /// threshold anywhere may remove a low-scoring eligible row. Never a
+  /// probability of being hired. Equals capabilityScore when the candidate
+  /// has no comparable stated intent.
+  score                   Int
+  /// 0-100 evidence-side score (the five ai-service signals), unchanged by
+  /// preferences. Null on pre-v2 rows.
+  capabilityScore         Int?
+  /// 0-100 intent-side score over the dimensions the candidate stated AND
+  /// that were comparable for this vacancy. Null means "no intent signal
+  /// exists for this pair" — which is NOT the same as 0 ("contradicts
+  /// everything asked for").
+  intentScore             Int?
+  /// Per-dimension IntentAlignment[] — machine-readable {dimension, state,
+  /// reason, score} facts for the UI and for Gemini to narrate. Derived from
+  /// the CURRENT intent at compute time; Rule N1 holds because a stale run
+  /// (old intentFingerprint) is unreachable, alignments included.
+  alignments              Json?
+  /// STRONG | PARTIAL | WEAK — the capability tier, derived from the
+  /// capability score so the label and the evidence story cannot disagree.
+  tier                    String
   /// Per-signal breakdown, for diagnostics and for explaining the position.
-  signals   Json
-  matchedSkills String[] @default([])
-  missingSkills String[] @default([])
+  signals                 Json
+  matchedSkills           String[] @default([])
+  missingSkills           String[] @default([])
   supportedRequirements   Json
   unsupportedRequirements Json
   unclearRequirements     Json
   /// The candidate's own passages that supported this match, with provenance.
-  evidence  Json
+  evidence                Json
   /// Generated prose keyed by locale: `{ "en": "...", "ko": "..." }`.
   ///
   /// ONE ranking row carrying several translations, deliberately — duplicating
   /// the whole ranking per locale would mean four snapshots that could drift
   /// apart, when the ranking itself is locale-independent (it compares evidence
   /// to requirements, not words to words).
-  explanations Json?
+  explanations            Json?
 
   run CandidateJobMatchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@unique([runId, vacancyId])
   @@index([runId, rank])
   @@map("candidate_job_match_entries")
+}
+
+// ============================================================================
+// EXTERNAL JOBS
+//
+// A SEPARATE domain from Vacancy, deliberately.
+//
+// A Vacancy is something an organization owns inside this product: recruiters
+// created it, candidates apply to it here, it has an applicant count, an
+// interview lifecycle and org tenancy. An ExternalJob has none of that — it is
+// an observation of a posting that lives somewhere else, and the only honest
+// action on it is "apply on the original site".
+//
+// Putting them in one table would mean every recruiter query, every ownership
+// check and every applicant count needed an `isExternal` guard, and the first
+// place one was forgotten would leak a job nobody at this company posted into
+// a recruiter's workspace. They meet at exactly one point instead:
+// `NormalizedJobFeatures`, which is what the matcher reads and which knows
+// nothing about where a job came from.
+// ============================================================================
+
+/// Where an external job was observed. Deliberately an enum: a provider is an
+/// integration someone wrote, reviewed for legal access and deployed — not a
+/// free-text string a payload can invent.
+enum ExternalProvider {
+  /// Applicant tracking systems, read through their official job-board APIs.
+  GREENHOUSE
+  LEVER
+  ASHBY
+  /// 나인하이어 — a first-class Korean ATS, not an optional regional add-on.
+  NINEHIRE
+  /// A company's own careers page or feed, fetched under robots/ToS rules.
+  COMPANY_CAREERS
+  /// Korean job platforms. Present so the model can DESCRIBE them; a provider
+  /// only becomes implementable once its official access is verified.
+  WANTED
+  SARAMIN
+  JOBKOREA
+  OTHER
+}
+
+/// HOW a provider is allowed to read, in descending order of preference.
+///
+/// Recorded per source so "where did this come from, and were we allowed to
+/// take it" is answerable from the data rather than from memory. There is
+/// deliberately no SCRAPE member: this product does not architect around
+/// bypassing authentication, anti-bot systems or robots restrictions, and a
+/// value that made that expressible would be an invitation to use it.
+enum ExternalAccessMethod {
+  OFFICIAL_API
+  PUBLIC_FEED
+  PUBLIC_ENDPOINT
+  PARTNER_INTEGRATION
+}
+
+/// The canonical job's current state, as the LATEST evidence describes it.
+enum ExternalJobStatus {
+  /// At least one source still lists it.
+  ACTIVE
+  /// Not re-observed within its provider's expected window. Still shown, but
+  /// flagged: absence of evidence is not evidence of closure.
+  STALE
+  /// A source explicitly said it closed.
+  CLOSED
+  /// The posting stated its own deadline and it has passed.
+  EXPIRED
+  /// Every source has become unreadable (404/410). Distinct from CLOSED
+  /// because "we can no longer see it" is not "the employer ended it".
+  UNAVAILABLE
+}
+
+/// One source's own view of the posting. A canonical job aggregates these.
+enum ExternalSourceStatus {
+  ACTIVE
+  /// The source said this posting is closed/filled.
+  CLOSED
+  /// The source no longer returns it (404/410) without saying why.
+  GONE
+}
+
+/// How sure the system is that two observations are the SAME requisition.
+///
+/// Only EXACT and HIGH merge automatically. POSSIBLE is recorded and left
+/// unmerged on purpose: a temporary duplicate is a cosmetic problem a later
+/// observation usually fixes, while a false merge destroys a real job by
+/// hiding it behind another company's posting, and nothing downstream can tell
+/// that happened.
+enum ExternalMergeConfidence {
+  EXACT
+  HIGH
+  POSSIBLE
+}
+
+enum ExternalIngestionStatus {
+  RUNNING
+  SUCCEEDED
+  /// Finished, but some jobs failed. The rest were still ingested.
+  PARTIAL
+  FAILED
+}
+
+/// A company as an EXTERNAL source describes it — never the tenant Organization.
+///
+/// Separate from Organization because these are unverified names read off job
+/// postings: "ABC Corp.", "ABC Corporation" and "abc corp" arrive from three
+/// providers for one employer, and none of them is an account in this product.
+model ExternalCompany {
+  id String @id @default(uuid())
+
+  /// As the source wrote it, for display.
+  name           String
+  /// Case/punctuation/suffix-folded, for matching. The dedupe key's company
+  /// half — see `externalCompanyKey`.
+  normalizedName String
+  /// Registrable domain ("abc.com") when a source states a company URL. The
+  /// single strongest identity signal available, because two employers may
+  /// share a name but not a domain.
+  domain         String?
+  websiteUrl     String?
+  /// ISO 3166-1 alpha-2 of the company's stated home country, when known.
+  countryCode    String?
+
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  jobs ExternalJob[]
+
+  /// Domain is the identity when present; the normalized name is the fallback.
+  /// Partial-unique on domain would be ideal, but Prisma cannot express it, so
+  /// uniqueness is enforced on the pair the ingestion resolver actually looks
+  /// up by.
+  @@unique([normalizedName, domain])
+  @@index([domain])
+  @@index([normalizedName])
+  /// Company-name matching for search. A job's company lives on this table,
+  /// so a generated tsvector on the job could not reach it — searching
+  /// "Vercel" resolves companies here first, then their jobs.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("external_companies")
+}
+
+/// ONE canonical external job, however many places it was observed.
+///
+/// The same requisition routinely appears on a company's careers page, its ATS
+/// and a job board. A candidate must see ONE job with three provenance links,
+/// not three jobs — so this row is the job and `ExternalJobSource` rows are the
+/// sightings.
+model ExternalJob {
+  id String @id @default(uuid())
+
+  /// The deterministic identity of this requisition. Computed in code from
+  /// company + title + location + employment type; see `dedupe.ts`. Unique, so
+  /// two concurrent ingestion workers observing the same posting collide in
+  /// the database rather than racing to create twins.
+  dedupeFingerprint String @unique
+
+  externalCompanyId String
+
+  // -- Role ----------------------------------------------------------------
+  title            String
+  /// Case/whitespace/seniority-noise-folded title, for dedupe and lookup.
+  normalizedTitle  String
+  /// Plain text ONLY. Provider HTML is sanitized on the way in — nothing that
+  /// could reach a renderer as markup is stored here. See `sanitize.ts`.
+  description      String?
+  /// The requirements section as plain text, when a source separates it.
+  requirementsText String?
+
+  // -- Structured facts (same vocabulary as Vacancy, on purpose) ------------
+  /// ISO 3166-1 alpha-2, uppercase. Null = the source did not say.
+  countryCode            String?
+  region                 String?
+  city                   String?
+  /// Other places this ONE posting is open in, as `[{countryCode, region,
+  /// city}]`. Not remote eligibility and not duplicates — a single requisition
+  /// an employer will fill in any of several offices.
+  ///
+  /// The columns above hold one city, so a posting open in three has to pick
+  /// one; a later location filter would then exclude candidates the employer
+  /// would have hired, invisibly. Storing the rest costs a nullable column.
+  /// Nothing queries it yet — that is Task 4C's job, and it can only do it if
+  /// the data still exists.
+  additionalLocations    Json?
+  workMode               WorkMode?
+  /// ISO country codes a REMOTE role may be worked from, and ONLY when the
+  /// source states them. Empty is UNKNOWN geography, never "worldwide" —
+  /// remote work is bounded by law and payroll, not by optimism.
+  remoteCountriesAllowed String[]
+  employmentType         EmploymentType?
+  seniorityLevel         SeniorityLevel?
+
+  // -- Compensation, in the SOURCE's own currency --------------------------
+  /// Major units, exactly as posted. Never converted on the way in: the
+  /// employer's number is a fact and conversion is a derived comparison, done
+  /// at read time by the same FX pipeline internal vacancies use.
+  salaryMin Int?
+  salaryMax Int?
+  currency  String?
+  payPeriod PayPeriod?
+
+  // -- Candidate-fit signals, only when the source states them -------------
+  skills        String[]
+  industries    String[]
+  benefits      JobBenefit[]
+  /// ISO 639-1/2 codes the posting explicitly requires.
+  languageCodes String[]
+
+  // -- Work authorization: stated or UNKNOWN, never inferred ---------------
+  /// Tri-state. Null = the posting did not say. A job in Korea does not imply
+  /// anything about sponsorship, and guessing would send people to apply for
+  /// roles they cannot legally take.
+  visaSponsorship                   VisaSponsorship @default(UNKNOWN)
+  existingWorkAuthorizationRequired Boolean?
+  eligibleVisaTypes                 String[]
+
+  // -- Provenance ----------------------------------------------------------
+  /// Where a candidate should be sent to apply. Chosen by source trust — see
+  /// `source-trust.ts` — so an ATS link beats an aggregator's copy of it.
+  canonicalUrl      String?
+  /// Which source supplied `canonicalUrl`, so the choice is auditable.
+  canonicalSourceId String? @unique
+
+  // -- Publication ---------------------------------------------------------
+  /// When the EMPLOYER's own source says this listing was published.
+  ///
+  /// Never an observation of ours. `firstSeenAt` is when this crawler first
+  /// saw the posting, `lastSeenAt` is when it last did, `createdAt` is when
+  /// this row was written — a job discovered today may have been published
+  /// months ago, and rendering any of those three as "Posted 2 days ago"
+  /// would attribute our sweep schedule to the employer.
+  ///
+  /// Null is the normal state for a provider that states no publication date,
+  /// and it stays null rather than being backfilled from anything. Roughly
+  /// half this catalogue is null today for exactly that reason: Lever's public
+  /// API carries only an undocumented `createdAt`, which is posting creation
+  /// and not publication. See `docs/external-jobs.md` for the per-provider
+  /// audit and `field-merge.ts` for how sources that disagree are resolved.
+  employerPostedAt DateTime?
+
+  // -- Lifecycle -----------------------------------------------------------
+  status         ExternalJobStatus @default(ACTIVE)
+  /// First time ANY source showed us this job.
+  firstSeenAt    DateTime          @default(now())
+  /// Most recent time any source listed it.
+  lastSeenAt     DateTime          @default(now())
+  /// Most recent SUCCESSFUL provider fetch that included it. Distinct from
+  /// lastSeenAt so a provider outage cannot masquerade as a job disappearing.
+  lastVerifiedAt DateTime          @default(now())
+  /// The posting's own stated deadline, when it has one.
+  expiresAt      DateTime?
+  closedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// When a SEARCH-RELEVANT field last actually changed.
+  ///
+  /// Deliberately not `updatedAt`. A provider sweep re-observes every posting
+  /// every few hours and touches `lastSeenAt`/`lastVerifiedAt`, so `updatedAt`
+  /// moves constantly while nothing a searcher could notice has changed.
+  /// Keying the search-universe revision off that would invalidate every
+  /// candidate's stored search several times a day for no reason.
+  ///
+  /// `reconcileJob` bumps this only when a field the search actually reads
+  /// resolves to a different value. Together with the row count over the
+  /// current universe it forms the universe revision — two index lookups, not
+  /// a hash of the catalogue.
+  searchableUpdatedAt DateTime @default(now())
+
+  /// When this job was last written to the SEMANTIC index, if ever.
+  ///
+  /// Compared against `searchableUpdatedAt` to find what needs reindexing —
+  /// which makes index lag a query rather than a guess, and makes the
+  /// background job self-limiting instead of re-embedding the catalogue.
+  ///
+  /// Null is normal and harmless: an unindexed job is still fully findable
+  /// through the lexical index, because the semantic side is an accelerator
+  /// and never the record of what exists.
+  searchIndexedAt DateTime?
+
+  /// Weighted full-text document, maintained by PostgreSQL.
+  ///
+  /// A GENERATED column rather than a trigger or an application write: it
+  /// cannot drift from the row it describes, and it cannot be forgotten by a
+  /// future code path that writes a title without updating an index.
+  ///
+  /// Weights are the search's field priority — A title, B place, C
+  /// description — so `ts_rank_cd` ranks a job CALLED "Backend Engineer" above
+  /// one whose description merely mentions backend engineers. Configuration is
+  /// `simple`, not `english`: this catalogue is multilingual, and an English
+  /// stemmer applied to Korean is worse than no stemmer at all. See
+  /// `external-search.retrieval.ts` for what that costs and what covers it.
+  ///
+  /// Company name is NOT here — it lives on another table and a generated
+  /// column cannot reach it. Company matching is a separate trigram lookup.
+  searchDocument Unsupported("tsvector")? @default(dbgenerated())
+
+  company ExternalCompany     @relation(fields: [externalCompanyId], references: [id], onDelete: Cascade)
+  sources ExternalJobSource[]
+  /// Candidate bookmarks pointing here. Candidate-owned; lifecycle changes to
+  /// this job never write to them.
+  savedBy CandidateSavedExternalJob[]
+  /// Candidate self-reported application trackers pointing here. Same rule.
+  applicationTrackers CandidateExternalJobApplication[]
+
+  /// The candidate-facing universe query: current jobs, filtered structurally.
+  /// Status leads because every candidate-facing read starts by excluding the
+  /// closed and the expired.
+  @@index([status, lastSeenAt])
+  @@index([status, countryCode])
+  @@index([status, employmentType])
+  @@index([status, seniorityLevel])
+  @@index([status, workMode])
+  @@index([externalCompanyId])
+  @@index([normalizedTitle])
+  /// Revalidation sweeps ask "what have I not verified lately".
+  @@index([status, lastVerifiedAt])
+  /// The search-universe revision: count + max(searchableUpdatedAt) over the
+  /// current universe, answered from this index instead of a scan.
+  @@index([status, searchableUpdatedAt])
+  /// "What still needs indexing" — the background job's only query.
+  @@index([searchIndexedAt])
+  /// Newest-first browsing: the current universe, ordered by publication.
+  ///
+  /// Descending in the index itself so `ORDER BY "employerPostedAt" DESC` is a
+  /// forward scan rather than a sort. Undated jobs sort last and are reached
+  /// by a second bounded query — see `external-search.retrieval.ts` — because
+  /// a single index cannot both order by a column and pick up its nulls in one
+  /// pass without scanning them.
+  @@index([status, employerPostedAt(sort: Desc)])
+  /// Full-text retrieval. Declared HERE rather than only in migration SQL:
+  /// an index Prisma does not know about is drift, and the next
+  /// `migrate dev` generates a DROP for it — which would silently turn every
+  /// search into a sequential scan with nothing failing.
+  @@index([searchDocument], type: Gin)
+  /// Trigram title matching. Reaches what the tokenizer cannot: Korean
+  /// agglutination, closed-up compounds and typos.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  /// The multi-location filter. `jsonb_path_ops` supports only `@>`, which is
+  /// the only operator this query uses, and builds a smaller index for it.
+  @@index([additionalLocations(ops: JsonbPathOps)], type: Gin)
+  @@map("external_jobs")
+}
+
+/// ONE sighting of a job at ONE provider — the provenance record.
+///
+/// Kept as rows rather than folded into the job because "where did this come
+/// from" must survive the merge. When two sources disagree about salary, the
+/// answer is decided by trust and freshness, and both original claims remain
+/// readable here.
+model ExternalJobSource {
+  id String @id @default(uuid())
+
+  externalJobId String
+  provider      ExternalProvider
+  accessMethod  ExternalAccessMethod
+
+  /// The provider's own id for this posting, when it has one.
+  sourceJobId String?
+  /// The stable identity within a provider: `sourceJobId` when the provider
+  /// issues one, otherwise the normalized source URL. Non-null so the unique
+  /// constraint below actually constrains — a nullable column would let
+  /// Postgres treat every re-ingestion as distinct and duplicate silently.
+  sourceKey   String
+
+  /// Which of the provider's listings this sighting came from — a Greenhouse
+  /// board token, a Lever site, a company feed. Opaque to everything except
+  /// the provider that set it.
+  ///
+  /// It exists so absence can be judged at the right granularity: sweeping one
+  /// board says nothing about another board's postings, and a run that treated
+  /// every fetched job as one universe would mark the rest of the catalogue
+  /// GONE the moment a single board was synced alone.
+  sourceScope String?
+
+  /// Where this sighting was read from.
+  sourceUrl   String
+  /// The apply/detail URL this source points at, if different from sourceUrl.
+  originalUrl String?
+
+  /// Canonical identities of the URLs this sighting points at — normally the
+  /// listing URL and the apply URL, folded by `urlIdentity()`.
+  ///
+  /// The column exists so cross-provider dedupe can ask "has anyone else
+  /// already published THIS application link" as an indexed lookup instead of
+  /// a scan. It is the only deterministic evidence that a company's own
+  /// careers page and an ATS board are describing one requisition: their
+  /// company names differ, their titles are written differently and their
+  /// locations disagree, but the apply URL is identical because it is the
+  /// same form.
+  ///
+  /// Derived, never authoritative: `sourceUrl`/`originalUrl` remain exactly as
+  /// the source published them, and this is recomputed on every observation.
+  urlKeys     String[]
+
+  status ExternalSourceStatus @default(ACTIVE)
+
+  /// How confident the merge that attached this source to its canonical job
+  /// was. EXACT/HIGH merged automatically; POSSIBLE never does.
+  mergeConfidence ExternalMergeConfidence @default(EXACT)
+  /// Why, in words a person can audit later.
+  mergeReason     String?
+
+  /// Hash of the normalized payload, so an unchanged re-observation can update
+  /// timestamps without rewriting every field.
+  payloadFingerprint String?
+
+  /// What THIS source said about the job, as normalized facts.
+  ///
+  /// The model comment above promises that "both original claims remain
+  /// readable here" when two sources disagree; this column is what makes that
+  /// true rather than aspirational. It is also what `reconcileJob` resolves
+  /// the canonical fields from — stated beats silence, then trust, then
+  /// freshness — which only became a real question once one job could have a
+  /// company careers page and an ATS board attached to it at the same time.
+  ///
+  /// Normalized facts ONLY: the validated `NormalizedExternalJobInput`, after
+  /// HTML has been stripped and every field has passed its own check. No raw
+  /// page, no raw provider payload, nothing that could reach a renderer as
+  /// markup, and nothing large enough to make this table a document store.
+  claims             Json?
+
+  observedAt DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  closedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  job ExternalJob @relation(fields: [externalJobId], references: [id], onDelete: Cascade)
+
+  /// Idempotency, enforced by the database rather than by hope: re-running a
+  /// provider sync updates these rows instead of multiplying them.
+  @@unique([provider, sourceKey])
+  @@index([externalJobId])
+  @@index([provider, status])
+  @@index([provider, lastSeenAt])
+  /// The absence sweep: "which sources of this listing are still ACTIVE".
+  @@index([provider, sourceScope, status])
+  /// Cross-provider URL dedupe: "which sighting already claims this apply
+  /// link". GIN because the question is array membership, and a sequential
+  /// scan of every sighting per ingested posting is quadratic by construction.
+  @@index([urlKeys], type: Gin)
+  @@map("external_job_sources")
+}
+
+/// One candidate's external search, frozen so they can page through it.
+///
+/// ## Why a search needs a snapshot at all
+///
+/// Ranking is computed, not stored on the rows, so "page 2" recomputed
+/// independently would be ranked against a catalogue that moved in between —
+/// a provider sweep lands, three jobs shift, and the reader sees one job
+/// twice while never seeing another. Freezing the ranked ids is what makes
+/// pagination honest.
+///
+/// ## Why this scales, when storing ranked ids usually does not
+///
+/// The stored list is bounded by the RETRIEVAL FUNNEL, not by the catalogue:
+/// lexical and semantic retrieval each return at most a few hundred
+/// candidates, so a run holds hundreds of rows whether the catalogue has one
+/// thousand jobs or one million. The thing that grows with the catalogue is
+/// `hardUniverseSize`, which is a COUNT, not a list.
+model CandidateExternalSearchRun {
+  id                 String @id @default(uuid())
+  candidateAccountId String
+
+  /// Semantic hash of everything that decided this ranking: the explicit
+  /// request, the candidate's current intent, the universe revision and the
+  /// algorithm version. Two requests share a run only if they would have
+  /// computed the same one — which is also how Rule N1 reaches this cache,
+  /// since editing or deleting preferences changes the intent half.
+  requestFingerprint String
+  /// The candidate's CURRENT intent at compute time, hashed. Stored
+  /// separately from the request hash so a stale run is diagnosable.
+  intentFingerprint  String
+  /// count + max(searchableUpdatedAt) over the current universe. Changes when
+  /// a job enters, leaves or has a searchable field edited — and NOT when a
+  /// crawler merely re-observes one.
+  universeRevision   String
+  /// EXTERNAL_SEARCH_ALGORITHM_VERSION at compute time. Its own version, not
+  /// the AI Job Match one: they answer different questions and must be free
+  /// to change independently.
+  algorithmVersion   String
+
+  /// What was asked, for diagnostics and for the response echo.
+  query           String?
+  /// RELEVANCE or NEWEST. Part of the request fingerprint, so the two orders
+  /// can never share a snapshot — they are computed from different candidate
+  /// sets, not two views of one. Stored as text rather than an enum: it is a
+  /// property of a request, and a new sort must not require a database
+  /// migration before it can be experimented with.
+  sort            String  @default("RELEVANCE")
+  /// Countries the candidate chose FOR THIS SEARCH. The only location filter
+  /// that removes jobs; a saved country ranks instead.
+  strictCountries String[]
+
+  /// How many jobs passed the hard constraints — a COUNT over the universe,
+  /// which is the honest "how many jobs answer this search" and may exceed
+  /// the number ranked.
+  hardUniverseSize Int
+  /// How many made it into this snapshot. Equals hardUniverseSize unless the
+  /// retrieval funnel truncated.
+  totalRanked      Int
+  /// True when the funnel returned its cap and deeper matches exist unranked.
+  /// Surfaced rather than hidden: a silent cap reads as "that is everything".
+  truncated        Boolean @default(false)
+
+  /// Funnel diagnostics. Never a ranking input.
+  lexicalCandidates  Int     @default(0)
+  semanticCandidates Int     @default(0)
+  /// True when semantic retrieval was unavailable and the search ran lexical
+  /// only. The results are still correct, just narrower — and the caller is
+  /// told rather than being left to wonder.
+  semanticDegraded   Boolean @default(false)
+
+  /// The FX snapshot the salary comparisons used. Traceability only, and
+  /// deliberately NOT part of the reuse check — rates move every 30 minutes
+  /// and re-ranking every search that often would be churn.
+  fxSnapshotVersion String?
+  fxFetchedAt       DateTime?
+
+  generatedAt DateTime @default(now())
+  /// When this snapshot stops being reusable regardless of fingerprints. A
+  /// search is a moment, not a subscription.
+  expiresAt   DateTime
+
+  candidateAccount CandidateAccount               @relation(fields: [candidateAccountId], references: [id], onDelete: Cascade)
+  entries          CandidateExternalSearchEntry[]
+
+  /// One run per candidate per distinct request. The unique index is what
+  /// makes two concurrent identical searches collide in the database instead
+  /// of quietly producing two snapshots.
+  @@unique([candidateAccountId, requestFingerprint])
+  @@index([candidateAccountId, generatedAt])
+  @@index([expiresAt])
+  @@map("candidate_external_search_runs")
+}
+
+/// One external job's place in one search.
+model CandidateExternalSearchEntry {
+  id            String @id @default(uuid())
+  runId         String
+  externalJobId String
+
+  /// 1-based position. The order is fully determined before this is written —
+  /// see `compareExternalResults` — because pagination slices this list and
+  /// two jobs on the same score must not swap places between pages.
+  rank  Int
+  /// 0-100 deterministic RELEVANCE score. It orders the list and nothing
+  /// else: no threshold anywhere removes a job for scoring low, and it is
+  /// never a probability of being hired.
+  score Int
+  /// STRONG | GOOD | PARTIAL | LOW — the search band, derived from the score
+  /// so label and order cannot disagree. Distinct from AI Job Match's
+  /// capability tiers, which measure a different thing.
+  band  String
+
+  /// 0-100 text relevance, or null when the search had no text query.
+  textScore   Int?
+  /// 0-100 over the soft preferences the search stated, or null when it
+  /// stated none. Null and 0 differ: null is "nothing to measure".
+  intentScore Int?
+
+  /// Machine-readable {code, dimension, state} facts derived from the score
+  /// components — never prose, and never a claim a component did not make.
+  /// The UI localizes the codes; nothing here is written in a language.
+  reasons Json
+
+  run CandidateExternalSearchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, externalJobId])
+  @@index([runId, rank])
+  @@map("candidate_external_search_entries")
+}
+
+/// A candidate's bookmark on one external job. Candidate-owned PREFERENCE,
+/// not a copy of the job: the row holds a reference and a timestamp and
+/// nothing else, so the saved list always renders whatever the canonical
+/// ExternalJob currently says — including a status the candidate will not
+/// like. A saved job that has since CLOSED stays saved and is shown as
+/// closed; the bookmark records the candidate's interest, and their interest
+/// did not end because the listing did. Only the candidate removes it.
+///
+/// `onDelete: Cascade` on both sides: deleting the account removes the
+/// candidate's bookmarks with everything else they own, and in the (never yet
+/// exercised) event an ExternalJob row is hard-deleted, no dangling reference
+/// survives it. Lifecycle changes are status UPDATES and never touch this
+/// table.
+model CandidateSavedExternalJob {
+  id                 String   @id @default(uuid())
+  candidateAccountId String
+  externalJobId      String
+  createdAt          DateTime @default(now())
+
+  candidateAccount CandidateAccount @relation(fields: [candidateAccountId], references: [id], onDelete: Cascade)
+  externalJob      ExternalJob      @relation(fields: [externalJobId], references: [id], onDelete: Cascade)
+
+  /// One bookmark per job per candidate — saving twice is the same bookmark,
+  /// enforced here rather than by application discipline.
+  @@unique([candidateAccountId, externalJobId])
+  /// The saved list: newest first, answered by a forward index scan.
+  @@index([candidateAccountId, createdAt(sort: Desc)])
+  /// Bulk decoration of a search page: "which of THESE ids has this
+  /// candidate saved" — covered by the unique index above. The job-side
+  /// index serves FK maintenance and any per-job audit.
+  @@index([externalJobId])
+  @@map("candidate_saved_external_jobs")
+}
+
+/// What the CANDIDATE says about their own external application. Personal,
+/// self-reported tracking — deliberately NOT the internal Application model
+/// and never convertible into one.
+///
+/// The real application happened on the employer's site, out of our sight.
+/// Nothing here is ever set by the system: no provider signal, no lifecycle
+/// event and no link click may create or advance a tracker, because "the
+/// candidate opened a page" is not "the candidate applied", and "the job
+/// closed" is not "the candidate was rejected". Every value in this table
+/// exists because the candidate typed it.
+enum ExternalApplicationStatus {
+  /// The candidate says they submitted an application.
+  APPLIED
+  /// The candidate says they are interviewing.
+  INTERVIEW
+  /// The candidate says they received an offer. There is deliberately no
+  /// HIRED/ACCEPTED — an offer is the last stage this product can usefully
+  /// track, and pretending to know employment outcomes adds states nobody
+  /// maintains.
+  OFFER
+  /// The candidate says they were rejected.
+  REJECTED
+  /// The candidate says they withdrew.
+  WITHDRAWN
+}
+
+model CandidateExternalJobApplication {
+  id                 String                    @id @default(uuid())
+  candidateAccountId String
+  externalJobId      String
+  status             ExternalApplicationStatus @default(APPLIED)
+  /// When the candidate says they applied. Self-reported; defaults to the
+  /// moment they marked it. Bounded at write time (no future dates) but
+  /// never inferred from crawler or provider timestamps.
+  appliedAt          DateTime                  @default(now())
+  /// The candidate's own free-text note ("applied via referral"). Bounded in
+  /// the DTO; personal, never shown to any recruiter surface.
+  note               String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  candidateAccount CandidateAccount @relation(fields: [candidateAccountId], references: [id], onDelete: Cascade)
+  /// Cascade, same reasoning as the bookmark — but note the tracker survives
+  /// every lifecycle STATUS change (CLOSED/EXPIRED/UNAVAILABLE are updates):
+  /// the candidate genuinely applied while it was open, and that history is
+  /// theirs, not the crawler's.
+  externalJob ExternalJob @relation(fields: [externalJobId], references: [id], onDelete: Cascade)
+
+  /// One tracker per job per candidate. A second "mark as applied" is a
+  /// conflict pointing at the existing tracker, which the candidate updates
+  /// instead.
+  @@unique([candidateAccountId, externalJobId])
+  /// The tracking list: what the candidate applied to, newest first.
+  @@index([candidateAccountId, appliedAt(sort: Desc)])
+  /// The same list filtered by one status — the only filter the API offers.
+  @@index([candidateAccountId, status, appliedAt(sort: Desc)])
+  @@index([externalJobId])
+  @@map("candidate_external_job_applications")
+}
+
+/// One provider sync, for operations.
+///
+/// Without this, "why did Ninehire stop producing jobs on Tuesday" is answered
+/// by reading logs that have rotated. It is also what makes the outage rule
+/// enforceable: closing jobs is only allowed off the back of a run that
+/// actually SUCCEEDED.
+model ExternalIngestionRun {
+  id       String                  @id @default(uuid())
+  provider ExternalProvider
+  status   ExternalIngestionStatus @default(RUNNING)
+
+  /// Which listings this run covered, comma-separated — the board tokens for
+  /// Greenhouse. Null for a run that never reached a provider.
+  sourceScope String?
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  jobsFetched Int @default(0)
+  jobsCreated Int @default(0)
+  jobsUpdated Int @default(0)
+  jobsMerged  Int @default(0)
+  jobsClosed  Int @default(0)
+  /// Individual postings that failed to normalize. A malformed job is skipped,
+  /// counted here, and never allowed to fail the run around it.
+  jobsFailed  Int @default(0)
+  /// Postings whose fingerprint matched an existing job but which were kept
+  /// SEPARATE because the merge could not be justified. Counted rather than
+  /// hidden: a rising number here means the dedupe needs better evidence, not
+  /// that it should be loosened.
+  jobsUnmerged Int @default(0)
+
+  /// Failure summary. Never credentials, never a full provider payload.
+  error String?
+
+  @@index([provider, startedAt])
+  @@map("external_ingestion_runs")
 }

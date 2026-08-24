@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { JobMatchFailure } from "@/app/(candidate)/actions";
+import { PlanLockedCard } from "@/components/plan/PlanLockedCard";
+import { requiredPlanFor } from "@/lib/entitlements/plan";
 import { useJobMatchState } from "@/components/candidate/JobMatchStateProvider";
 import { MatchCard } from "@/components/candidate/MatchCard";
 import { Button } from "@/components/ui/Button";
@@ -391,6 +393,21 @@ function FailureNotice({
   onRetry: () => void;
 }) {
   const { d } = useI18n();
+
+  /*
+   * Not an error, and deliberately rendered before every branch that offers a
+   * Retry. The reader's plan does not include this; pressing retry would fail
+   * identically forever, and telling them "something went wrong" would hide a
+   * product they could buy behind an apology for a fault that does not exist.
+   */
+  if (reason === "plan_required") {
+    return (
+      <PlanLockedCard
+        capability="INTERNAL_AI_SEARCH"
+        requiredPlan={requiredPlanFor("INTERNAL_AI_SEARCH")}
+      />
+    );
+  }
 
   if (reason === "unavailable") {
     return (

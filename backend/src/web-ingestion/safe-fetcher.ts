@@ -55,7 +55,7 @@ export interface HttpTransport {
   send(
     url: URL,
     pinned: LookupAddress,
-    options: { deadline: number; maxBytes: number },
+    options: { deadline: number; maxBytes: number; userAgent?: string },
   ): Promise<RawResponse>;
 }
 
@@ -91,6 +91,23 @@ export class SafeHttpFetcher {
       maxBytes?: number;
       /** Content types this particular call accepts. Defaults to web pages. */
       allowedContentTypes?: ReadonlySet<string>;
+      /**
+       * An extra gate, applied to the first URL and to EVERY redirect target.
+       *
+       * The syntactic policy and the address check answer "is this a public
+       * host"; some callers additionally need "is this one of the specific
+       * hosts I was configured to read". External job ingestion does: it
+       * fetches on a schedule against operator-approved company careers sites,
+       * and a careers page that redirects to another domain must fail rather
+       * than quietly widen what the scheduler reaches.
+       *
+       * It lives inside the redirect loop for the same reason the rest of the
+       * policy does — a check applied only to the URL the caller passed in is
+       * a check the first response can redirect around.
+       */
+      allowHost?: (url: URL) => boolean;
+      /** Overrides the default candidate-link agent. See userAgent below. */
+      userAgent?: string;
     },
   ): Promise<FetchedResource> {
     const maxBytes = options.maxBytes ?? WEB_INGESTION_LIMITS.maxResponseBytes;
@@ -98,6 +115,7 @@ export class SafeHttpFetcher {
 
     let current = new URL(rawUrl);
     assertFetchableUrl(current);
+    this.assertAllowedHost(current, options.allowHost);
 
     for (let hop = 0; hop <= WEB_INGESTION_LIMITS.maxRedirects; hop += 1) {
       this.assertDeadline(options.deadline);
@@ -106,6 +124,7 @@ export class SafeHttpFetcher {
       const response = await this.transport.send(current, address, {
         deadline: options.deadline,
         maxBytes,
+        userAgent: options.userAgent,
       });
 
       if (!isRedirect(response.status)) {
@@ -132,6 +151,7 @@ export class SafeHttpFetcher {
         );
       }
       assertFetchableUrl(next);
+      this.assertAllowedHost(next, options.allowHost);
       current = next;
     }
 
@@ -190,7 +210,7 @@ export class SafeHttpFetcher {
   private requestOnce(
     url: URL,
     pinned: LookupAddress,
-    options: { deadline: number; maxBytes: number },
+    options: { deadline: number; maxBytes: number; userAgent?: string },
   ): Promise<RawResponse> {
     const client = url.protocol === 'https:' ? https : http;
     const remaining = Math.max(1, options.deadline - Date.now());
@@ -216,7 +236,11 @@ export class SafeHttpFetcher {
           path: `${url.pathname}${url.search}`,
           method: 'GET',
           headers: {
-            'user-agent': WEB_INGESTION_LIMITS.userAgent,
+            // Honest about who is asking. A caller with a different purpose
+            // says so, so a site operator reading their logs can tell a
+            // candidate-submitted link fetch from scheduled job ingestion —
+            // and can address a robots rule at one without the other.
+            'user-agent': options.userAgent ?? WEB_INGESTION_LIMITS.userAgent,
             accept:
               'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1',
             'accept-language': 'en,ko;q=0.8,ru;q=0.8,uz;q=0.8',
@@ -402,6 +426,31 @@ export class SafeHttpFetcher {
       body: decodeBody(response.body, rawContentType),
       byteLength: response.body.length,
     };
+  }
+
+  /**
+   * The caller's allowlist, as a hard failure rather than a filter.
+   *
+   * ACCESS_DENIED and not a private-network code: the target may be perfectly
+   * public and perfectly reachable — it is simply not one this caller was
+   * configured to read, which is a policy decision, not a security verdict.
+   *
+   * The message names the PATH as well as the host, because a caller may
+   * allow a host and only some of its paths — and a message saying only
+   * "host not allowed" about a host that plainly is allowed sends whoever
+   * reads it looking in the wrong place. That happened on the first live
+   * company-careers run: `vercel.com/sitemap.xml` 301s to
+   * `vercel.com/crawled-sitemap.xml`, same host, undeclared path.
+   */
+  private assertAllowedHost(
+    url: URL,
+    allowHost: ((url: URL) => boolean) | undefined,
+  ): void {
+    if (!allowHost || allowHost(url)) return;
+    throw new WebIngestionError(
+      LinkFailureCode.ACCESS_DENIED,
+      `${url.hostname}${url.pathname} is not on this caller's allowlist`,
+    );
   }
 
   private assertDeadline(deadline: number): void {

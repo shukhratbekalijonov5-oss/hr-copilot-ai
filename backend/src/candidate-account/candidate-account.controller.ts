@@ -17,6 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { CandidateAccountService } from './candidate-account.service';
 import { UpsertCandidateAccountDto } from './dto/upsert-candidate-account.dto';
 import { JobMatchesDto } from './dto/job-matches.dto';
+import { RequiresCapability } from '../entitlements/requires-capability.decorator';
 import { CandidateScoped } from '../common/decorators/candidate-scoped.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination.dto';
@@ -161,11 +162,33 @@ export class CandidateAccountController {
    * AI job matching over the caller's own profile + personal resume. Needs no
    * organization membership of any kind; a dual-identity user's active
    * organization plays no part in it.
+   *
+   * INTERNAL AI SEARCH — a PRO (or MAX) surface, and an INTERNAL-universe
+   * one: it ranks HR Copilot vacancies only, never external jobs. The
+   * external catalogue has its own MAX product with its own ranking; the two
+   * lists never merge (see docs/candidate-plans.md).
    */
+  @RequiresCapability('INTERNAL_AI_SEARCH')
   @HttpCode(HttpStatus.OK)
   @Post('me/job-matches')
   jobMatches(@CurrentUser('id') userId: string, @Body() dto: JobMatchesDto) {
     return this.service.jobMatches(userId, dto);
+  }
+
+  /**
+   * One job's pay, restated in the currency this candidate thinks in.
+   *
+   * Candidate-scoped deliberately: the target currency comes from their own
+   * saved preference, and a preference must never be readable through a public
+   * route. The public job page keeps showing the employer's original figure
+   * and nothing else.
+   */
+  @Get('me/jobs/:slug/salary-view')
+  jobSalaryView(
+    @CurrentUser('id') userId: string,
+    @Param('slug') slug: string,
+  ) {
+    return this.service.jobSalaryView(userId, slug);
   }
 
   @Get('me/saved-jobs')

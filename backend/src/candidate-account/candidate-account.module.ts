@@ -8,6 +8,8 @@ import { JobMatchRankingService } from './job-match-ranking.service';
 import { StorageModule } from '../storage/storage.module';
 import { QueueModule } from '../queue/queue.module';
 import { CandidateEvidenceModule } from '../candidate-evidence/candidate-evidence.module';
+import { CandidatePreferencesModule } from '../candidate-preferences/candidate-preferences.module';
+import { FxModule } from '../fx/fx.module';
 import { DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES } from '../documents/document-policy';
 
 @Module({
@@ -32,6 +34,13 @@ import { DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES } from '../documents/document-policy'
     StorageModule,
     QueueModule,
     CandidateEvidenceModule,
+    // Job Match reads the candidate's stated intent through the ONE shared
+    // resolver rather than the preference tables. Read-only and non-scoring in
+    // this task; the wire exists so Task 3 has nothing to re-plumb.
+    CandidatePreferencesModule,
+    // Exchange rates for cross-currency salary comparison. A shared service,
+    // read once per ranking run — the ranking never makes a network call.
+    FxModule,
   ],
   controllers: [CandidateAccountController],
   providers: [CandidateAccountService, JobMatchRankingService],

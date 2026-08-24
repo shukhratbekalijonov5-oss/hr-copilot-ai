@@ -66,6 +66,7 @@ const uz: Dictionary = {
     page: "sahifa",
     showMore: "Toʻliq koʻrsatish",
     showLess: "Yigʻish",
+    pagination: "Sahifalash",
     pageOf: "{page} / {total}",
     pageNumber: "{page}-sahifa",
     language: "Til",
@@ -97,6 +98,10 @@ const uz: Dictionary = {
   nav: {
     sectionWorkspace: "Ish maydoni",
     sectionJobSearch: "Ish qidirish",
+    sectionFindJobs: "Ish topish",
+    sectionAiJobSearch: "AI ish qidiruvi",
+    sectionYourSearch: "Mening ish qidiruvim",
+    plans: "Tariflar",
     dashboard: "Boshqaruv paneli",
     vacancies: "Vakansiyalar",
     candidates: "Nomzodlar",
@@ -104,8 +109,10 @@ const uz: Dictionary = {
     compare: "Taqqoslash",
     processing: "Qayta ishlash",
     settings: "Sozlamalar",
-    findJobs: "Ish topish",
-    aiJobMatch: "AI ish tanlash",
+    findJobs: "Oddiy ish qidiruvi",
+    externalAiJobs: "Tashqi AI ish o‘rinlari",
+    internalAiJobs: "Ichki AI ish o‘rinlari",
+    jobPreferences: "Istaklar",
     myApplications: "Mening arizalarim",
     interviewChats: "Suhbat chatlari",
     savedJobs: "Saqlangan vakansiyalar",
@@ -972,6 +979,55 @@ const uz: Dictionary = {
     errRequirements:
       "Kamida bitta talab qoʻshing — har bir rezyume shu bilan solishtiriladi.",
     examples: ["NestJS", "Redis", "Kubernetes", "Backendda 3+ yil tajriba"],
+    // -- Tuzilgan bo'limlar ---------------------------------------------------
+    compensationHint: "Maosh e'lon qilinmasa, bo'sh qoldiring. Tavsifdan hech narsa taxmin qilinmaydi.",
+    salaryMin: "Eng kam maosh",
+    salaryMax: "Eng ko'p maosh",
+    currency: "Valyuta",
+    payPeriod: "To'lov davri",
+    salaryNegotiable: "Maosh kelishiladi",
+    errSalaryRange: "Yuqori chegara quyi chegaradan kam bo'lmasligi kerak.",
+    errCurrencyRequired: "Maosh oralig'i uchun valyutani tanlang.",
+    locationSectionHint: "Tuzilgan joylashuv. Eski e'lonlarda yuqoridagi erkin matn ko'rinishda qoladi.",
+    countryLabel: "Mamlakat",
+    regionLabel: "Viloyat / shtat",
+    regionPlaceholder: "Toshkent viloyati",
+    cityLabel: "Shahar",
+    cityPlaceholder: "Seul",
+    officeDaysHint: "Haftasiga 0–7 kun ofisda.",
+    errOfficeDays: "Ofis kunlari 0 dan 7 gacha bo'lishi kerak.",
+    remoteCountriesHint: "Ushbu masofaviy ishni bajarish mumkin bo'lgan mamlakatlar.",
+    choose: "Tanlang…",
+    visaSectionHint: "Faqat ish beruvchi haqiqatan hal qilgan narsani kiriting.",
+    citizenshipHint: "Faqat qonun yoki shartnoma bo'yicha haqiqiy cheklov bo'lganda.",
+    errNationalitiesRequired: "Kamida bitta fuqarolik qo'shing yoki cheklovni olib tashlang.",
+    experienceSectionHint: "To'liq yillar. Talab bo'lmasa, bo'sh qoldiring.",
+    errExperienceRange: "Afzal ko'rilgan tajriba minimaldan kam bo'lolmaydi.",
+    educationSectionHint: "Majburiy va afzal ko'rilganni ajratish ularni alohida baholash imkonini beradi.",
+    domainExperienceHint: "Sohalar yoki yo'nalishlar, masalan fintex yoki logistika.",
+    languagesHint: "Har bir tilga bitta qator. Darajalar CEFR bo'yicha.",
+    addLanguage: "Til qo'shish",
+    noLanguages: "Til talablari yo'q.",
+    languageAria: "Til {index}",
+    languageLevelAria: "Til {index} darajasi",
+    languagePriorityAria: "Til {index} muhimligi",
+    removeLanguageAria: "Til {index} ni o'chirish",
+    errDuplicateLanguage: "Har bir til faqat bir marta ko'rsatiladi.",
+    errLanguageIncomplete: "Har bir qatorda tilni tanlang yoki bo'sh qatorlarni o'chiring.",
+    benefitsHint: "Kompaniya haqiqatan taqdim etadigan narsalar.",
+    benefitsOther: "Boshqa imtiyoz",
+    timelineHint: "Ariza muddati ish boshlash sanasidan oldin bo'lishi odatiy holdir.",
+    startDateHint: "Nomzod qachon ishni boshlaydi.",
+    contractDurationHint: "Oylar soni. Doimiy ish uchun bo'sh qoldiring.",
+    errOpenings: "Ish o'rinlari soni kamida 1 bo'lishi kerak.",
+    errContractDuration: "Shartnoma muddati kamida 1 oy bo'lishi kerak.",
+    // -- Tahrirlash rejimi -----------------------------------------------------
+    editTitle: "Vakansiyani tahrirlash",
+    editHint: "O'zgarishlar ushbu e'longa darhol qo'llanadi.",
+    saveChanges: "O'zgarishlarni saqlash",
+    saved: "Vakansiya yangilandi.",
+    notOwner: "Bu vakansiyani hamkasbingiz yaratgan. Faqat muallif tahrirlay oladi.",
+    editRequirementsNote: "Talablar vakansiya sahifasida boshqariladi va bu yerda o'zgarmaydi.",
   },
 
   candidateForm: {
@@ -1074,6 +1130,302 @@ const uz: Dictionary = {
     Lead: "Lead",
     Principal: "Principal",
   },
+
+  /* ---------------------------------------------------------------------- */
+  /* Vakansiyaning tuzilgan lug'ati                                          */
+  /*                                                                        */
+  /* Kalitlar — backend enum qiymatlari, faqat yorliq tarjima qilinadi.       */
+  /* Saqlanadigan qiymat o'zgarmaydi, shuning uchun tashkilot ma'lumotlari    */
+  /* rekruter qaysi tilda ishlaganiga qarab bo'linib ketmaydi.                */
+  /* ---------------------------------------------------------------------- */
+
+  payPeriod: {
+    HOURLY: "Soatlik",
+    MONTHLY: "Oylik",
+    YEARLY: "Yillik",
+  },
+
+  workMode: {
+    ONSITE: "Ofisda",
+    HYBRID: "Gibrid",
+    REMOTE: "Masofaviy",
+  },
+
+  visaSponsorship: {
+    YES: "Bor",
+    NO: "Yo'q",
+    UNKNOWN: "Ko'rsatilmagan",
+  },
+
+  citizenshipRequirement: {
+    NONE: "Fuqarolik bo'yicha cheklov yo'q",
+    SPECIFIC: "Faqat muayyan fuqarolik",
+  },
+
+  seniorityLevel: {
+    INTERN: "Amaliyotchi",
+    JUNIOR: "Junior",
+    MID: "Middle",
+    SENIOR: "Senior",
+    LEAD: "Lead",
+    STAFF: "Staff",
+    MANAGER: "Menejer",
+  },
+
+  languageLevel: {
+    A1: "A1 — boshlang'ich",
+    A2: "A2 — elementar",
+    B1: "B1 — o'rta",
+    B2: "B2 — o'rtadan yuqori",
+    C1: "C1 — yuqori",
+    C2: "C2 — mukammal",
+    NATIVE: "Ona tili",
+  },
+
+  educationLevel: {
+    HIGH_SCHOOL: "O'rta ta'lim",
+    ASSOCIATE: "O'rta maxsus ta'lim",
+    BACHELOR: "Bakalavr",
+    MASTER: "Magistr",
+    DOCTORATE: "Doktorlik darajasi",
+  },
+
+  hiringUrgency: {
+    LOW: "Past",
+    NORMAL: "Oddiy",
+    HIGH: "Yuqori",
+  },
+
+  benefit: {
+    HEALTH_INSURANCE: "Tibbiy sug'urta",
+    MEAL_ALLOWANCE: "Ovqat uchun to'lov",
+    HOUSING_SUPPORT: "Uy-joy yordami",
+    RELOCATION_SUPPORT: "Ko'chib o'tishga yordam",
+    EDUCATION_BUDGET: "Ta'lim uchun byudjet",
+    REMOTE_ALLOWANCE: "Masofaviy ish uchun qo'shimcha to'lov",
+    FLEXIBLE_HOURS: "Moslashuvchan ish vaqti",
+    STOCK_OPTIONS: "Aksiya optsiyalari",
+    BONUS: "Bonus",
+    PAID_LEAVE: "Qo'shimcha haq to'lanadigan ta'til",
+    OTHER: "Boshqa",
+  },
+
+  /**
+   * ISO 3166-1 alpha-2 → mamlakat nomi.
+   *
+   * Intl.DisplayNames o'rniga tarjima qilingan ro'yxat: Node va brauzerdagi
+   * ICU jadvallari bir xil emas, server bilan mijoz farqi esa hidratsiya
+   * xatosi (lib/i18n/format.ts ga qarang). Ro'yxatda yo'q kod o'zi ko'rinadi.
+   */
+  country: {
+    KR: "Janubiy Koreya",
+    UZ: "O'zbekiston",
+    RU: "Rossiya",
+    KZ: "Qozog'iston",
+    US: "AQSh",
+    GB: "Buyuk Britaniya",
+    DE: "Germaniya",
+    FR: "Fransiya",
+    NL: "Niderlandiya",
+    PL: "Polsha",
+    TR: "Turkiya",
+    AE: "BAA",
+    SG: "Singapur",
+    JP: "Yaponiya",
+    CN: "Xitoy",
+    IN: "Hindiston",
+    VN: "Vyetnam",
+    PH: "Filippin",
+    ID: "Indoneziya",
+    MY: "Malayziya",
+    TH: "Tailand",
+    CA: "Kanada",
+    AU: "Avstraliya",
+    ES: "Ispaniya",
+    IT: "Italiya",
+  },
+
+  /**
+   * BCP-47 asosiy subtegi → til nomi. Ro'yxat interfeysning to'rt tilidan
+   * kengroq: interfeys tili va vakansiya tili — bu boshqa-boshqa savollar.
+   */
+  jobLanguage: {
+    en: "Ingliz tili",
+    ko: "Koreys tili",
+    ru: "Rus tili",
+    uz: "O'zbek tili",
+    ja: "Yapon tili",
+    zh: "Xitoy tili",
+    de: "Nemis tili",
+    fr: "Fransuz tili",
+    es: "Ispan tili",
+    it: "Italyan tili",
+    tr: "Turk tili",
+    ar: "Arab tili",
+    hi: "Hind tili",
+    pt: "Portugal tili",
+    kk: "Qozoq tili",
+    vi: "Vyetnam tili",
+    id: "Indonez tili",
+    th: "Tay tili",
+  },
+
+  /**
+   * Normallashtirilgan bandlik turi. Task 1 dagi vakansiya lug'atini takrorlamay,
+   * qayta ishlatadi: bir xil so'z vakansiyada ham, nomzod istaklarida ham bir xil
+   * ma'noni bildirishi kerak.
+   */
+  employmentTypeValue: {
+    FULL_TIME: "To'liq bandlik",
+    PART_TIME: "Qisman bandlik",
+    CONTRACT: "Shartnoma",
+    INTERNSHIP: "Amaliyot",
+    TEMPORARY: "Vaqtinchalik ish",
+  },
+
+  jobPreferences: {
+    title: "Ish bo'yicha istaklar",
+    description:
+      "Siz izlayotgan shartlar. Vakansiyalarni topish va tartiblash uchun ishlatiladi va ariza tarkibida ish beruvchiga ko'rsatilmaydi.",
+    navLabel: "Istaklar",
+
+    rolesTitle: "Lavozimlar",
+    rolesHint:
+      "Ko'nikmalar emas, lavozim nomlari. “Kubernetes” emas, “DevOps Engineer”.",
+    rolesPlaceholder: "DevOps Engineer",
+
+    locationsTitle: "Joylashuvlar",
+    locationsHint:
+      "Qayerda ishlamoqchisiz. Avval mamlakatni tanlang, xohlasangiz aniqlashtiring.",
+    addLocation: "Joylashuv qo'shish",
+    country: "Mamlakat",
+    region: "Viloyat / shtat",
+    city: "Shahar",
+    removeLocation: "{index}-joylashuvni o'chirish",
+    noLocations: "Joylashuv qo'shilmagan.",
+
+    workModeTitle: "Ish formati",
+    workModeHint:
+      "Sizga mos keladiganlarini belgilang. Hech biri belgilanmasa — cheklov yo'q.",
+
+    compensationTitle: "To'lov",
+    compensationHint:
+      "Siz ko'rib chiqadigan eng kam miqdor. Aytishni istamasangiz, bo'sh qoldiring.",
+    salaryMin: "Eng kam maosh",
+    currency: "Valyuta",
+    payPeriod: "Davr",
+
+    employmentTitle: "Bandlik turi",
+    employmentHint: "Siz qabul qila oladigan shartnoma turlari.",
+
+    seniorityTitle: "Daraja",
+    seniorityHint:
+      "Siz ko'rib chiqilishni istagan darajalar — bu tajribangiz haqidagi da'vo emas.",
+
+    additionalTitle: "Qo'shimcha istaklar",
+    relocationTitle: "Ko'chib o'tish",
+    relocationHint: "Mos ish uchun ko'chib o'tishga tayyormisiz?",
+    relocationLabel: "Ko'chib o'tishga tayyorman",
+
+    industriesTitle: "Sohalar",
+    industriesHint: "Siz ishlashni istagan yo'nalishlar.",
+    industriesPlaceholder: "Fintex",
+
+    benefitsTitle: "Imtiyozlar",
+    benefitsHint: "Maoshdan tashqari siz uchun muhim narsalar.",
+
+    exclusionsTitle: "Istisnolar",
+    exclusionsHint:
+      "Ko'rishni istamaydigan narsalaringiz. Faqat shu yerda kiritilgani hisobga olinadi — o'tkazib yuborilgan vakansiyalardan hech narsa o'rganilmaydi.",
+    excludedCompanies: "Istisno qilinadigan kompaniyalar",
+    excludedCompaniesPlaceholder: "Company X",
+    excludedJobTitles: "Istisno qilinadigan lavozimlar",
+    excludedJobTitlesPlaceholder: "PHP Developer",
+    excludedLocations: "Istisno qilinadigan joylashuvlar",
+
+    notStated: "Ko'rsatilmagan",
+    noPreference: "Cheklov yo'q",
+    unknown: "Ko'rsatilmagan",
+    save: "Istaklarni saqlash",
+    saved: "Istaklar saqlandi.",
+    clearAll: "Barcha istaklarni o'chirish",
+    clearAllConfirm:
+      "Siz ko'rsatgan barcha istaklar o'chiriladi. Profil, hujjatlar va arizalarga ta'sir qilmaydi.",
+    cleared: "Istaklar o'chirildi.",
+    empty:
+      "Siz hali ish bo'yicha istaklarni kiritmagansiz. Rezyumedan hech narsa taxmin qilinmaydi — faqat shu yerda kiritganingiz hisobga olinadi.",
+    lastUpdated: "Yangilangan {date}",
+
+    errSalaryAmount: "Noldan katta butun son kiriting yoki bo'sh qoldiring.",
+    errSalaryCurrency: "Miqdor uchun valyutani tanlang.",
+    errSalaryPeriod: "Miqdor uchun davrni tanlang.",
+    errSalaryAmountMissing: "Miqdorni kiriting yoki valyuta va davrni tozalang.",
+    errLocationCountry: "Har bir joylashuv uchun mamlakatni tanlang.",
+    saveFailed: "Istaklarni saqlab bo'lmadi. Qayta urinib ko'ring.",
+      salaryMax: "Maksimum (ixtiyoriy)",
+    salaryMaxHint: "Siz mo‘ljallagan oraliqning yuqori chegarasi. Undan yuqori to‘lovli ishlar ham ko‘rsatiladi — bu chegara emas, mo‘ljal.",
+    errSalaryRange: "Maksimum minimumdan kam bo‘lmasligi kerak.",
+},
+
+  jobProfile: {
+    compensation: "To'lov",
+    locationWork: "Joylashuv va ish formati",
+    workAuthorization: "Ishlash huquqi",
+    experience: "Tajriba va daraja",
+    education: "Ta'lim va sertifikatlar",
+    languages: "Tillar",
+    benefits: "Imtiyozlar",
+    timeline: "Ishga olish muddatlari",
+
+    notSpecified: "Ko'rsatilmagan",
+    negotiable: "Kelishuv asosida",
+    required: "Majburiy",
+    preferred: "Afzal",
+    yes: "Ha",
+    no: "Yo'q",
+
+    salary: "Maosh",
+    salaryRange: "{min} – {max}",
+    salaryFrom: "{min} dan",
+    salaryUpTo: "{max} gacha",
+    perPeriod: "{amount} / {period}",
+
+    location: "Joylashuv",
+    workModeLabel: "Ish formati",
+    officeDays: "Ofis kunlari",
+    officeDaysValue: "haftasiga {count} kun",
+    remoteCountries: "Quyidagi mamlakatlardan qabul qilinadi",
+
+    foreignApplicants: "Chet ellik nomzodlar",
+    visaSponsorshipLabel: "Viza homiyligi",
+    existingWorkAuth: "Mavjud ishlash huquqi",
+    existingWorkAuthRequired: "Talab qilinadi",
+    existingWorkAuthNotRequired: "Talab qilinmaydi",
+    eligibleVisas: "Mos viza turlari",
+    citizenship: "Fuqarolik",
+    eligibleNationalities: "Mos fuqaroliklar",
+    visaDisclaimer:
+      "Ish beruvchi tomonidan ko'rsatilgan. Bu yuridik maslahat emas va huquqni kafolatlamaydi.",
+
+    seniority: "Daraja",
+    minExperience: "Minimal tajriba",
+    preferredExperience: "Afzal ko'rilgan tajriba",
+    yearsValue: "{count} yil",
+
+    requiredEducation: "Majburiy ta'lim",
+    preferredEducation: "Afzal ko'rilgan ta'lim",
+    requiredCertifications: "Majburiy sertifikatlar",
+    preferredCertifications: "Afzal ko'rilgan sertifikatlar",
+    domainExperience: "Soha tajribasi",
+
+    deadline: "Ariza muddati",
+    expectedStart: "Ishni boshlash sanasi",
+    openings: "Ish o'rinlari soni",
+    urgency: "Shoshilinchlik",
+    contractDuration: "Shartnoma muddati",
+    monthsValue: "{count} oy",
+  },
+
 
   workspaces: {
     title: "Ish maydonini tanlang",
@@ -1250,6 +1602,14 @@ const uz: Dictionary = {
     noMatches: "Bu soʻrovga mos vakansiya topilmadi",
     noMatchesHint: "Kamroq soʻz bilan urinib koʻring yoki manzil filtrini olib tashlang.",
     postedOn: "{date} e’lon qilingan",
+    applicantCount: {
+      one: "{count} nomzod",
+      other: "{count} nomzod",
+    } as Plural,
+    rankNote:
+      "Ish formati, bandlik turi, daraja va maosh eng mos ishlarni oldinga chiqaradi — hech narsa yashirilmaydi.",
+    locationFilterNote: "Joylashuvni tanlash natijalarni toraytiradi.",
+    currencyNeeded: "Maoshlarni davlatlar bo‘ylab solishtirish uchun valyutani tanlang.",
     save: "Saqlash",
     saved: "Saqlangan",
     unsave: "Saqlanganlardan olib tashlash",
@@ -1282,7 +1642,22 @@ const uz: Dictionary = {
     alreadyAppliedHint:
       "Har bir vakansiyaga bir marta. Arizani qaytarib olsangiz ham qayta bera olmaysiz — jamoa mavjud arizangiz bilan davom etishi mumkin.",
     jobUnavailable: "Bu vakansiya endi ariza qabul qilmaydi",
-  },
+      filtersTitle: "Filtrlar",
+    moreFilters: "Ko‘proq filtr",
+    fewerFilters: "Kamroq filtr",
+    countryLabel: "Mamlakat",
+    workModeLabel: "Ish shakli",
+    employmentLabel: "Bandlik turi",
+    seniorityLabel: "Tajriba darajasi",
+    salaryLabel: "Eng kam maosh",
+    salaryAmountPlaceholder: "Summa",
+    anyOption: "Har qanday",
+    applyFilters: "Qidirish",
+    usingPreferences: "Saqlangan xohishlaringiz ishlatilmoqda. Bu yerdagi o‘zgarishlar faqat shu qidiruvga taalluqli.",
+    editPreferences: "Xohishlarni tahrirlash",
+    salaryUnknownKept: "Maosh ko‘rsatilmagan — baribir ko‘rsatildi",
+    salaryNotComparableKept: "Maoshni solishtirib bo‘lmadi — baribir ko‘rsatildi",
+},
 
   applications: {
     title: "Mening arizalarim",
@@ -1458,7 +1833,72 @@ const uz: Dictionary = {
     unavailable: "Tanlash vaqtincha ishlamayapti",
     unavailableHint:
       "Tanlash xizmatiga hozir ulanib boʻlmadi. Hech narsa hisoblanmadi — birozdan soʻng qayta urinib koʻring.",
-  },
+      scoreLabel: "Moslik bahosi",
+    scoreValue: "{score} / 100",
+    band: {
+      STRONG: "Yuqori moslik",
+      GOOD: "Yaxshi moslik",
+      PARTIAL: "Qisman moslik",
+      LOW: "Past moslik",
+    },
+    topReasons: "Asosiy sabablar",
+    whyMatches: "Nega bu ish mos keladi",
+    whyNotHigher: "Nega baho yuqoriroq emas",
+    capabilitySection: "Malaka",
+    preferencesSection: "Xohishlaringizga moslik",
+    salarySection: "Maosh",
+    approxSalary: "≈ {amount}",
+    convertedNote: "Kutgan maoshingiz bilan solishtirish uchun ish beruvchi ko‘rsatgan summadan hisoblab chiqarilgan.",
+    fxUpdated: "Valyuta kurslari {ago} yangilangan",
+    fxUnavailable: "Valyuta kursi mavjud emas",
+    noPreferences: "Xohishlaringizni ko‘rsating — har bir ish ular bilan qanchalik mos kelishini ko‘rasiz.",
+    excludedNote: {
+      one: "Istisnolaringiz tufayli {count} ta ish yashirildi",
+      other: "Istisnolaringiz tufayli {count} ta ish yashirildi",
+    } as Plural,
+    capabilityStrong: "Hujjatlaringiz bu ishning {count} ta talabini tasdiqlaydi",
+    capabilityNone: "Bu ish ko‘rsatgan talablardan hech biri hujjatlaringizda topilmadi",
+    capabilityMissing: "{count} ta talab hujjatlaringizda topilmadi",
+    capabilityUnclear: "{count} ta talabni odam ko‘rib chiqishi kerak",
+    skillsMatched: "{skills} bo‘yicha dalil bor",
+    matchReason: {
+      ROLE_EXACT: "Siz istagan lavozimga mos keladi",
+      ROLE_RELATED: "Siz istagan lavozimga juda yaqin",
+      ROLE_FAMILY_MATCH: "Siz izlayotgan turdagi ish",
+      ROLE_FAMILY_ADJACENT: "Siz izlayotgan ishga yaqin soha",
+      ROLE_MISMATCH: "Siz istagan lavozimlardan boshqasi",
+      LOCATION_EXACT: "Siz afzal ko‘rgan shaharda",
+      LOCATION_REGION_MATCH: "Siz afzal ko‘rgan hududda",
+      LOCATION_COUNTRY_MATCH: "Siz afzal ko‘rgan mamlakatda",
+      LOCATION_REMOTE_ELIGIBLE: "Masofaviy va sizning mamlakatingizdan mumkin",
+      LOCATION_MISMATCH: "Joylashuv siz istagandan farq qiladi",
+      LOCATION_UNKNOWN: "Ish beruvchi joylashuvni ko‘rsatmagan",
+      WORK_MODE_MATCH: "Ish shakli xohishingizga mos",
+      WORK_MODE_MISMATCH: "Ish shakli xohishingizdan farq qiladi",
+      WORK_MODE_UNKNOWN: "Ish beruvchi ish shaklini ko‘rsatmagan",
+      SALARY_WITHIN_DESIRED_RANGE: "Maosh siz istagan oraliqda",
+      SALARY_ABOVE_DESIRED_RANGE: "Maosh siz istagan oraliqdan yuqori",
+      SALARY_PARTIAL_OVERLAP: "Maosh siz istagan oraliq bilan qisman kesishadi",
+      SALARY_MEETS_MINIMUM: "Maosh eng kam talabingizga javob beradi",
+      SALARY_BELOW_MINIMUM: "Maosh siz istagan eng kam summadan past",
+      SALARY_UNKNOWN: "Ish beruvchi maoshni ko‘rsatmagan",
+      SALARY_NOT_COMPARABLE: "Maoshni solishtirib bo‘lmadi",
+      EMPLOYMENT_MATCH: "Bandlik turi xohishingizga mos",
+      EMPLOYMENT_MISMATCH: "Bandlik turi xohishingizdan farq qiladi",
+      EMPLOYMENT_UNKNOWN: "Ish beruvchi bandlik turini ko‘rsatmagan",
+      SENIORITY_MATCH: "Tajriba darajasi xohishingizga mos",
+      SENIORITY_ADJACENT: "Tajriba darajasi xohishingizga yaqin",
+      SENIORITY_MISMATCH: "Tajriba darajasi xohishingizdan farq qiladi",
+      SENIORITY_UNKNOWN: "Ish beruvchi tajriba darajasini ko‘rsatmagan",
+      INDUSTRY_MATCH: "Siz afzal ko‘rgan sohada",
+      INDUSTRY_MISMATCH: "Siz ko‘rsatgan sohalardan emas",
+      INDUSTRY_UNKNOWN: "Ish beruvchi sohani ko‘rsatmagan",
+      BENEFITS_MATCH: "Siz ko‘rsatgan imtiyozlar mavjud",
+      BENEFITS_PARTIAL: "Siz ko‘rsatgan imtiyozlarning bir qismi mavjud",
+      BENEFITS_MISMATCH: "Siz ko‘rsatgan imtiyozlar yo‘q",
+      BENEFITS_UNKNOWN: "Ish beruvchi imtiyozlarni ko‘rsatmagan",
+    },
+},
   vacancyScope: {
     selectorLabel: "Mening vakansiyam",
     myVacancies: "Mening vakansiyalarim",
@@ -1634,6 +2074,327 @@ const uz: Dictionary = {
       requires_partner_approval: "Hamkor roziligi kerak",
     },
   },
+
+  externalApplications: {
+    tab: "Mening tashqi arizalarim",
+    title: "Mening tashqi arizalarim",
+    description:
+      "Ish beruvchilarning saytlarida topshirgan arizalaringiz. Bu ro‘yxatni o‘zingiz yuritasiz: HR Copilot bunday arizalarni qabul qilmaydi va ularning taqdirini kuzata olmaydi.",
+    managedByYou: "Bu ro‘yxatni o‘zingiz yuritasiz.",
+    notInternal:
+      "HR Copilot ichida topshirgan arizalaringiz «Mening arizalarim» bo‘limida.",
+    goToInternal: "Mening arizalarim",
+    markApplied: "Ariza topshirdim deb belgilash",
+    markAppliedHint:
+      "Ish beruvchi saytini ochish hech narsani yozib qo‘ymaydi. Haqiqatan ariza topshirganingizdan keyin shu yerda belgilang.",
+    marking: "Saqlanmoqda…",
+    markFailed: "Yozib bo‘lmadi. Qayta urinib ko‘ring.",
+    statusLabel: "Ariza holati",
+    updateStatus: "Holatni o‘zgartirish",
+    updateFailed: "Holatni o‘zgartirib bo‘lmadi. Qayta urinib ko‘ring.",
+    removeTracking: "Yozuvni o‘chirish",
+    removeTrackingHint:
+      "Faqat sizning yozuvingiz o‘chadi. Ish beruvchidagi ariza qaytarib olinmaydi.",
+    removeFailed: "Yozuvni o‘chirib bo‘lmadi. Qayta urinib ko‘ring.",
+    appliedOn: "{date} da topshirilgan",
+    filterAll: "Barchasi",
+    clearStatusFilter: "Barchasini ko‘rsatish",
+    emptyForStatus: "Bu holatdagi yozuv yo‘q.",
+    emptyForStatusHint:
+      "Boshqa tashqi arizalaringizni ko‘rish uchun holat filtrini o‘zgartiring.",
+    listingGoneTitle: "E’lon endi mavjud emas",
+    listingGoneHint:
+      "E’lon katalogdan chiqib ketgan. Sizning yozuvingiz saqlanib qoldi.",
+    listingStatusLabel: "E’lonning joriy holati",
+    listingActive: "Hali e’lon qilingan",
+    note: "Eslatmalar",
+    notePlaceholder: "masalan: rekruter bog‘landi · 4-sentyabr texnik suhbat",
+    saveNote: "Eslatmani saqlash",
+    noteSaved: "Eslatma saqlandi",
+    empty: "Hozircha kuzatilayotgan tashqi ariza yo‘q.",
+    emptyHint:
+      "Ish beruvchi saytida ariza topshirgach, shu yerda belgilang — ro‘yxatda paydo bo‘ladi.",
+    errorTitle: "Ro‘yxatni yuklab bo‘lmadi",
+    errorHint: "Hozir mavjud emas. Qayta urinib ko‘ring.",
+    viewJob: "Vakansiyani ko‘rish",
+    openOriginal: "Ish beruvchi saytida ochish",
+    status: {
+      APPLIED: "Ariza topshirilgan",
+      INTERVIEW: "Suhbat",
+      OFFER: "Taklif",
+      REJECTED: "Rad etilgan",
+      WITHDRAWN: "Qaytarib olingan",
+    },
+  },
+
+  externalJobs: {
+    title: "Tashqi ish o‘rinlari",
+    description:
+      "Boshqa ish e’lonlari saytlari va kompaniyalarning karyera sahifalarida e’lon qilingan ish o‘rinlari. Ariza ish beruvchining o‘z saytida topshiriladi — HR Copilot bunday arizalarni qabul qilmaydi.",
+    searchTab: "Qidiruv",
+    whyMatchTitle: "Nega bu ish sizga mos?",
+    whyMatchInvite: "Bu e’lon nega shu o‘rinda turganini qisqacha tushuntirib beramiz.",
+    whyMatchGenerate: "Tushuntirish olish",
+    whyMatchStrengths: "Kuchli tomonlar",
+    whyMatchGaps: "Mumkin bo‘lgan kamchiliklar",
+    tabsLabel: "E’lon qayerda joylangan",
+
+    searchLabel: "Tashqi ish o‘rinlarini qidirish",
+    searchPlaceholder: "Lavozim, ko‘nikma yoki kompaniya",
+    submit: "Qidirish",
+    filters: "Filtrlar",
+    filtersWithCount: "Filtrlar ({count})",
+    filtersTitle: "Filtrlar",
+    applyFilters: "Natijalarni ko‘rsatish",
+    reset: "Filtrlarni tozalash",
+    resetHint:
+      "Faqat shu yerda tanlanganini tozalaydi. Saqlangan istaklaringiz o‘zgarmaydi.",
+    close: "Yopish",
+    moreFilters: "Ko‘proq filtr",
+    fewerFilters: "Kamroq filtr",
+
+    countryLabel: "Mamlakat",
+    filterTag: "Filtr",
+    preferenceTag: "Istak",
+    countryHint:
+      "Faqat tanlangan mamlakatlarda ochiq bo‘lgan ish o‘rinlarini ko‘rsatadi.",
+    preferenceHint:
+      "Mos keladiganlarni yuqoriga chiqaradi. Hech narsani yashirmaydi.",
+    workModeLabel: "Ish formati",
+    employmentLabel: "Bandlik turi",
+    seniorityLabel: "Tajriba darajasi",
+    salaryLabel: "Eng kam maosh",
+    salaryAmountPlaceholder: "Miqdor",
+    currencyLabel: "Valyuta",
+    payPeriodLabel: "Davr",
+    anyOption: "Har qanday",
+    currencyNeeded:
+      "Mamlakatlar bo‘ylab maoshni solishtirish uchun valyuta va davrni tanlang.",
+
+    usingPreferences:
+      "Natijalar saqlangan ish istaklaringiz asosida tartiblangan.",
+    editPreferences: "Istaklarni tahrirlash",
+
+    resultCount: {
+      one: "{count} mos ish o‘rni",
+      other: "{count} ta mos ish o‘rni",
+    } as Plural,
+    truncatedNote:
+      "Eng mos natijalar ko‘rsatilmoqda. Bu filtrlarga mos yana ish o‘rinlari bor.",
+    degradedNotice:
+      "Ma’noga asoslangan moslashtirish vaqtincha ishlamayapti. Faqat matn bo‘yicha natijalar ko‘rsatilmoqda.",
+
+    searching: "Tashqi ish o‘rinlari qidirilmoqda…",
+    searchingHint:
+      "Uzoq tanaffusdan keyingi birinchi qidiruv bir necha soniya olishi mumkin.",
+
+    empty: "So‘rovingizga mos tashqi ish o‘rni topilmadi",
+    emptyHint: "Quyidagilarni sinab ko‘ring:",
+    emptyFewerWords: "Gap emas, lavozim nomi bilan qidiring",
+    emptyClearCountry: "Mamlakat filtrini olib tashlang",
+    emptyClearAll: "Filtrlarni tozalang",
+    browseTitle: "Tashqi ish o‘rinlarini ko‘rish",
+    browseHint:
+      "Lavozim nomini kiriting yoki filtrlardan mamlakatni tanlang. Saqlangan istaklaringiz tartibga allaqachon ta’sir qilmoqda.",
+
+    errorTitle: "Tashqi ish o‘rinlarini qidirib bo‘lmadi",
+    errorHint: "Hech narsa hisoblanmadi. Bir ozdan so‘ng qayta urinib ko‘ring.",
+    retry: "Qayta urinish",
+    needsAccountTitle: "Avval profil yarating",
+    needsAccountHint:
+      "Tashqi qidiruv natijalarni tartiblash uchun nomzod profilingizdan foydalanadi. Boshlash uchun profil yarating.",
+    goToProfile: "Profilimga o‘tish",
+
+    scoreLabel: "Moslik",
+    scoreValue: "{score} / 100",
+    scoreNote:
+      "Bu ish o‘rni so‘rovingiz va istaklaringizga qanchalik mos kelishini bildiradi. Ishga qabul qilinish ehtimoli emas.",
+    band: {
+      STRONG: "Yuqori moslik",
+      GOOD: "Yaxshi moslik",
+      PARTIAL: "Qisman moslik",
+      LOW: "Past moslik",
+    },
+    whyThis: "Nega bu natija",
+
+    locationUnknown: "Ish joyi ko‘rsatilmagan",
+    alsoOpenIn: "Shuningdek ochiq",
+    moreLocations: {
+      one: "+{count} ta joy",
+      other: "+{count} ta joy",
+    } as Plural,
+    remoteStated: "Masofaviy · quyidagilardan mumkin: {countries}",
+    remoteUnstated: "Masofaviy · mamlakatlar ko‘rsatilmagan",
+    remoteUnstatedHint:
+      "Ish beruvchi bu masofaviy ish qaysi mamlakatlardan ochiqligini aytmagan.",
+
+    salaryUnknown: "Maosh ko‘rsatilmagan",
+    salaryNote: "Ish beruvchi e’lon qilgan holda.",
+
+    staleNotice: "E’lonni qayta tekshirish kerak bo‘lishi mumkin",
+    staleHint:
+      "So‘nggi paytda hech bir manba bu e’lonni qayta ko‘rsatmadi. U hali ochiq bo‘lishi mumkin — asl e’lonni tekshiring.",
+    save: "Vakansiyani saqlash",
+    savedState: "Saqlangan",
+    unsave: "Saqlanganlardan olib tashlash",
+    saveFailed: "Vakansiyani saqlab bo‘lmadi. Qayta urinib ko‘ring.",
+    unsaveFailed: "Vakansiyani olib tashlab bo‘lmadi. Qayta urinib ko‘ring.",
+    savedTab: "Saqlanganlar",
+    savedTitle: "Saqlangan tashqi vakansiyalar",
+    savedDescription:
+      "Tashqi vakansiyalardan saqlab qo‘yganlaringiz. Ariza ish beruvchining saytida topshiriladi.",
+    savedEmpty: "Hozircha saqlangan tashqi vakansiya yo‘q.",
+    savedEmptyHint:
+      "Tashqi vakansiyalarni ko‘rib chiqayotganda saqlang — ular shu yerda ko‘rinadi.",
+    savedPageEmpty: "Bu sahifada hech narsa yo‘q.",
+    savedPageEmptyHint: "Qolganlari oldingi sahifalarda.",
+    savedFirstPage: "Birinchi sahifaga o‘tish",
+    savedErrorTitle: "Saqlangan vakansiyalarni yuklab bo‘lmadi",
+    savedErrorHint: "Ro‘yxat hozir mavjud emas. Qayta urinib ko‘ring.",
+    savedOn: "{date} da saqlangan",
+    browseExternal: "Tashqi vakansiyalarni ko‘rish",
+    closedNotice: "Tanlov yopilgan",
+    expiredNotice: "Ariza muddati tugagan",
+    unavailableNotice: "E’lonni ochib bo‘lmaydi",
+    unexpectedStatus: "Bu e’lon endi ochiq bo‘lmasligi mumkin",
+
+    sourceLine: "Manba: {source}",
+    applyViaLine: "Ariza orqali: {source}",
+    sourceCountLine: "{count} ta manbada ko‘rsatilgan",
+    sourceUnknown: "Tashqi manba",
+    source: {
+      GREENHOUSE: "Greenhouse",
+      LEVER: "Lever",
+      ASHBY: "Ashby",
+      NINEHIRE: "Ninehire",
+      COMPANY_CAREERS: "Kompaniya karyera sahifasi",
+    },
+
+    apply: "Asl saytda ariza topshirish",
+    applyHint:
+      "Ish beruvchi sayti yangi oynada ochiladi. HR Copilot bu arizani olmaydi va kuzata olmaydi.",
+    externalLink: "yangi oynada ochiladi",
+    viewDetails: "Batafsil",
+    detailsTitle: "Ish o‘rni tafsilotlari",
+    aboutRole: "Bu ish haqida",
+    requirements: "Ular nimani qidirmoqda",
+    noDescription:
+      "Bu yerda tavsif yo‘q. O‘qish uchun asl e’lonni oching.",
+    skills: "Ko‘nikmalar",
+    languages: "Tillar",
+    benefits: "Imtiyozlar",
+    industries: "Sohalar",
+    loadingDetail: "Ish o‘rni yuklanmoqda…",
+    detailError: "Bu ish o‘rnini yuklab bo‘lmadi.",
+    detailGone: "Bu ish o‘rni endi e’lon qilinmagan.",
+    companySite: "Kompaniya sayti",
+
+
+    sortLabel: "Saralash",
+    sortRelevance: "Mosligi bo‘yicha",
+    sortNewest: "Avval yangilari",
+    sortNewestNote:
+      "Ish beruvchi e’lonni joylagan sana bo‘yicha tartiblangan. Sanasi ko‘rsatilmagan e’lonlar oxirida.",
+
+    postedToday: "Bugun joylangan",
+    postedYesterday: "Kecha joylangan",
+    postedDaysAgo: {
+      one: "{count} kun oldin joylangan",
+      other: "{count} kun oldin joylangan",
+    } as Plural,
+    postedOn: "{date} da joylangan",
+    reason: {
+      TEXT_STRONG_MATCH: "Qidiruvingizga juda mos",
+      TEXT_TITLE_MATCH: "Qidiruvingizga mos",
+      TEXT_PARTIAL_MATCH: "Qidiruvingizga qisman mos",
+      TEXT_SEMANTIC_MATCH: "Qidirganingizga ma’no jihatdan yaqin",
+      STALE_LISTING: "E’lonni qayta tekshirish kerak bo‘lishi mumkin",
+    },
+  },
+
+  aiJobSearch: {
+    tabsLabel: "AI ish qidiruvi",
+    internalTab: "Ichki AI ish o‘rinlari",
+    externalTab: "Tashqi AI ish o‘rinlari",
+    lockedTabLabel: "{tab} — {plan} tarifidan boshlab mavjud",
+    internal: {
+      sourceName: "HR Copilot ish o‘rinlari",
+      applyMeaning: "HR Copilot ichida ariza topshiriladi",
+    },
+    external: {
+      sourceName: "Tashqi ish o‘rinlari",
+      applyMeaning: "Ish beruvchining saytida ariza topshiriladi",
+    },
+  },
+
+  plans: {
+    title: "Tariflar",
+    description:
+      "Har bir tarif ish qidiruvingiz uchun nimalarni o‘z ichiga olishi. Narxlar oyiga ko‘rsatilgan.",
+    names: { FREE: "Free", PRO: "Pro", MAX: "Max" },
+    availableOn: "{plan} tarifidan boshlab mavjud.",
+    upgradeTo: "{plan} tarifiga o‘tish",
+    viewPlans: "Tariflarni ko‘rish",
+    priceMonthly: "oyiga ${amount}",
+    currentPlan: "Joriy tarif",
+    currentPlanIs: "Siz {plan} tarifidasiz.",
+    noCheckoutNote:
+      "To‘lov hozircha mavjud emas, shuning uchun bu sahifadan xarid qilib bo‘lmaydi. Sahifa har bir tarif nimani o‘z ichiga olishini ko‘rsatadi.",
+    locked: {
+      INTERNAL_AI_SEARCH: {
+        title: "Ichki AI ish qidiruvi",
+        description:
+          "HR Copilot’da e’lon qilingan ish o‘rinlarini profilingizga qarab tartiblaydi va har biri nega mos kelganini tushuntiradi. Ariza shu yerda topshiriladi. Oddiy ish qidiruvi barcha tariflarda ochiq qoladi.",
+      },
+      EXTERNAL_AI_SEARCH: {
+        title: "Tashqi AI ish qidiruvi",
+        description:
+          "HR Copilot’dan tashqarida e’lon qilingan ish o‘rinlarini qidiradi, qaytib ko‘rmoqchi bo‘lganlaringizni saqlaydi va qayerga ariza topshirganingizni o‘zingiz yozib borasiz. Ariza ish beruvchining saytida topshiriladi.",
+      },
+    },
+    cards: {
+      FREE: {
+        tagline: "HR Copilot’da e’lon qilingan ishlarni qidirish va ariza topshirish.",
+        features: [
+          "Oddiy ish qidiruvi",
+          "HR Copilot ishlariga ariza topshirish",
+          "Saqlangan ishlar va ariza tarixi",
+        ],
+      },
+      PRO: {
+        tagline: "HR Copilot ishlari uchun AI tartiblashni qo‘shadi.",
+        features: [
+          "Free’dagi hamma narsa",
+          "Ichki AI ish qidiruvi",
+          "Har bir ish uchun moslik sabablari",
+        ],
+      },
+      MAX: {
+        tagline: "HR Copilot’dan tashqaridagi ishlarni qo‘shadi.",
+        features: [
+          "Pro’dagi hamma narsa",
+          "Tashqi AI ish qidiruvi",
+          "«Nega bu ish mos» — AI tushuntirishi",
+          "Saqlangan tashqi ishlar",
+          "Tashqi arizalaringiz hisobi",
+        ],
+      },
+    },
+  },
+
+  premiumAi: {
+    disclaimer:
+      "Matnni AI sizning profilingiz va ushbu e’lon asosida yozgan. U moslik ballini tushuntiradi, uni o‘zgartirmaydi va xato bo‘lishi mumkin.",
+    generating: "Tushuntirish yozilmoqda…",
+    tryAgain: "Qayta urinish",
+    unavailable:
+      "Hozir tushuntirish yozib bo‘lmadi. Sahifadagi qolgan ma’lumotlarga ta’sir qilmaydi.",
+    failed: "Tushuntirishni yuklab bo‘lmadi.",
+    jobGone: "Bu ish o‘rni endi e’lon qilinmagan, tushuntiradigan narsa yo‘q.",
+    strengthLabel: "kuchli tomon",
+    gapLabel: "mumkin bo‘lgan kamchilik",
+  },
+
 };
 
 export default uz;

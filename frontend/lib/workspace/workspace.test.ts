@@ -11,6 +11,7 @@ import {
   isPersonalRoute,
   navigationFor,
 } from "@/lib/workspace/navigation";
+import { resolveEntitlements } from "@/lib/entitlements/plan";
 import type { Role, SessionUser } from "@/lib/types";
 
 const NORTHWIND = { id: "o1", name: "Northwind Talent", slug: "northwind" };
@@ -24,6 +25,7 @@ function session(role: Role): SessionUser {
     preferredLocale: "en",
     avatarUrl: null,
     hasCandidateAccount: false,
+    entitlements: resolveEntitlements(null),
     activeOrganization: { ...NORTHWIND, role },
     memberships: [{ organization: NORTHWIND, role, joinedAt: "2026-01-01T00:00:00.000Z" }],
   };

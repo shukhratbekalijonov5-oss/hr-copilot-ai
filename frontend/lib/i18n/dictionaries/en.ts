@@ -93,6 +93,7 @@ const en = {
     page: "page",
     showMore: "Show more",
     showLess: "Show less",
+    pagination: "Pagination",
     pageOf: "{page} / {total}",
     pageNumber: "Page {page}",
     language: "Language",
@@ -124,6 +125,10 @@ const en = {
   nav: {
     sectionWorkspace: "Workspace",
     sectionJobSearch: "Job search",
+    sectionFindJobs: "Find jobs",
+    sectionAiJobSearch: "AI job search",
+    sectionYourSearch: "Your job search",
+    plans: "Plans",
     dashboard: "Dashboard",
     vacancies: "Vacancies",
     candidates: "Candidates",
@@ -131,8 +136,10 @@ const en = {
     compare: "Compare",
     processing: "Processing",
     settings: "Settings",
-    findJobs: "Find jobs",
-    aiJobMatch: "AI Job Match",
+    findJobs: "Normal job search",
+    externalAiJobs: "External AI Jobs",
+    internalAiJobs: "Internal AI Jobs",
+    jobPreferences: "Job preferences",
     myApplications: "My applications",
     interviewChats: "Interview chats",
     savedJobs: "Saved jobs",
@@ -998,6 +1005,56 @@ const en = {
       "Kubernetes",
       "3+ years backend experience",
     ],
+    // -- Structured sections ------------------------------------------------
+    compensationHint: "Leave blank if pay is not advertised. Nothing is guessed from the description.",
+    salaryMin: "Salary minimum",
+    salaryMax: "Salary maximum",
+    currency: "Currency",
+    payPeriod: "Pay period",
+    salaryNegotiable: "Salary is negotiable",
+    errSalaryRange: "The maximum must be at least the minimum.",
+    errCurrencyRequired: "Choose a currency for the salary range.",
+    locationSectionHint: "Structured location. The free-text field above still shows on older postings.",
+    countryLabel: "Country",
+    regionLabel: "Region / state",
+    regionPlaceholder: "Tashkent Region",
+    cityLabel: "City",
+    cityPlaceholder: "Seoul",
+    officeDaysHint: "0–7 days in the office each week.",
+    errOfficeDays: "Office days must be between 0 and 7.",
+    remoteCountriesHint: "Countries this remote role can be done from.",
+    choose: "Choose…",
+    visaSectionHint: "State only what the employer has actually decided.",
+    citizenshipHint: "Only when the role is genuinely restricted by law or contract.",
+    errNationalitiesRequired: "Add at least one nationality, or remove the restriction.",
+    experienceSectionHint: "Whole years. Leave blank if the role does not set a bar.",
+    errExperienceRange: "Preferred experience cannot be below the minimum.",
+    educationSectionHint: "Split required from preferred so evidence can be judged separately.",
+    domainExperienceHint: "Industries or problem domains, e.g. fintech or logistics.",
+    languagesHint: "One row per language. Levels are CEFR.",
+    addLanguage: "Add language",
+    noLanguages: "No language requirements.",
+    languageAria: "Language {index}",
+    languageLevelAria: "Language {index} level",
+    languagePriorityAria: "Language {index} priority",
+    removeLanguageAria: "Remove language {index}",
+    errDuplicateLanguage: "Each language can appear only once.",
+    errLanguageIncomplete: "Choose a language for every row, or remove the empty rows.",
+    benefitsHint: "What the company actually offers.",
+    benefitsOther: "Other benefit",
+    timelineHint: "A deadline before the start date is normal.",
+    startDateHint: "When the person would begin.",
+    contractDurationHint: "Months. Leave blank for a permanent role.",
+    errOpenings: "Openings must be at least 1.",
+    errContractDuration: "Contract duration must be at least 1 month.",
+    // -- Edit mode ----------------------------------------------------------
+    editTitle: "Edit vacancy",
+    editHint: "Changes apply to this posting immediately.",
+    saveChanges: "Save changes",
+    saved: "Vacancy updated.",
+    notOwner: "This vacancy was created by a colleague. Only its creator can edit it.",
+    editRequirementsNote:
+      "Requirements are managed on the vacancy page and are not changed here.",
   },
 
   candidateForm: {
@@ -1106,6 +1163,308 @@ const en = {
     Lead: "Lead",
     Principal: "Principal",
   },
+
+  /* ---------------------------------------------------------------------- */
+  /* Structured job vocabulary                                              */
+  /*                                                                        */
+  /* Backend enum values are the keys; only the LABEL is translated. The     */
+  /* stored value stays canonical so one organization's records cannot       */
+  /* fragment by whichever language each recruiter was using.                */
+  /* ---------------------------------------------------------------------- */
+
+  payPeriod: {
+    HOURLY: "Hourly",
+    MONTHLY: "Monthly",
+    YEARLY: "Yearly",
+  },
+
+  workMode: {
+    ONSITE: "On-site",
+    HYBRID: "Hybrid",
+    REMOTE: "Remote",
+  },
+
+  visaSponsorship: {
+    YES: "Available",
+    NO: "Not available",
+    UNKNOWN: "Not specified",
+  },
+
+  citizenshipRequirement: {
+    NONE: "No citizenship restriction",
+    SPECIFIC: "Restricted to specific nationalities",
+  },
+
+  seniorityLevel: {
+    INTERN: "Intern",
+    JUNIOR: "Junior",
+    MID: "Mid-level",
+    SENIOR: "Senior",
+    LEAD: "Lead",
+    STAFF: "Staff",
+    MANAGER: "Manager",
+  },
+
+  languageLevel: {
+    A1: "A1 — Beginner",
+    A2: "A2 — Elementary",
+    B1: "B1 — Intermediate",
+    B2: "B2 — Upper intermediate",
+    C1: "C1 — Advanced",
+    C2: "C2 — Proficient",
+    NATIVE: "Native",
+  },
+
+  educationLevel: {
+    HIGH_SCHOOL: "High school",
+    ASSOCIATE: "Associate degree",
+    BACHELOR: "Bachelor's degree",
+    MASTER: "Master's degree",
+    DOCTORATE: "Doctorate",
+  },
+
+  hiringUrgency: {
+    LOW: "Low",
+    NORMAL: "Normal",
+    HIGH: "High",
+  },
+
+  benefit: {
+    HEALTH_INSURANCE: "Health insurance",
+    MEAL_ALLOWANCE: "Meal allowance",
+    HOUSING_SUPPORT: "Housing support",
+    RELOCATION_SUPPORT: "Relocation support",
+    EDUCATION_BUDGET: "Education budget",
+    REMOTE_ALLOWANCE: "Remote work allowance",
+    FLEXIBLE_HOURS: "Flexible hours",
+    STOCK_OPTIONS: "Stock options",
+    BONUS: "Bonus",
+    PAID_LEAVE: "Extra paid leave",
+    OTHER: "Other",
+  },
+
+  /**
+   * ISO 3166-1 alpha-2 → country name.
+   *
+   * A translated list rather than Intl.DisplayNames: Node's and the browser's
+   * ICU tables disagree for several of these, and a server/client difference
+   * is a hydration mismatch (see lib/i18n/format.ts). A code that is not
+   * listed renders as the code itself, which is honest and stable.
+   */
+  country: {
+    KR: "South Korea",
+    UZ: "Uzbekistan",
+    RU: "Russia",
+    KZ: "Kazakhstan",
+    US: "United States",
+    GB: "United Kingdom",
+    DE: "Germany",
+    FR: "France",
+    NL: "Netherlands",
+    PL: "Poland",
+    TR: "Türkiye",
+    AE: "United Arab Emirates",
+    SG: "Singapore",
+    JP: "Japan",
+    CN: "China",
+    IN: "India",
+    VN: "Vietnam",
+    PH: "Philippines",
+    ID: "Indonesia",
+    MY: "Malaysia",
+    TH: "Thailand",
+    CA: "Canada",
+    AU: "Australia",
+    ES: "Spain",
+    IT: "Italy",
+  },
+
+  /**
+   * BCP-47 primary subtag → language name. Deliberately wider than the four
+   * UI locales: the interface language and the job's language are different
+   * questions.
+   */
+  jobLanguage: {
+    en: "English",
+    ko: "Korean",
+    ru: "Russian",
+    uz: "Uzbek",
+    ja: "Japanese",
+    zh: "Chinese",
+    de: "German",
+    fr: "French",
+    es: "Spanish",
+    it: "Italian",
+    tr: "Turkish",
+    ar: "Arabic",
+    hi: "Hindi",
+    pt: "Portuguese",
+    kk: "Kazakh",
+    vi: "Vietnamese",
+    id: "Indonesian",
+    th: "Thai",
+  },
+
+  /**
+   * Normalized employment type. Reuses the Task 1 job vocabulary rather than
+   * duplicating it: the same word must mean the same thing on a vacancy and in
+   * a candidate's preferences.
+   */
+  employmentTypeValue: {
+    FULL_TIME: "Full-time",
+    PART_TIME: "Part-time",
+    CONTRACT: "Contract",
+    INTERNSHIP: "Internship",
+    TEMPORARY: "Temporary",
+  },
+
+  jobPreferences: {
+    title: "Job preferences",
+    description:
+      "What you are looking for. Used to find and rank jobs for you — it is never shown to employers as part of an application.",
+    navLabel: "Job preferences",
+
+    /* Primary dimensions */
+    rolesTitle: "Roles",
+    rolesHint:
+      "Job titles you want, not skills. “DevOps Engineer”, not “Kubernetes”.",
+    rolesPlaceholder: "DevOps Engineer",
+
+    locationsTitle: "Locations",
+    locationsHint:
+      "Where you want to work. Pick a country, then narrow it down if you like.",
+    addLocation: "Add location",
+    country: "Country",
+    region: "Region / state",
+    city: "City",
+    removeLocation: "Remove location {index}",
+    noLocations: "No locations added.",
+
+    workModeTitle: "Work arrangement",
+    workModeHint: "Choose any that suit you. Choosing none means no preference.",
+
+    compensationTitle: "Compensation",
+    compensationHint:
+      "The minimum you would consider. Leave blank if you would rather not say.",
+    salaryMin: "Minimum salary",
+    currency: "Currency",
+    payPeriod: "Per",
+
+    employmentTitle: "Employment type",
+    employmentHint: "The kinds of contract you would accept.",
+
+    seniorityTitle: "Experience level",
+    seniorityHint:
+      "The levels you want to be considered for — not a claim about your experience.",
+
+    /* Secondary */
+    additionalTitle: "Additional preferences",
+    relocationTitle: "Relocation",
+    relocationHint: "Would you move for the right role?",
+    relocationLabel: "Willing to relocate",
+
+    industriesTitle: "Industries",
+    industriesHint: "Fields you would like to work in.",
+    industriesPlaceholder: "Fintech",
+
+    benefitsTitle: "Benefits",
+    benefitsHint: "What matters to you beyond pay.",
+
+    exclusionsTitle: "Exclusions",
+    exclusionsHint:
+      "Things you never want to see. Only what you enter here — nothing is learned from what you skip.",
+    excludedCompanies: "Companies to exclude",
+    excludedCompaniesPlaceholder: "Company X",
+    excludedJobTitles: "Job titles to exclude",
+    excludedJobTitlesPlaceholder: "PHP Developer",
+    excludedLocations: "Locations to exclude",
+
+    /* State */
+    notStated: "Not stated",
+    noPreference: "No preference",
+    unknown: "Not stated",
+    save: "Save preferences",
+    saved: "Preferences saved.",
+    clearAll: "Clear all preferences",
+    clearAllConfirm:
+      "This removes every preference you have stated. Your profile, documents and applications are not affected.",
+    cleared: "Preferences cleared.",
+    empty:
+      "You have not set any job preferences yet. Nothing is guessed from your CV — only what you enter here counts.",
+    lastUpdated: "Last updated {date}",
+
+    /* Errors */
+    errSalaryAmount: "Enter a whole number above zero, or leave it blank.",
+    errSalaryCurrency: "Choose a currency for the amount.",
+    errSalaryPeriod: "Choose a period for the amount.",
+    errSalaryAmountMissing: "Enter an amount, or clear the currency and period.",
+    errLocationCountry: "Choose a country for every location.",
+    saveFailed: "Could not save your preferences. Try again.",
+      salaryMax: "Maximum (optional)",
+    salaryMaxHint: "The top of the range you have in mind. Jobs paying more than this are still shown — it is a target, not a limit.",
+    errSalaryRange: "The maximum must be at least the minimum.",
+},
+
+  jobProfile: {
+    /** Sections, shared by the HR detail page and the candidate job page. */
+    compensation: "Compensation",
+    locationWork: "Location & work arrangement",
+    workAuthorization: "Work authorization",
+    experience: "Experience & seniority",
+    education: "Education & certifications",
+    languages: "Languages",
+    benefits: "Benefits",
+    timeline: "Hiring timeline",
+
+    notSpecified: "Not specified",
+    negotiable: "Negotiable",
+    required: "Required",
+    preferred: "Preferred",
+    yes: "Yes",
+    no: "No",
+
+    salary: "Salary",
+    salaryRange: "{min} – {max}",
+    salaryFrom: "From {min}",
+    salaryUpTo: "Up to {max}",
+    perPeriod: "{amount} / {period}",
+
+    location: "Location",
+    workModeLabel: "Work mode",
+    officeDays: "Office days",
+    officeDaysValue: "{count} per week",
+    remoteCountries: "Open to candidates in",
+
+    foreignApplicants: "Foreign applicants",
+    visaSponsorshipLabel: "Visa sponsorship",
+    existingWorkAuth: "Existing work authorization",
+    existingWorkAuthRequired: "Required",
+    existingWorkAuthNotRequired: "Not required",
+    eligibleVisas: "Eligible visa types",
+    citizenship: "Citizenship",
+    eligibleNationalities: "Eligible nationalities",
+    visaDisclaimer:
+      "Stated by the employer. It is not legal advice and does not guarantee eligibility.",
+
+    seniority: "Seniority",
+    minExperience: "Minimum experience",
+    preferredExperience: "Preferred experience",
+    yearsValue: "{count} years",
+
+    requiredEducation: "Required education",
+    preferredEducation: "Preferred education",
+    requiredCertifications: "Required certifications",
+    preferredCertifications: "Preferred certifications",
+    domainExperience: "Domain experience",
+
+    deadline: "Apply by",
+    expectedStart: "Expected start",
+    openings: "Openings",
+    urgency: "Hiring urgency",
+    contractDuration: "Contract duration",
+    monthsValue: "{count} months",
+  },
+
 
   workspaces: {
     title: "Choose a workspace",
@@ -1286,6 +1645,14 @@ const en = {
     noMatches: "No roles match that search",
     noMatchesHint: "Try fewer words, or clear the location filter.",
     postedOn: "Posted {date}",
+    applicantCount: {
+      one: "{count} applicant",
+      other: "{count} applicants",
+    } as Plural,
+    rankNote:
+      "Work arrangement, employment type, experience and pay rank the closest jobs first — nothing is hidden.",
+    locationFilterNote: "Choosing a location narrows these results.",
+    currencyNeeded: "Choose a currency to compare pay across countries.",
     save: "Save",
     saved: "Saved",
     unsave: "Remove from saved",
@@ -1320,7 +1687,22 @@ const en = {
     alreadyAppliedHint:
       "One application per role. Withdrawing does not free it up again — the hiring team can still move yours forward.",
     jobUnavailable: "This role is no longer accepting applications",
-  },
+      filtersTitle: "Filters",
+    moreFilters: "More filters",
+    fewerFilters: "Fewer filters",
+    countryLabel: "Country",
+    workModeLabel: "Work arrangement",
+    employmentLabel: "Employment type",
+    seniorityLabel: "Experience level",
+    salaryLabel: "Minimum salary",
+    salaryAmountPlaceholder: "Amount",
+    anyOption: "Any",
+    applyFilters: "Search",
+    usingPreferences: "Using your saved job preferences. Anything you change here applies to this search only.",
+    editPreferences: "Edit preferences",
+    salaryUnknownKept: "Salary not stated — shown anyway",
+    salaryNotComparableKept: "Salary could not be compared — shown anyway",
+},
 
   applications: {
     title: "My applications",
@@ -1497,7 +1879,72 @@ const en = {
     unavailable: "Matching is temporarily unavailable",
     unavailableHint:
       "The matching service is not reachable right now. Nothing was computed — try again shortly.",
-  },
+      scoreLabel: "Match score",
+    scoreValue: "{score} / 100",
+    band: {
+      STRONG: "Strong match",
+      GOOD: "Good match",
+      PARTIAL: "Partial match",
+      LOW: "Low match",
+    },
+    topReasons: "Top reasons",
+    whyMatches: "Why this matches",
+    whyNotHigher: "Why not higher",
+    capabilitySection: "Capability",
+    preferencesSection: "Preference alignment",
+    salarySection: "Salary",
+    approxSalary: "≈ {amount}",
+    convertedNote: "Converted from what the employer stated, for comparison with your desired salary.",
+    fxUpdated: "Exchange rates updated {ago}",
+    fxUnavailable: "Exchange rate unavailable",
+    noPreferences: "Set your job preferences to see how each role lines up with what you want.",
+    excludedNote: {
+      one: "{count} job hidden by your exclusions",
+      other: "{count} jobs hidden by your exclusions",
+    } as Plural,
+    capabilityStrong: "Your evidence supports {count} of this role’s requirements",
+    capabilityNone: "None of this role’s stated requirements were found in your evidence",
+    capabilityMissing: "{count} requirements were not found in your evidence",
+    capabilityUnclear: "{count} requirements need a human to look",
+    skillsMatched: "Evidence for {skills}",
+    matchReason: {
+      ROLE_EXACT: "Matches your target role",
+      ROLE_RELATED: "Closely related to your target role",
+      ROLE_FAMILY_MATCH: "The kind of work you are looking for",
+      ROLE_FAMILY_ADJACENT: "Related to the work you are looking for",
+      ROLE_MISMATCH: "A different role from the ones you want",
+      LOCATION_EXACT: "In the city you prefer",
+      LOCATION_REGION_MATCH: "In the region you prefer",
+      LOCATION_COUNTRY_MATCH: "In a country you prefer",
+      LOCATION_REMOTE_ELIGIBLE: "Remote, and open to your preferred country",
+      LOCATION_MISMATCH: "Location differs from your preferred location",
+      LOCATION_UNKNOWN: "Location not specified by the employer",
+      WORK_MODE_MATCH: "Work arrangement matches your preference",
+      WORK_MODE_MISMATCH: "Work arrangement differs from your preference",
+      WORK_MODE_UNKNOWN: "Work arrangement not specified by the employer",
+      SALARY_WITHIN_DESIRED_RANGE: "Salary is within your desired range",
+      SALARY_ABOVE_DESIRED_RANGE: "Salary is above your desired range",
+      SALARY_PARTIAL_OVERLAP: "Salary partly overlaps your desired range",
+      SALARY_MEETS_MINIMUM: "Salary meets your minimum",
+      SALARY_BELOW_MINIMUM: "Salary is below your preferred minimum",
+      SALARY_UNKNOWN: "Salary not provided by the employer",
+      SALARY_NOT_COMPARABLE: "Salary could not be compared",
+      EMPLOYMENT_MATCH: "Employment type matches your preference",
+      EMPLOYMENT_MISMATCH: "Employment type differs from your preference",
+      EMPLOYMENT_UNKNOWN: "Employment type not specified by the employer",
+      SENIORITY_MATCH: "Experience level matches your preference",
+      SENIORITY_ADJACENT: "Experience level is close to your preference",
+      SENIORITY_MISMATCH: "Experience level differs from your preference",
+      SENIORITY_UNKNOWN: "Experience level not specified by the employer",
+      INDUSTRY_MATCH: "In an industry you prefer",
+      INDUSTRY_MISMATCH: "Not in the industries you named",
+      INDUSTRY_UNKNOWN: "Industry not specified by the employer",
+      BENEFITS_MATCH: "Offers the benefits you named",
+      BENEFITS_PARTIAL: "Offers some of the benefits you named",
+      BENEFITS_MISMATCH: "Does not list the benefits you named",
+      BENEFITS_UNKNOWN: "Benefits not listed by the employer",
+    },
+},
   vacancyScope: {
     selectorLabel: "My vacancy",
     myVacancies: "My vacancies",
@@ -1673,6 +2120,361 @@ const en = {
       requires_partner_approval: "Requires partner approval",
     },
   },
+
+  /**
+   * Roles published outside HR Copilot.
+   *
+   * The wording carries three promises the rest of the product cannot make on
+   * this screen: applying happens on the employer's own site, the score is
+   * about the search and not about the reader's chances, and anything the
+   * employer did not state is written as unstated rather than filled in.
+   */
+  /**
+   * The candidate's own record of applications made on employers' sites.
+   *
+   * Every string here is written so a reader cannot mistake it for something
+   * this product observed. It never says "your application was received" —
+   * it was not received here, and nobody here can tell them what happened to
+   * it.
+   */
+  externalApplications: {
+    tab: "My external applications",
+    title: "My external applications",
+    description:
+      "Applications you made on employers' own sites. You keep this list up to date yourself — HR Copilot does not receive these applications and cannot check their progress.",
+    managedByYou: "You keep this list up to date yourself.",
+    notInternal:
+      "Applications you made inside HR Copilot are under My applications.",
+    goToInternal: "My applications",
+    markApplied: "Mark as applied",
+    markAppliedHint:
+      "Opening the employer's site does not record anything. Mark it here once you have actually applied.",
+    marking: "Saving…",
+    markFailed: "Could not record this. Try again.",
+    statusLabel: "Application status",
+    updateStatus: "Update status",
+    updateFailed: "Could not update the status. Try again.",
+    removeTracking: "Remove tracking",
+    removeTrackingHint:
+      "Removes your own record. It does not withdraw anything from the employer.",
+    removeFailed: "Could not remove tracking. Try again.",
+    appliedOn: "Applied on {date}",
+    filterAll: "All",
+    clearStatusFilter: "Show all",
+    emptyForStatus: "Nothing with this status.",
+    emptyForStatusHint:
+      "Change the status filter to see your other external applications.",
+    listingGoneTitle: "Listing no longer available",
+    listingGoneHint:
+      "The posting is no longer in the catalogue. Your own record is kept.",
+    listingStatusLabel: "Current listing status",
+    listingActive: "Still listed",
+    note: "Notes",
+    notePlaceholder: "e.g. Recruiter contacted me · Technical interview Sep 4",
+    saveNote: "Save note",
+    noteSaved: "Note saved",
+    empty: "No external applications tracked yet.",
+    emptyHint:
+      "When you apply on an employer's site, mark it here and it will appear in this list.",
+    errorTitle: "This list could not be loaded",
+    errorHint: "It is not reachable right now. Try again.",
+    viewJob: "View job",
+    openOriginal: "Open on employer's site",
+    status: {
+      APPLIED: "Applied",
+      INTERVIEW: "Interview",
+      OFFER: "Offer",
+      REJECTED: "Rejected",
+      WITHDRAWN: "Withdrawn",
+    },
+  },
+
+  externalJobs: {
+    title: "External jobs",
+    description:
+      "Roles published on other job boards and company career sites. You apply on the employer’s own site — HR Copilot does not receive these applications.",
+    searchTab: "Search",
+    whyMatchTitle: "Why this match?",
+    whyMatchInvite: "Get a short written explanation of why this job was ranked where it was.",
+    whyMatchGenerate: "Generate explanation",
+    whyMatchStrengths: "Strengths",
+    whyMatchGaps: "Potential gaps",
+    tabsLabel: "Where the job was published",
+
+    searchLabel: "Search external jobs",
+    searchPlaceholder: "Job title, skill or company",
+    submit: "Search",
+    filters: "Filters",
+    filtersWithCount: "Filters ({count})",
+    filtersTitle: "Filters",
+    applyFilters: "Show results",
+    reset: "Reset filters",
+    resetHint:
+      "Clears only what you chose here. Your saved job preferences are not changed.",
+    close: "Close",
+    moreFilters: "More filters",
+    fewerFilters: "Fewer filters",
+
+    countryLabel: "Country",
+    filterTag: "Filter",
+    preferenceTag: "Preference",
+    countryHint: "Shows only jobs open in the countries you pick.",
+    preferenceHint:
+      "These rank the closest jobs first. Nothing is hidden by them.",
+    workModeLabel: "Work arrangement",
+    employmentLabel: "Employment type",
+    seniorityLabel: "Experience level",
+    salaryLabel: "Minimum salary",
+    salaryAmountPlaceholder: "Amount",
+    currencyLabel: "Currency",
+    payPeriodLabel: "Per",
+    anyOption: "Any",
+    currencyNeeded:
+      "Choose a currency and a period to compare pay across countries.",
+
+    usingPreferences: "Results are personalized using your job preferences.",
+    editPreferences: "Edit preferences",
+
+    resultCount: {
+      one: "{count} matching job",
+      other: "{count} matching jobs",
+    } as Plural,
+    truncatedNote:
+      "Showing the most relevant results. More jobs match these filters.",
+    degradedNotice:
+      "Meaning-based matching is temporarily unavailable. These results come from text matching only.",
+
+    searching: "Searching external jobs…",
+    searchingHint: "The first search after a quiet period can take a few seconds.",
+
+    empty: "No external jobs match your search",
+    emptyHint: "Try one of these:",
+    emptyFewerWords: "Search a job title instead of a sentence",
+    emptyClearCountry: "Remove the country filter",
+    emptyClearAll: "Reset the filters",
+    browseTitle: "Browse external jobs",
+    browseHint:
+      "Search by job title, or open the filters to narrow by country. Your saved preferences already shape the order.",
+
+    errorTitle: "Could not search external jobs",
+    errorHint: "Nothing was computed. Try again in a moment.",
+    retry: "Try again",
+    needsAccountTitle: "Create your profile first",
+    needsAccountHint:
+      "External job search uses your candidate profile to order results. Create one to get started.",
+    goToProfile: "Go to my profile",
+
+    scoreLabel: "Match",
+    scoreValue: "{score} / 100",
+    scoreNote:
+      "How well this job answers your search and your preferences. It is not a chance of being hired.",
+    band: {
+      STRONG: "Strong match",
+      GOOD: "Good match",
+      PARTIAL: "Partial match",
+      LOW: "Low match",
+    },
+    whyThis: "Why this result",
+
+    locationUnknown: "Location not stated",
+    alsoOpenIn: "Also open in",
+    moreLocations: {
+      one: "+{count} more location",
+      other: "+{count} more locations",
+    } as Plural,
+    remoteStated: "Remote · open to {countries}",
+    remoteUnstated: "Remote · countries not stated",
+    remoteUnstatedHint:
+      "The employer did not say which countries this remote role is open to.",
+
+    salaryUnknown: "Salary not provided",
+    salaryNote: "As posted by the employer.",
+
+    staleNotice: "Listing may need re-verification",
+    staleHint:
+      "No source has re-listed this job recently. It may still be open — check the original posting.",
+    // Saving. The control is a toggle, so the label states what the NEXT
+    // press does — "Saved" alone would leave a reader guessing.
+    save: "Save job",
+    savedState: "Saved",
+    unsave: "Remove from saved",
+    saveFailed: "Could not save this job. Try again.",
+    unsaveFailed: "Could not remove this job. Try again.",
+    savedTab: "Saved",
+    savedTitle: "Saved external jobs",
+    savedDescription:
+      "Jobs you kept from External jobs. You apply on the employer's own site.",
+    savedEmpty: "No saved external jobs yet.",
+    savedEmptyHint:
+      "Save jobs while browsing External jobs and they will appear here.",
+    savedPageEmpty: "Nothing on this page.",
+    savedPageEmptyHint: "The rest are on the earlier pages.",
+    savedFirstPage: "Go to the first page",
+    savedErrorTitle: "Saved jobs could not be loaded",
+    savedErrorHint: "The list is not reachable right now. Try again.",
+    savedOn: "Saved {date}",
+    browseExternal: "Browse external jobs",
+    closedNotice: "Listing closed",
+    expiredNotice: "Listing expired",
+    unavailableNotice: "Listing unavailable",
+    unexpectedStatus: "This listing may no longer be open",
+
+    sourceLine: "Source: {source}",
+    applyViaLine: "Apply via: {source}",
+    sourceCountLine: "Listed by {count} sources",
+    sourceUnknown: "External source",
+    source: {
+      GREENHOUSE: "Greenhouse",
+      LEVER: "Lever",
+      ASHBY: "Ashby",
+      NINEHIRE: "Ninehire",
+      COMPANY_CAREERS: "Company careers",
+    },
+
+    apply: "Apply on original site",
+    applyHint:
+      "Opens the employer’s site in a new tab. HR Copilot does not receive this application and cannot track it.",
+    externalLink: "opens in a new tab",
+    viewDetails: "View details",
+    detailsTitle: "Job details",
+    aboutRole: "About this role",
+    requirements: "What they are looking for",
+    noDescription:
+      "This listing has no description here. Open the original posting to read it.",
+    skills: "Skills",
+    languages: "Languages",
+    benefits: "Benefits",
+    industries: "Industries",
+    loadingDetail: "Loading job…",
+    detailError: "Could not load this job.",
+    detailGone: "This job is no longer listed.",
+    companySite: "Company website",
+
+    /**
+     * External-search-only reason codes. Everything else — location, salary,
+     * work mode, employment, seniority — is read from `jobMatch.matchReason`,
+     * because the same verdict has to read the same way on both screens.
+     */
+
+    sortLabel: "Sort by",
+    sortRelevance: "Relevance",
+    sortNewest: "Newest",
+    sortNewestNote:
+      "Ordered by the date each employer published the listing. Jobs whose source states no date come last.",
+
+    postedToday: "Posted today",
+    postedYesterday: "Posted yesterday",
+    postedDaysAgo: {
+      one: "Posted {count} day ago",
+      other: "Posted {count} days ago",
+    } as Plural,
+    postedOn: "Posted {date}",
+    reason: {
+      TEXT_STRONG_MATCH: "Strong match for what you searched",
+      TEXT_TITLE_MATCH: "Matches what you searched",
+      TEXT_PARTIAL_MATCH: "Partly matches what you searched",
+      TEXT_SEMANTIC_MATCH: "Similar to what you searched for",
+      STALE_LISTING: "Listing may need re-verification",
+    },
+  },
+
+  /**
+   * The two AI job searches, and what each one's Apply button means.
+   *
+   * `sourceName` and `applyMeaning` are a pair on purpose: naming the source
+   * without saying what applying does would make the two universes look like a
+   * filing distinction rather than two different promises.
+   */
+  aiJobSearch: {
+    tabsLabel: "AI job search",
+    internalTab: "Internal AI Jobs",
+    externalTab: "External AI Jobs",
+    lockedTabLabel: "{tab} — available on {plan}",
+    internal: {
+      sourceName: "HR Copilot Jobs",
+      applyMeaning: "Apply inside HR Copilot",
+    },
+    external: {
+      sourceName: "External Jobs",
+      applyMeaning: "Apply on the original site",
+    },
+  },
+
+  plans: {
+    title: "Plans",
+    description:
+      "What each plan includes for your job search. Prices are shown per month.",
+    names: { FREE: "Free", PRO: "Pro", MAX: "Max" },
+    availableOn: "Available on {plan}.",
+    upgradeTo: "Upgrade to {plan}",
+    viewPlans: "View plans",
+    priceMonthly: "${amount}/month",
+    currentPlan: "Current plan",
+    currentPlanIs: "You are on {plan}.",
+    noCheckoutNote:
+      "Payment is not available yet, so nothing can be purchased from this page. It is here so you can see what each plan includes.",
+    locked: {
+      INTERNAL_AI_SEARCH: {
+        title: "Internal AI Job Search",
+        description:
+          "Ranks jobs published on HR Copilot against your profile and tells you why each one matched. You can apply to them directly here. Normal job search stays available on every plan.",
+      },
+      EXTERNAL_AI_SEARCH: {
+        title: "External AI Job Search",
+        description:
+          "Searches jobs published outside HR Copilot, saves the ones you want to come back to, and keeps your own record of where you applied. You apply on the employer's own site.",
+      },
+    },
+    cards: {
+      FREE: {
+        tagline: "Search and apply to jobs published on HR Copilot.",
+        features: [
+          "Normal job search",
+          "Apply to HR Copilot jobs",
+          "Saved jobs and application history",
+        ],
+      },
+      PRO: {
+        tagline: "Add AI ranking across HR Copilot jobs.",
+        features: [
+          "Everything in Free",
+          "Internal AI Job Search",
+          "Match reasons for every job",
+        ],
+      },
+      MAX: {
+        tagline: "Add jobs published outside HR Copilot.",
+        features: [
+          "Everything in Pro",
+          "External AI Job Search",
+          "Why this match — AI explanations",
+          "Saved external jobs",
+          "Track where you applied externally",
+        ],
+      },
+    },
+  },
+
+  /**
+   * Copy shared by every on-demand MAX AI feature.
+   *
+   * Lives apart from `externalJobs` because cover letter, interview prep and
+   * the match breakdown will reuse it verbatim — the frame's wording should
+   * not have to be re-agreed per feature, in four languages, each time.
+   */
+  premiumAi: {
+    disclaimer:
+      "Written by AI from your profile and this job posting. It explains the match score — it does not change it, and it can be wrong.",
+    generating: "Writing your explanation…",
+    tryAgain: "Try again",
+    unavailable:
+      "The explanation could not be written just now. Nothing else on this page is affected.",
+    failed: "The explanation could not be loaded.",
+    jobGone: "This job is no longer listed, so there is nothing to explain.",
+    strengthLabel: "strength",
+    gapLabel: "possible gap",
+  },
+
 };
 
 export default en;

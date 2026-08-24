@@ -27,6 +27,7 @@ import type {
 import type { RegisterCandidateDto } from './dto/register-candidate.dto';
 import type { RegisterOrganizationDto } from './dto/register-organization.dto';
 import type { LoginDto } from './dto/login.dto';
+import { CandidateEntitlementsService } from '../entitlements/candidate-entitlements.service';
 import type { InviteUserDto } from './dto/invite-user.dto';
 
 /**
@@ -75,6 +76,9 @@ export class AuthService {
     // StorageModule is @Global, so this needs no module import. Only used to
     // mint the caller's own avatar URL for /auth/me.
     private readonly storage: StorageService,
+    // EntitlementsModule is @Global. /auth/me publishes the plan through the
+    // SAME seam the guards enforce with — never a second plan read.
+    private readonly entitlements: CandidateEntitlementsService,
   ) {}
 
   /**
@@ -438,6 +442,18 @@ export class AuthService {
     // current picture and no response ever carries the storage key.
     const avatarUrl = await signAvatarUrl(this.storage, user.avatarStorageKey);
 
+    /*
+     * The candidate's plan and what it grants, so the UI can label tiers and
+     * lock gated surfaces BEFORE a request earns a 403. Resolved through the
+     * entitlement seam (today the plan column; later the Java Payment
+     * Service) — this response is a mirror of enforcement, never an input to
+     * it: the capability guards re-resolve the plan on every gated request
+     * and remain the final authority whatever a client renders or claims.
+     */
+    const entitlements = user.candidateAccount
+      ? await this.entitlements.entitlementsFor(user.id)
+      : null;
+
     return {
       // Legacy-flat fields, kept for the pre-migration frontend contract.
       id: user.id,
@@ -462,7 +478,13 @@ export class AuthService {
         /// normal state and not a missing value.
         avatarUrl,
       },
-      candidateAccount: { exists: user.candidateAccount !== null },
+      candidateAccount: entitlements
+        ? {
+            exists: true,
+            plan: entitlements.plan,
+            capabilities: entitlements.capabilities,
+          }
+        : { exists: false },
       activeOrganization: active
         ? {
             id: active.organization.id,

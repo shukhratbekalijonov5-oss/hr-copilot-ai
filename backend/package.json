@@ -25,7 +25,19 @@
     "seed:synthetic": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/synthetic-seed.ts",
     "seed:synthetic:reset": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/synthetic-seed.ts --reset",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "external:sync": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/external-sync.ts",
+    "external:verify": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-external-jobs.ts",
+    "external:lifecycle": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-external-lifecycle.ts",
+    "external:dedupe-report": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/analyze-external-dedupe.ts",
+    "external:ashby-listing": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-ashby-listing.ts",
+    "external:ninehire-lifecycle": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-ninehire-lifecycle.ts",
+    "external:company-careers": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-company-careers.ts",
+    "external:index": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/external-index.ts",
+    "external:search-verify": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-external-search.ts",
+    "external:ui-verify": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/verify-external-jobs-ui.ts",
+    "external:sort-measure": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/measure-external-sort.ts",
+    "dev:plan-setup": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/dev-plan-setup.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1113.0",

@@ -100,6 +100,32 @@ const configService = {
   get: jest.fn((_: string, fallback?: unknown) => fallback),
 } as unknown as ConfigService;
 
+/**
+ * The shared job-intent resolver. Returns the "stated nothing" intent, which
+ * is what every existing candidate has — so these tests assert the behaviour
+ * of the overwhelmingly common case.
+ */
+function preferencesMock() {
+  return {
+    resolveIntent: jest.fn().mockResolvedValue({
+      candidateAccountId: 'acc-1',
+      stated: false,
+      roles: [],
+      locations: [],
+      countries: [],
+      workModes: [],
+      compensation: null,
+      employmentTypes: [],
+      seniorityLevels: [],
+      relocation: null,
+      preferredIndustries: [],
+      preferredBenefits: [],
+      exclusions: { companies: [], jobTitles: [], locations: [] },
+      updatedAt: null,
+    }),
+  };
+}
+
 describe('CandidateAccountService', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
   let storage: ReturnType<typeof createStorageMock>;
@@ -109,6 +135,7 @@ describe('CandidateAccountService', () => {
   let service: CandidateAccountService;
   let evidence: ReturnType<typeof evidenceLifecycleMock>;
   let ranking: ReturnType<typeof rankingMock>;
+  let preferences: ReturnType<typeof preferencesMock>;
 
   beforeEach(() => {
     prisma = createPrismaMock();
@@ -118,6 +145,7 @@ describe('CandidateAccountService', () => {
     accountTypes = createAccountTypesMock();
     evidence = evidenceLifecycleMock();
     ranking = rankingMock();
+    preferences = preferencesMock();
     service = new CandidateAccountService(
       prisma as never,
       storage,
@@ -126,6 +154,10 @@ describe('CandidateAccountService', () => {
       accountTypes as never,
       evidence as never,
       ranking as never,
+      // Job Match now reads the candidate's stated intent through the shared
+      // resolver. Read-only and non-scoring — an empty intent must produce
+      // exactly the matches these tests already assert.
+      preferences as never,
       configService,
     );
   });
@@ -396,7 +428,10 @@ describe('CandidateAccountService', () => {
       ranking.currentRun.mockResolvedValue({
         id: 'run-1',
         evidenceRevision: 0,
-        vacancyFingerprint: '12:2026-08-21T00:00:00.000Z',
+        vacancyFingerprint: 'vfp-1',
+        intentFingerprint: 'ih-1',
+        algorithmVersion: 'v2',
+        totalExcluded: 0,
         totalRanked: 57,
         totalEligible: 60,
         capability: {},
@@ -415,7 +450,10 @@ describe('CandidateAccountService', () => {
       ranking.currentRun.mockResolvedValue({
         id: 'run-1',
         evidenceRevision: 0,
-        vacancyFingerprint: '12:2026-08-21T00:00:00.000Z',
+        vacancyFingerprint: 'vfp-1',
+        intentFingerprint: 'ih-1',
+        algorithmVersion: 'v2',
+        totalExcluded: 0,
         totalRanked: 57,
         totalEligible: 60,
         capability: {},
@@ -880,6 +918,177 @@ describe('CandidateAccountService', () => {
       });
     });
   });
+
+  describe('the applicant count a candidate sees on their applications', () => {
+    /*
+     * `application.findMany` serves two different questions here: the page of
+     * applications, and the distinct (vacancy, candidate) pairs behind the
+     * count. The `distinct` argument is what tells them apart.
+     */
+    function applicationsAnd(
+      pairs: { vacancyId: string; candidateId: string }[],
+    ) {
+      prisma.application.findMany.mockImplementation((args: any) =>
+        Promise.resolve(
+          args?.distinct
+            ? pairs
+            : ['vac-1', 'vac-2'].map((vacancyId, i) => ({
+                id: `app-${i + 1}`,
+                status: 'NEW',
+                source: 'DIRECT',
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                vacancy: {
+                  id: vacancyId,
+                  publicSlug: `job-${i + 1}`,
+                  title: 'Backend Engineer',
+                  location: null,
+                  employmentType: 'Full-time',
+                  organization: { name: 'Acme' },
+                },
+              })),
+        ),
+      );
+      prisma.application.count.mockResolvedValue(2);
+      prisma.candidateAccount.findUnique.mockResolvedValue({ id: MY_ACCOUNT });
+    }
+
+    it('reports how many PEOPLE applied, not how many attempts', async () => {
+      applicationsAnd([
+        { vacancyId: 'vac-1', candidateId: 'cand-a' },
+        { vacancyId: 'vac-1', candidateId: 'cand-b' },
+      ]);
+
+      const { data } = await service.listMyApplications(ME, {
+        page: 1,
+        limit: 20,
+        skip: 0,
+      });
+
+      expect((data[0] as any).vacancy.applicantCount).toBe(2);
+    });
+
+    it('gives each vacancy on the page its OWN count', async () => {
+      applicationsAnd([
+        { vacancyId: 'vac-1', candidateId: 'cand-a' },
+        { vacancyId: 'vac-1', candidateId: 'cand-b' },
+        { vacancyId: 'vac-2', candidateId: 'cand-c' },
+      ]);
+
+      const { data } = await service.listMyApplications(ME, {
+        page: 1,
+        limit: 20,
+        skip: 0,
+      });
+
+      expect((data[0] as any).vacancy.applicantCount).toBe(2);
+      expect((data[1] as any).vacancy.applicantCount).toBe(1);
+    });
+
+    it('counts the whole page in ONE query, not one per application', async () => {
+      // An N+1 here grows with how many jobs someone has applied to — the
+      // people who would feel it first are the page's most active users.
+      applicationsAnd([{ vacancyId: 'vac-1', candidateId: 'cand-a' }]);
+
+      await service.listMyApplications(ME, { page: 1, limit: 20, skip: 0 });
+
+      const countingCalls = prisma.application.findMany.mock.calls.filter(
+        ([args]: [any]) => args?.distinct,
+      );
+      // TWO vacancies on the page, ONE counting query. Per-application
+      // counting would show up here as two.
+      expect(countingCalls).toHaveLength(1);
+      expect(countingCalls[0][0].where.vacancyId.in).toEqual([
+        'vac-1',
+        'vac-2',
+      ]);
+      expect(countingCalls[0][0].distinct).toEqual([
+        'vacancyId',
+        'candidateId',
+      ]);
+    });
+
+    it('asks for the count live rather than reading a stored one', async () => {
+      applicationsAnd([{ vacancyId: 'vac-1', candidateId: 'cand-a' }]);
+
+      const { data } = await service.listMyApplications(ME, {
+        page: 1,
+        limit: 20,
+        skip: 0,
+      });
+
+      // Nothing is selected from the Application row itself: a number frozen
+      // at apply time starts drifting the moment anyone else applies.
+      const listCall = prisma.application.findMany.mock.calls.find(
+        ([args]: [any]) => !args?.distinct,
+      );
+      expect(JSON.stringify(listCall[0].select)).not.toContain(
+        'applicantCount',
+      );
+      expect((data[0] as any).vacancy.applicantCount).toBe(1);
+    });
+
+    it('never exposes the vacancy id or anyone who applied', async () => {
+      applicationsAnd([{ vacancyId: 'vac-1', candidateId: 'cand-secret' }]);
+
+      const { data } = await service.listMyApplications(ME, {
+        page: 1,
+        limit: 20,
+        skip: 0,
+      });
+      const payload = JSON.stringify(data);
+
+      expect((data[0] as any).vacancy).not.toHaveProperty('id');
+      expect(payload).not.toContain('vac-1');
+      expect(payload).not.toContain('cand-secret');
+    });
+
+    it('a vacancy with no applicants reports zero rather than nothing', async () => {
+      applicationsAnd([]);
+
+      const { data } = await service.listMyApplications(ME, {
+        page: 1,
+        limit: 20,
+        skip: 0,
+      });
+
+      expect((data[0] as any).vacancy.applicantCount).toBe(0);
+    });
+
+    it('withdrawing recomputes the count instead of adjusting it', async () => {
+      // Withdrawing changes this candidate's status, not how many people
+      // applied — and the number that comes back must still be the live one.
+      applicationsAnd([
+        { vacancyId: 'vac-1', candidateId: 'cand-a' },
+        { vacancyId: 'vac-1', candidateId: 'cand-b' },
+      ]);
+      prisma.application.findFirst.mockResolvedValue({
+        id: 'app-1',
+        status: 'NEW',
+      });
+      prisma.application.update.mockResolvedValue({
+        id: 'app-1',
+        status: 'WITHDRAWN',
+        source: 'DIRECT',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        vacancy: {
+          id: 'vac-1',
+          publicSlug: 'backend-engineer',
+          title: 'Backend Engineer',
+          location: null,
+          employmentType: 'Full-time',
+          organization: { name: 'Acme' },
+        },
+      });
+
+      const result: any = await service.withdraw(ME, 'app-1');
+
+      expect(result.status).toBe('WITHDRAWN');
+      expect(result.vacancy.applicantCount).toBe(2);
+      expect(result.vacancy).not.toHaveProperty('id');
+    });
+  });
 });
 
 /**
@@ -909,16 +1118,27 @@ const evidenceLifecycleMock = () => ({
  * make pagination unstable, so it must be the explicit case, not the default.
  */
 const rankingMock = () => ({
-  vacancyFingerprint: jest
-    .fn()
-    .mockResolvedValue('12:2026-08-21T00:00:00.000Z'),
-  eligibleVacancyIds: jest.fn().mockResolvedValue(['vac-open', 'vac-closed']),
+  fxSnapshot: jest.fn().mockResolvedValue({
+    snapshot: null,
+    freshness: 'UNAVAILABLE',
+    ageMs: null,
+    table: null,
+  }),
+  loadUniverse: jest.fn().mockResolvedValue({
+    rows: [],
+    features: [],
+    fingerprint: 'vfp-1',
+  }),
+  intentHash: jest.fn().mockReturnValue('ih-1'),
   currentRun: jest.fn().mockResolvedValue({
     id: 'run-1',
     evidenceRevision: 0,
-    vacancyFingerprint: '12:2026-08-21T00:00:00.000Z',
+    vacancyFingerprint: 'vfp-1',
+    intentFingerprint: 'ih-1',
+    algorithmVersion: 'v2',
     totalRanked: 2,
     totalEligible: 2,
+    totalExcluded: 0,
     capability: { skills: ['react'] },
     generatedAt: new Date('2026-08-21T00:00:00.000Z'),
   }),
@@ -926,10 +1146,12 @@ const rankingMock = () => ({
     runId: 'run-1',
     totalRanked: 2,
     totalEligible: 2,
+    totalExcluded: 0,
     indexedConsidered: 2,
     capability: {},
     generated: true,
-    fingerprint: '12:2026-08-21T00:00:00.000Z',
+    fingerprint: 'vfp-1',
+    intentFingerprint: 'ih-1',
   }),
   page: jest.fn().mockResolvedValue([]),
   explainPage: jest
@@ -937,3 +1159,172 @@ const rankingMock = () => ({
     .mockResolvedValue({ prose: new Map(), pending: false }),
   invalidate: jest.fn().mockResolvedValue(undefined),
 });
+
+/**
+ * Converted pay on the job page: the candidate's own currency, and never the
+ * employer's original replaced by it.
+ */
+describe('CandidateAccountService.jobSalaryView', () => {
+  const KRW_JOB = {
+    salaryMin: 40_000_000,
+    salaryMax: 55_000_000,
+    currency: 'KRW',
+    payPeriod: 'YEARLY',
+    salaryNegotiable: false,
+  };
+
+  function setup(options: {
+    compensation?: unknown;
+    table?: unknown;
+    vacancy?: unknown;
+  }) {
+    const prisma = createPrismaMock();
+    prisma.candidateAccount.findUnique.mockResolvedValue({ id: MY_ACCOUNT });
+    prisma.vacancy.findFirst.mockResolvedValue(
+      options.vacancy === undefined ? KRW_JOB : options.vacancy,
+    );
+    const preferences = preferencesMock();
+    preferences.resolveIntent.mockResolvedValue({
+      ...emptyIntentFixture(),
+      compensation: options.compensation ?? null,
+    });
+    const ranking = rankingMock();
+    ranking.fxSnapshot.mockResolvedValue({
+      snapshot: options.table
+        ? { snapshotVersion: 'v-abc', fetchedAt: '2026-08-22T12:00:00.000Z' }
+        : null,
+      freshness: options.table ? 'FRESH' : 'UNAVAILABLE',
+      ageMs: options.table ? 60_000 : null,
+      table: options.table ?? null,
+    });
+    const service = new CandidateAccountService(
+      prisma as never,
+      createStorageMock(),
+      createProducerMock() as never,
+      createAiMock() as never,
+      createAccountTypesMock() as never,
+      evidenceLifecycleMock() as never,
+      ranking as never,
+      preferences as never,
+      configService,
+    );
+    return { service, prisma };
+  }
+
+  const USD_YEARLY = {
+    minAmount: 20_000,
+    maxAmount: 40_000,
+    currency: 'USD',
+    payPeriod: 'YEARLY',
+  };
+  const TABLE = { baseCurrency: 'USD', rates: { KRW: 1390 } };
+
+  it('converts into the currency the candidate stated', async () => {
+    const { service } = setup({ compensation: USD_YEARLY, table: TABLE });
+
+    const view = await service.jobSalaryView(ME, 'some-slug');
+
+    expect(view.converted).toEqual({
+      salaryMin: 28_777,
+      salaryMax: 39_568,
+      currency: 'USD',
+      payPeriod: 'YEARLY',
+    });
+    expect(view.reason).toBe('CONVERTED');
+  });
+
+  it('never replaces the ORIGINAL figures the employer stated', async () => {
+    const { service } = setup({ compensation: USD_YEARLY, table: TABLE });
+
+    const view = await service.jobSalaryView(ME, 'some-slug');
+
+    expect(view.original).toMatchObject({
+      salaryMin: 40_000_000,
+      salaryMax: 55_000_000,
+      currency: 'KRW',
+    });
+  });
+
+  it('reports the rates it used, so the page cannot show a different figure', async () => {
+    const { service } = setup({ compensation: USD_YEARLY, table: TABLE });
+
+    const view = await service.jobSalaryView(ME, 'some-slug');
+
+    expect(view.fx).toMatchObject({
+      snapshotVersion: 'v-abc',
+      freshness: 'FRESH',
+    });
+  });
+
+  it('a candidate who stated no salary gets no conversion and no FX read', async () => {
+    // There is no currency to convert INTO. Inventing one (their country's,
+    // say) would be the product deciding how someone thinks about money.
+    const { service } = setup({ compensation: null, table: TABLE });
+
+    const view = await service.jobSalaryView(ME, 'some-slug');
+
+    expect(view.converted).toBeNull();
+    expect(view.reason).toBe('NO_PREFERENCE');
+  });
+
+  it('distinguishes "employer said nothing" from "we could not convert"', async () => {
+    const silent = await setup({
+      compensation: USD_YEARLY,
+      table: TABLE,
+      vacancy: { ...KRW_JOB, salaryMin: null, salaryMax: null, currency: null },
+    }).service.jobSalaryView(ME, 'some-slug');
+    expect(silent.reason).toBe('SALARY_UNKNOWN');
+
+    const noRates = await setup({
+      compensation: USD_YEARLY,
+      table: null,
+    }).service.jobSalaryView(ME, 'some-slug');
+    expect(noRates.reason).toBe('NOT_COMPARABLE');
+  });
+
+  it('says SAME_CURRENCY when no conversion was needed', async () => {
+    const { service } = setup({
+      compensation: USD_YEARLY,
+      table: TABLE,
+      vacancy: {
+        ...KRW_JOB,
+        currency: 'USD',
+        salaryMin: 30_000,
+        salaryMax: 35_000,
+      },
+    });
+
+    const view = await service.jobSalaryView(ME, 'some-slug');
+
+    expect(view.reason).toBe('SAME_CURRENCY');
+    expect(view.fx).toBeNull();
+  });
+
+  it('404s a job that is not OPEN', async () => {
+    const { service } = setup({ compensation: USD_YEARLY, vacancy: null });
+
+    await expect(service.jobSalaryView(ME, 'gone')).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+});
+
+/** The "stated nothing" intent, as the shared resolver returns it. */
+function emptyIntentFixture() {
+  return {
+    candidateAccountId: MY_ACCOUNT,
+    stated: false,
+    roles: [],
+    locations: [],
+    countries: [],
+    workModes: [],
+    compensation: null,
+    employmentTypes: [],
+    seniorityLevels: [],
+    relocation: null,
+    preferredIndustries: [],
+    preferredBenefits: [],
+    exclusions: { companies: [], jobTitles: [], locations: [] },
+    updatedAt: null,
+  };
+}

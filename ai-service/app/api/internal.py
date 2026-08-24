@@ -13,6 +13,7 @@ import time
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from app.api.dependencies import (
+    get_external_job_store,
     get_candidate_store,
     get_cross_encoder,
     get_current_settings,
@@ -28,6 +29,14 @@ from app.common import metrics
 from app.common.logging import get_logger
 from app.mapping import generate_interview_questions, map_requirements
 from app.models.schemas import (
+    ExternalJobDeleteRequest,
+    ExternalJobDeleteResponse,
+    ExternalJobIndexRequest,
+    ExternalJobIndexResponse,
+    ExternalJobSearchRequest,
+    ExternalWhyMatchRequest,
+    ExternalWhyMatchResponse,
+    ExternalJobSearchResponse,
     CandidateSummaryRequest,
     DeleteCandidateResumeRequest,
     IndexCandidateWebSourceRequest,
@@ -36,6 +45,7 @@ from app.models.schemas import (
     JobMatchResponse,
     MatchExplanationsRequest,
     MatchExplanationsResponse,
+    WhyMatchItem,
     ProcessCandidateResumeResponse,
     VacancyDeleteRequest,
     VacancyDeleteResponse,
@@ -58,6 +68,12 @@ from app.models.schemas import (
     SearchResponse,
 )
 from app.candidate import index_vacancy, match_jobs, process_candidate_resume
+from app.candidate.external_jobs import (
+    delete_external_jobs,
+    index_external_jobs,
+    search_external_jobs,
+)
+from app.candidate.external_why_match import explain_external_match
 from app.candidate.job_match import explain_matches
 from app.retrieval import (
     answer_question,
@@ -446,6 +462,78 @@ async def delete_vacancy_endpoint(
         extra={"vacancyId": payload.vacancyId, "stage": "vacancy_delete"},
     )
     return VacancyDeleteResponse(vacancyId=payload.vacancyId, deleted=True)
+
+
+@router.post("/external-jobs/index", response_model=ExternalJobIndexResponse)
+async def index_external_jobs_endpoint(
+    payload: ExternalJobIndexRequest,
+    embedder=Depends(get_embedder),
+    store=Depends(get_external_job_store),
+) -> ExternalJobIndexResponse:
+    """Indexes a batch of external jobs for semantic retrieval. Idempotent."""
+    return index_external_jobs(payload, embedder=embedder, store=store)
+
+
+@router.post("/external-jobs/delete", response_model=ExternalJobDeleteResponse)
+async def delete_external_jobs_endpoint(
+    payload: ExternalJobDeleteRequest,
+    store=Depends(get_external_job_store),
+) -> ExternalJobDeleteResponse:
+    """Removes external jobs from the semantic index. Idempotent."""
+    return delete_external_jobs(payload, store=store)
+
+
+@router.post("/external-jobs/search", response_model=ExternalJobSearchResponse)
+async def search_external_jobs_endpoint(
+    payload: ExternalJobSearchRequest,
+    embedder=Depends(get_embedder),
+    store=Depends(get_external_job_store),
+) -> ExternalJobSearchResponse:
+    """Nearest external jobs to a query.
+
+    Returns CANDIDATES, not results. The backend revalidates every id against
+    PostgreSQL before a person sees it, which is what stops a point left
+    behind by a closed job from resurrecting it.
+    """
+    return search_external_jobs(payload, embedder=embedder, store=store)
+
+
+@router.post(
+    "/external-jobs/why-match", response_model=ExternalWhyMatchResponse
+)
+async def external_why_match_endpoint(
+    payload: ExternalWhyMatchRequest,
+    generator=Depends(get_generator),
+) -> ExternalWhyMatchResponse:
+    """Prose for ONE external job the caller already decided to show.
+
+    Lazy and single-job by design: this runs when a person clicks "why this
+    match?", never as part of a search. It reads no store and ranks nothing —
+    the backend arrives with the candidate's current profile, the job's stored
+    facts and the deterministic match facts already resolved, and this returns
+    sentences about them.
+
+    Raises the shared 503 `generation_unavailable` when no provider is
+    configured or the provider fails; every other external surface keeps
+    working because none of them call this path.
+    """
+    started = time.perf_counter()
+    result = explain_external_match(request=payload, generator=generator)
+    return ExternalWhyMatchResponse(
+        jobId=payload.jobId,
+        locale=payload.locale,
+        summary=result.summary,
+        strengths=[
+            WhyMatchItem(title=item.title, explanation=item.explanation)
+            for item in result.strengths
+        ],
+        gaps=[
+            WhyMatchItem(title=item.title, explanation=item.explanation)
+            for item in result.gaps
+        ],
+        model=generator.model if generator else "",
+        durationMs=int((time.perf_counter() - started) * 1000),
+    )
 
 
 @router.post(

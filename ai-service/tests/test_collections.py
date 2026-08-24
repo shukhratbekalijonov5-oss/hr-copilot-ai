@@ -74,9 +74,13 @@ class TestReindexIntoANewCollection:
             assert f"{base}_v1" in names
             assert f"{base}_v2" in names
         finally:
+            # Delete the COLLECTIONS, not just the points. Deleting only the
+            # document left `reindex_test_*` collection shells behind on every
+            # run; a few hundred of those and Qdrant's per-collection startup
+            # overhead OOMs the container (found 2026-08-24: 146 of them).
             for store in (v1, v2):
                 try:
-                    store.delete_document(org, doc)
+                    store._client.delete_collection(store.collection)
                 except Exception:
                     pass
 
@@ -91,10 +95,16 @@ class TestReindexIntoANewCollection:
 
         name = f"dim_test_{uuid.uuid4().hex[:8]}"
         store = QdrantStore(get_settings().qdrant_url, name)
-        store.ensure_collection(embedder.dimension)
+        try:
+            store.ensure_collection(embedder.dimension)
 
-        with pytest.raises(VectorStoreUnavailableError, match="vector size"):
-            store.ensure_collection(embedder.dimension + 128)
+            with pytest.raises(VectorStoreUnavailableError, match="vector size"):
+                store.ensure_collection(embedder.dimension + 128)
+        finally:
+            try:
+                store._client.delete_collection(store.collection)
+            except Exception:
+                pass
 
     def test_ensure_collection_is_idempotent(self, qdrant_available, embedder):
         if not qdrant_available:
@@ -105,5 +115,11 @@ class TestReindexIntoANewCollection:
 
         store = QdrantStore(get_settings().qdrant_url, f"idem_{uuid.uuid4().hex[:8]}")
 
-        assert store.ensure_collection(embedder.dimension) is True
-        assert store.ensure_collection(embedder.dimension) is False
+        try:
+            assert store.ensure_collection(embedder.dimension) is True
+            assert store.ensure_collection(embedder.dimension) is False
+        finally:
+            try:
+                store._client.delete_collection(store.collection)
+            except Exception:
+                pass

@@ -37,7 +37,7 @@ export function MyApplicationsView({
 }: {
   applications: MyApplication[];
 }) {
-  const { d, f, date } = useI18n();
+  const { d, f, p, date } = useI18n();
   const [rows, setRows] = useState(applications);
   const [failure, setFailure] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -125,6 +125,17 @@ export function MyApplicationsView({
                   {f(d.applications.appliedOn, {
                     date: date(application.createdAt),
                   })}
+                </span>
+                {/*
+                  The same live number the recruiter reads and the job board
+                  shows — how many PEOPLE applied, never who. Sits in the meta
+                  row beside the applied-on date rather than adding a line.
+                */}
+                <span aria-hidden className="text-ink-subtle/50">
+                  &middot;
+                </span>
+                <span>
+                  {p(d.jobs.applicantCount, application.job.applicantCount)}
                 </span>
 
                 {WITHDRAWABLE.includes(application.status) ? (

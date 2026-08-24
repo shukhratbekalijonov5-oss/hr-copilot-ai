@@ -68,6 +68,78 @@ export interface AppConfiguration {
     ttlMs: number;
     limit: number;
   };
+  /**
+   * Exchange rates, used to compare a job's salary against what a candidate
+   * asked for when the two are quoted in different currencies.
+   *
+   * Both fields are optional and the product works without them: an
+   * unconfigured or unreachable provider means the FX snapshot is UNAVAILABLE,
+   * a cross-currency salary reports NOT_COMPARABLE, and the job still ranks
+   * and is still shown. Salary is a soft signal; it never gates a job.
+   *
+   * `baseUrl` is deliberately its own setting rather than a constant baked
+   * into the code. An API key does not identify its provider, and hard-coding
+   * a guessed endpoint would send a real credential to a service that may not
+   * be the one it belongs to.
+   */
+  /**
+   * External job ingestion.
+   *
+   * Every value is optional and the product works with none of them set: no
+   * board tokens means no provider is registered, which means no network call
+   * is ever made and the external catalogue simply stays empty.
+   *
+   * Board tokens are configuration rather than constants because which
+   * employers a deployment follows is an operational decision. There is
+   * deliberately no credential here — the Greenhouse Job Board API's read path
+   * is public, and a key field would only invite pointing this at the private
+   * Harvest API, which this product has no business reading.
+   */
+  externalJobs: {
+    /** Comma-separated public Greenhouse board tokens. Empty = disabled. */
+    greenhouseBoards: string;
+    /** Comma-separated public Lever site slugs. Empty = disabled. */
+    leverSites: string;
+    /** Postings per Lever request. Bounded in the provider regardless. */
+    leverPageSize: number;
+    /** Comma-separated public Ashby job-board names. Empty = disabled. */
+    ashbyBoards: string;
+    /**
+     * Approved company careers source IDs, comma-separated — never URLs. The
+     * ids select from a catalogue in code that carries each site's access
+     * review; an unknown id is dropped. Empty = disabled.
+     */
+    companyCareersSources: string;
+    /**
+     * Authorized Ninehire workspaces as `scope:SECRET_ENV_VAR`. The value
+     * names an environment variable; it is NEVER the key itself. Empty =
+     * disabled, and a source whose variable is unset is dropped rather than
+     * scheduled.
+     */
+    ninehireSources: string;
+    ninehirePageSize: number;
+    /** Detail calls per sweep. Bounds the 60/minute-per-key budget. */
+    ninehireDetailBudget: number;
+    /** Whether repeating sweeps are registered at boot. Default false. */
+    scheduleEnabled: boolean;
+    syncIntervalMs: number;
+    requestTimeoutMs: number;
+    maxAttempts: number;
+  };
+
+  exchangeRates: {
+    /** Provider credential. Never logged, never returned by any endpoint. */
+    apiKey: string;
+    /**
+     * Full request URL template for a latest-rates call. `{key}` and `{base}`
+     * are substituted. Empty string = no provider configured.
+     */
+    baseUrl: string;
+    /** Currency the provider's rate table is expressed against. */
+    baseCurrency: string;
+    refreshIntervalMs: number;
+    requestTimeoutMs: number;
+  };
 }
 
 const toInt = (value: string | undefined, fallback: number): number => {
@@ -124,5 +196,32 @@ export default (): AppConfiguration => ({
   throttle: {
     ttlMs: toInt(process.env.THROTTLE_TTL_MS, 60_000),
     limit: toInt(process.env.THROTTLE_LIMIT, 120),
+  },
+  externalJobs: {
+    greenhouseBoards: process.env.EXTERNAL_GREENHOUSE_BOARDS ?? '',
+    leverSites: process.env.EXTERNAL_LEVER_SITES ?? '',
+    leverPageSize: toInt(process.env.EXTERNAL_LEVER_PAGE_SIZE, 100),
+    ashbyBoards: process.env.EXTERNAL_ASHBY_BOARDS ?? '',
+    companyCareersSources: process.env.EXTERNAL_COMPANY_CAREERS_SOURCES ?? '',
+    ninehireSources: process.env.EXTERNAL_NINEHIRE_SOURCES ?? '',
+    ninehirePageSize: toInt(process.env.EXTERNAL_NINEHIRE_PAGE_SIZE, 100),
+    ninehireDetailBudget: toInt(
+      process.env.EXTERNAL_NINEHIRE_DETAIL_BUDGET,
+      200,
+    ),
+    scheduleEnabled: process.env.EXTERNAL_SYNC_ENABLED === 'true',
+    syncIntervalMs: toInt(
+      process.env.EXTERNAL_SYNC_INTERVAL_MS,
+      6 * 60 * 60_000,
+    ),
+    requestTimeoutMs: toInt(process.env.EXTERNAL_REQUEST_TIMEOUT_MS, 20_000),
+    maxAttempts: toInt(process.env.EXTERNAL_MAX_ATTEMPTS, 3),
+  },
+  exchangeRates: {
+    apiKey: process.env.EXCHANGE_RATE_API_KEY ?? '',
+    baseUrl: process.env.EXCHANGE_RATE_API_URL ?? '',
+    baseCurrency: process.env.EXCHANGE_RATE_BASE_CURRENCY ?? 'USD',
+    refreshIntervalMs: toInt(process.env.EXCHANGE_RATE_REFRESH_MS, 30 * 60_000),
+    requestTimeoutMs: toInt(process.env.EXCHANGE_RATE_TIMEOUT_MS, 10_000),
   },
 });

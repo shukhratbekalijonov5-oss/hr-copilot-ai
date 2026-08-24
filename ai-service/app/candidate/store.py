@@ -47,6 +47,7 @@ logger = get_logger(__name__)
 # Distinct namespaces so ids can never collide with the org collection's.
 _CANDIDATE_POINT_NAMESPACE = uuid.UUID("b4c9d7e2-1a35-4f68-8c02-9d64e7a1f503")
 _VACANCY_POINT_NAMESPACE = uuid.UUID("3e8a17c6-52d4-4b09-9f71-08b52c6d94ae")
+_EXTERNAL_JOB_POINT_NAMESPACE = uuid.UUID("7c1f4b90-6d23-4e58-a4b7-2f9e0c83d615")
 
 
 def candidate_point_id(document_id: str, chunk_index: int) -> str:
@@ -55,6 +56,18 @@ def candidate_point_id(document_id: str, chunk_index: int) -> str:
 
 def vacancy_point_id(vacancy_id: str, chunk_index: int) -> str:
     return str(uuid.uuid5(_VACANCY_POINT_NAMESPACE, f"{vacancy_id}:{chunk_index}"))
+
+
+def external_job_point_id(external_job_id: str) -> str:
+    """ONE point per canonical external job — no chunk index.
+
+    Deliberately different from the vacancy scheme. An external job may carry
+    several ``ExternalJobSource`` rows (a company careers page and the ATS
+    behind it are one job seen twice), and indexing per source would return
+    the same job two or three times from one search. The canonical id is the
+    thing a candidate is shown, so it is the thing that gets a vector.
+    """
+    return str(uuid.uuid5(_EXTERNAL_JOB_POINT_NAMESPACE, external_job_id))
 
 
 class _BaseStore:
@@ -403,3 +416,81 @@ class VacancyStore(_BaseStore):
                 if offset is None:
                     break
         return collected
+
+
+class ExternalJobStore(_BaseStore):
+    """Semantic retrieval over the external job catalogue.
+
+    ## What this collection is FOR, and what it must never become
+
+    It is a CANDIDATE-SET ACCELERATOR. It answers "which jobs read like this
+    query?" so the backend can score a few hundred instead of a million, and
+    it answers nothing else. It does not decide which jobs exist, whether a
+    job is still open, or where a job ranks — the backend revalidates every id
+    against PostgreSQL before a candidate sees it, precisely so that a point
+    left behind by a job that closed an hour ago is harmless rather than a
+    resurrection.
+
+    That is also why lag here is tolerable by design: this index may be
+    stale, incomplete or entirely unavailable, and the search still returns
+    correct results through the lexical path. Losing it costs recall, never
+    correctness.
+
+    ## One point per job
+
+    See ``external_job_point_id``. Status lives in the payload so an obviously
+    dead point can be filtered cheaply on the way out, but that filter is an
+    optimisation and never the authority.
+    """
+
+    _INDEX_FIELDS = ("externalJobId", "status")
+
+    def ensure_collection(self, dimension: int) -> None:
+        self._ensure(dimension, self._INDEX_FIELDS)
+
+    def delete_jobs(self, external_job_ids: list[str]) -> int:
+        """Removes named jobs. Idempotent: an absent id is not an error."""
+        ids = [job_id for job_id in external_job_ids if job_id]
+        if not ids:
+            return 0
+        self._delete_where([_match_any("externalJobId", ids)])
+        return len(ids)
+
+    def upsert_jobs(
+        self,
+        *,
+        payloads: list[dict[str, Any]],
+        vectors: list[list[float]],
+    ) -> int:
+        """Replace semantics per job, so a queue retry cannot duplicate."""
+        if len(payloads) != len(vectors):
+            raise ValueError("payload/vector count mismatch")
+        if not payloads:
+            return 0
+        points = [
+            qmodels.PointStruct(
+                id=external_job_point_id(payload["externalJobId"]),
+                vector=vector,
+                payload=payload,
+            )
+            for payload, vector in zip(payloads, vectors)
+        ]
+        return self._upsert(points)
+
+    def search(
+        self,
+        *,
+        query_vector: list[float],
+        limit: int,
+        statuses: list[str] | None = None,
+    ) -> list[SearchHit]:
+        """Nearest jobs to a query vector.
+
+        The status filter narrows the read cheaply; it is NOT what keeps a
+        closed job out of a candidate's results. The backend's PostgreSQL
+        revalidation is, and it runs whether or not this filter was applied.
+        """
+        must: list[Any] = []
+        if statuses:
+            must.append(_match_any("status", statuses))
+        return self._query(query_vector, must, limit)

@@ -17,6 +17,10 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { AccountModule } from './account/account.module';
 import { CandidateAccountModule } from './candidate-account/candidate-account.module';
+import { EntitlementsModule } from './entitlements/entitlements.module';
+import { PlanCapabilityGuard } from './entitlements/plan-capability.guard';
+import { CandidatePreferencesModule } from './candidate-preferences/candidate-preferences.module';
+import { ExternalJobsModule } from './external-jobs/external-jobs.module';
 import { CandidateLinksModule } from './candidate-links/candidate-links.module';
 import { WebIngestionModule } from './web-ingestion/web-ingestion.module';
 import { PublicJobsModule } from './public-jobs/public-jobs.module';
@@ -82,6 +86,11 @@ import { RolesGuard } from './common/guards/roles.guard';
     AuthModule,
     AccountModule,
     CandidateAccountModule,
+    EntitlementsModule,
+    CandidatePreferencesModule,
+    // External job ingestion. Registers no scheduler and calls no
+    // provider yet: the pipeline exists so an implementation can plug in.
+    ExternalJobsModule,
     CandidateLinksModule,
     PublicJobsModule,
     UsersModule,
@@ -104,6 +113,9 @@ import { RolesGuard } from './common/guards/roles.guard';
     { provide: APP_GUARD, useClass: CandidateContextGuard },
     { provide: APP_GUARD, useClass: OrgContextGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Plan entitlements come AFTER identity/type/role: a recruiter on a
+    // candidate surface is an account-type mismatch, never an upsell.
+    { provide: APP_GUARD, useClass: PlanCapabilityGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })

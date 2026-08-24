@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
 import { AccountProfileCard } from "@/components/account/AccountProfileCard";
+import Link from "next/link";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { buttonStyles } from "@/components/ui/Button";
 import { getTranslations } from "@/lib/i18n/server";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CandidateProfileWorkspace } from "@/components/candidate/CandidateProfileWorkspace";
@@ -58,6 +60,26 @@ export default async function MyProfilePage() {
         <CardBody>
           <AccountProfileCard user={session} />
         </CardBody>
+      </Card>
+
+      {/*
+        A pointer, not a second home for the data. The profile says who someone
+        is and what they can demonstrate; what they WANT lives on its own page
+        because it drives every job-search surface and changes independently.
+      */}
+      <Card className="mb-4">
+        <CardHeader
+          title={d.jobPreferences.title}
+          description={d.jobPreferences.description}
+          action={
+            <Link
+              href="/job-preferences"
+              className={buttonStyles("secondary", "sm")}
+            >
+              {d.common.edit}
+            </Link>
+          }
+        />
       </Card>
 
       <CandidateProfileWorkspace

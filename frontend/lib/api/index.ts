@@ -14,6 +14,7 @@ import * as candidateLinks from "@/lib/api/candidate-links.service";
 import * as candidates from "@/lib/api/candidates.service";
 import * as compare from "@/lib/api/compare.service";
 import * as dashboard from "@/lib/api/dashboard.service";
+import * as externalJobs from "@/lib/api/external-jobs.service";
 import * as interviewChat from "@/lib/api/interview-chat.service";
 import * as notifications from "@/lib/api/notifications.service";
 import * as processing from "@/lib/api/processing.service";
@@ -131,8 +132,27 @@ export const api = {
   withdrawApplication: candidateAccount.withdrawApplication,
   getSavedJobs: candidateAccount.getSavedJobs,
   getJobMatches: candidateAccount.getJobMatches,
+  getJobPreferences: candidateAccount.getJobPreferences,
+  saveJobPreferences: candidateAccount.saveJobPreferences,
+  deleteJobPreferences: candidateAccount.deleteJobPreferences,
+  getJobSearchContext: candidateAccount.getJobSearchContext,
+  getJobSalaryView: candidateAccount.getJobSalaryView,
   saveJob: candidateAccount.saveJob,
   unsaveJob: candidateAccount.unsaveJob,
+  // external jobs (published outside HR Copilot; applying leaves the product)
+  searchExternalJobs: externalJobs.searchExternalJobs,
+  getExternalJob: externalJobs.getExternalJob,
+  // Saving and the candidate's own application tracking. Independent of each
+  // other, and of everything under /jobs and /my-applications.
+  saveExternalJob: externalJobs.saveExternalJob,
+  unsaveExternalJob: externalJobs.unsaveExternalJob,
+  getSavedExternalJobs: externalJobs.getSavedExternalJobs,
+  trackExternalApplication: externalJobs.trackExternalApplication,
+  updateExternalApplication: externalJobs.updateExternalApplication,
+  deleteExternalApplication: externalJobs.deleteExternalApplication,
+  getExternalApplications: externalJobs.getExternalApplications,
+  explainExternalMatch: externalJobs.explainExternalMatch,
+
   getPublicJobs: publicJobs.getPublicJobs,
   getPublicJob: publicJobs.getPublicJob,
   applyToJob: publicJobs.applyToJob,

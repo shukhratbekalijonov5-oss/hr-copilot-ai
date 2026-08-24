@@ -86,6 +86,13 @@ export const SettingsIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const EditIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </Icon>
+);
+
 export const BellIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M18 8.5a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5" />
@@ -122,6 +129,27 @@ export const UploadIcon = (p: IconProps) => (
     <path d="M21 15v3.5A2.5 2.5 0 0 1 18.5 21h-13A2.5 2.5 0 0 1 3 18.5V15" />
     <path d="m7.5 8.5 4.5-4.5 4.5 4.5" />
     <path d="M12 4v12" />
+  </Icon>
+);
+
+/**
+ * Bookmark, in two states.
+ *
+ * A bookmark rather than a star or a heart: those read as rating and
+ * affection, and saving a job is neither. The filled variant exists to make
+ * the state glanceable, but it never carries it alone — every control using
+ * these renders a text label and `aria-pressed` beside them, because a reader
+ * who cannot distinguish the fills would otherwise have no way to know.
+ */
+export const BookmarkIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 4.5h12v15l-6-4.5-6 4.5z" />
+  </Icon>
+);
+
+export const BookmarkFilledIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 4.5h12v15l-6-4.5-6 4.5z" fill="currentColor" />
   </Icon>
 );
 
@@ -284,6 +312,15 @@ export const GlobeIcon = (p: IconProps) => (
     <circle cx="12" cy="12" r="9" />
     <path d="M3 12h18" />
     <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" />
+  </Icon>
+);
+
+/** Leaving the product. Drawn beside every link that opens someone else's site. */
+export const ExternalLinkIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M14 4h6v6" />
+    <path d="M20 4 10.5 13.5" />
+    <path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
   </Icon>
 );
 

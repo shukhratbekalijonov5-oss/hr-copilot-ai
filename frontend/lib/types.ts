@@ -1,3 +1,5 @@
+import type { Entitlements } from "@/lib/entitlements/plan";
+
 /**
  * Domain types for HR Copilot AI.
  *
@@ -98,6 +100,11 @@ export interface SessionUser {
   avatarUrl: string | null;
   /** True once the user has created their personal job-seeker profile. */
   hasCandidateAccount: boolean;
+  /**
+   * What this account's plan unlocks, resolved once here from whatever the
+   * backend stated. Screens ask `canUseExternalAiJobs`, never `plan === "MAX"`.
+   */
+  entitlements: Entitlements;
   activeOrganization: ActiveOrganization | null;
   memberships: Membership[];
 }
@@ -229,6 +236,159 @@ export const VACANCY_STATUSES = [
 ] as const;
 export type VacancyStatus = (typeof VACANCY_STATUSES)[number];
 
+/* -------------------------------------------------------------------------- */
+/* Structured job vocabulary — mirrors the prisma enums of the same names      */
+/*                                                                            */
+/* These are the words a JOB is described in. Internal vacancies are the only  */
+/* producer today, but the names are chosen so an externally sourced job can   */
+/* normalize into exactly these values later without a translation layer.      */
+/* -------------------------------------------------------------------------- */
+
+export const PAY_PERIODS = ["HOURLY", "MONTHLY", "YEARLY"] as const;
+export type PayPeriod = (typeof PAY_PERIODS)[number];
+
+export const WORK_MODES = ["ONSITE", "HYBRID", "REMOTE"] as const;
+export type WorkMode = (typeof WORK_MODES)[number];
+
+/** UNKNOWN is a real answer: the employer did not say, so we do not either. */
+export const VISA_SPONSORSHIP_VALUES = ["YES", "NO", "UNKNOWN"] as const;
+export type VisaSponsorship = (typeof VISA_SPONSORSHIP_VALUES)[number];
+
+export const CITIZENSHIP_REQUIREMENTS = ["NONE", "SPECIFIC"] as const;
+export type CitizenshipRequirement = (typeof CITIZENSHIP_REQUIREMENTS)[number];
+
+export const SENIORITY_LEVELS = [
+  "INTERN",
+  "JUNIOR",
+  "MID",
+  "SENIOR",
+  "LEAD",
+  "STAFF",
+  "MANAGER",
+] as const;
+export type SeniorityLevel = (typeof SENIORITY_LEVELS)[number];
+
+/** ONE scale: CEFR plus NATIVE. "Business"/"conversational" are deliberately absent. */
+export const LANGUAGE_PROFICIENCIES = [
+  "A1",
+  "A2",
+  "B1",
+  "B2",
+  "C1",
+  "C2",
+  "NATIVE",
+] as const;
+export type LanguageProficiency = (typeof LANGUAGE_PROFICIENCIES)[number];
+
+export const EDUCATION_LEVELS = [
+  "HIGH_SCHOOL",
+  "ASSOCIATE",
+  "BACHELOR",
+  "MASTER",
+  "DOCTORATE",
+] as const;
+export type EducationLevel = (typeof EDUCATION_LEVELS)[number];
+
+export const HIRING_URGENCIES = ["LOW", "NORMAL", "HIGH"] as const;
+export type HiringUrgency = (typeof HIRING_URGENCIES)[number];
+
+export const JOB_BENEFITS = [
+  "HEALTH_INSURANCE",
+  "MEAL_ALLOWANCE",
+  "HOUSING_SUPPORT",
+  "RELOCATION_SUPPORT",
+  "EDUCATION_BUDGET",
+  "REMOTE_ALLOWANCE",
+  "FLEXIBLE_HOURS",
+  "STOCK_OPTIONS",
+  "BONUS",
+  "PAID_LEAVE",
+  "OTHER",
+] as const;
+export type JobBenefit = (typeof JOB_BENEFITS)[number];
+
+export const EMPLOYMENT_TYPES = [
+  "FULL_TIME",
+  "PART_TIME",
+  "CONTRACT",
+  "INTERNSHIP",
+  "TEMPORARY",
+] as const;
+/**
+ * Normalized employment type — what candidate PREFERENCES store.
+ *
+ * `Vacancy.employmentType` is still the original free text ("Full-time"); the
+ * backend's `normalizeEmploymentType` is the single bridge between the two, so
+ * there is one vocabulary with one translation point rather than two that drift.
+ */
+export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
+
+/** One language the role needs, at one level. */
+export interface VacancyLanguageRequirement {
+  /** BCP-47 primary subtag, lowercase — not limited to the four UI locales. */
+  languageCode: string;
+  level: LanguageProficiency;
+  /** true = must have, false = nice to have. */
+  required: boolean;
+}
+
+/**
+ * The structured description of a job, shared by internal vacancies and (in a
+ * later phase) normalized external jobs.
+ *
+ * EVERY field is nullable, and that is load-bearing: null means the employer
+ * did not state it. A vacancy written before the structured model existed
+ * carries nothing but the legacy free-text `location`, and must render as
+ * "not specified" rather than as a value nobody gave.
+ */
+export interface JobProfile {
+  salaryMin: number | null;
+  salaryMax: number | null;
+  /** ISO-4217 alpha-3. */
+  currency: string | null;
+  payPeriod: PayPeriod | null;
+  salaryNegotiable: boolean;
+
+  /** ISO 3166-1 alpha-2 — a code, so all four locales render one value. */
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  workMode: WorkMode | null;
+  /** 0–7; only meaningful for ONSITE/HYBRID. */
+  officeDaysPerWeek: number | null;
+  /** ISO 3166-1 alpha-2; only meaningful for REMOTE. */
+  remoteCountriesAllowed: string[];
+
+  /** Tri-state — null means the employer did not say. */
+  foreignApplicantsAccepted: boolean | null;
+  visaSponsorship: VisaSponsorship;
+  /** Tri-state, same reason. */
+  existingWorkAuthorizationRequired: boolean | null;
+  /** Free-form per-country visa classes: "E-7", "H-1B". */
+  eligibleVisaTypes: string[];
+  citizenshipRequirement: CitizenshipRequirement;
+  eligibleNationalities: string[];
+
+  seniorityLevel: SeniorityLevel | null;
+  minExperienceYears: number | null;
+  preferredExperienceYears: number | null;
+
+  requiredEducation: EducationLevel | null;
+  preferredEducation: EducationLevel | null;
+  requiredCertifications: string[];
+  preferredCertifications: string[];
+  domainExperience: string[];
+
+  benefits: JobBenefit[];
+  benefitsOther: string | null;
+
+  applicationDeadline: ISODateString | null;
+  expectedStartDate: ISODateString | null;
+  openingsCount: number | null;
+  hiringUrgency: HiringUrgency | null;
+  contractDurationMonths: number | null;
+}
+
 export const REQUIREMENT_TYPES = [
   "SKILL",
   "EXPERIENCE",
@@ -248,11 +408,15 @@ export interface JobRequirement {
   required: boolean;
 }
 
-export interface Vacancy {
+export interface Vacancy extends JobProfile {
   id: ID;
   organizationId: ID;
   title: string;
   department: string | null;
+  /**
+   * LEGACY free-text location. Superseded by country/region/city + workMode,
+   * still displayed as a fallback for vacancies that predate them.
+   */
   location: string | null;
   /** Free-form on the API, not an enum. */
   employmentType: string | null;
@@ -263,13 +427,22 @@ export interface Vacancy {
   createdAt: ISODateString;
   updatedAt: ISODateString;
   requirements: JobRequirement[];
+  /** Empty on list payloads, which deliberately omit the relation. */
+  languages: VacancyLanguageRequirement[];
   /** Derived from `_count.applications` — candidates attached to this vacancy. */
   candidateCount: number;
   /** Derived from `_count.requirements` when the list endpoint omits them. */
   requirementCount: number;
 }
 
-export interface CreateVacancyInput {
+/**
+ * What the create/edit form sends.
+ *
+ * Every structured field is optional, and an ABSENT key means "leave it
+ * alone" on a PATCH — never "clear it". `languages` is the one exception with
+ * set semantics: present replaces the whole set, `[]` clears it.
+ */
+export interface CreateVacancyInput extends Partial<Omit<JobProfile, "languages">> {
   title: string;
   department?: string;
   location?: string;
@@ -277,7 +450,14 @@ export interface CreateVacancyInput {
   experienceLevel?: string;
   description?: string;
   status?: Extract<VacancyStatus, "DRAFT" | "OPEN">;
+  languages?: {
+    languageCode: string;
+    level: LanguageProficiency;
+    required?: boolean;
+  }[];
 }
+
+export type UpdateVacancyInput = Partial<CreateVacancyInput>;
 
 export interface JobRequirementInput {
   text: string;
@@ -1108,6 +1288,153 @@ export interface CandidateAccountInput {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Candidate job preferences — what the candidate WANTS                        */
+/*                                                                            */
+/* A different layer from everything around it: the profile says who they are, */
+/* their documents and links say what they can demonstrate, and THIS says what */
+/* they are looking for. Expressed in the same vocabulary a job is, so the two */
+/* are comparable — and so a future external job normalizes into the same      */
+/* value space without a translation layer.                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One place the candidate wants — or refuses.
+ *
+ * The country is canonical (ISO 3166-1 alpha-2) and localized only for
+ * display; region and city are the candidate's own words kept in their
+ * country's context, so "Cambridge" is never ambiguous. Not geocoded, and the
+ * UI does not pretend otherwise.
+ */
+export interface JobIntentLocation {
+  countryCode: string;
+  region: string | null;
+  city: string | null;
+}
+
+export interface JobIntentCompensation {
+  minAmount: number;
+  /** Null when only a floor was stated. Never a ceiling. */
+  maxAmount: number | null;
+  currency: string;
+  payPeriod: PayPeriod;
+}
+
+/**
+ * The candidate's stated preferences, exactly as they stated them.
+ *
+ * EMPTY AND NULL ARE ANSWERS. `preferredWorkModes: []` means "stated no
+ * work-mode preference", never "rejects every work mode"; `desiredSalaryMin:
+ * null` means "named no threshold", never zero; `willingToRelocate: null`
+ * means "did not say", never false. Every screen must preserve that.
+ */
+export interface CandidateJobPreferences {
+  /** Whether a preference profile exists at all — distinct from a blank one. */
+  stated: boolean;
+  preferredJobTitles: string[];
+  preferredLocations: JobIntentLocation[];
+  preferredWorkModes: WorkMode[];
+  preferredEmploymentTypes: EmploymentType[];
+  preferredSeniorityLevels: SeniorityLevel[];
+  desiredSalaryMin: number | null;
+  /** Top of the range they had in mind. A target, never a ceiling. */
+  desiredSalaryMax: number | null;
+  salaryCurrency: string | null;
+  payPeriod: PayPeriod | null;
+  willingToRelocate: boolean | null;
+  preferredIndustries: string[];
+  preferredBenefits: JobBenefit[];
+  excludedCompanies: string[];
+  excludedJobTitles: string[];
+  excludedLocations: JobIntentLocation[];
+  createdAt: ISODateString | null;
+  updatedAt: ISODateString | null;
+}
+
+/**
+ * PUT body — the COMPLETE current state.
+ *
+ * Anything absent is not stated: an absent list is empty, an absent scalar is
+ * null. There is deliberately no "leave this one alone", so a saved profile is
+ * always exactly what the candidate last confirmed.
+ */
+export interface JobPreferencesInput {
+  preferredJobTitles?: string[];
+  preferredLocations?: JobIntentLocation[];
+  preferredWorkModes?: WorkMode[];
+  preferredEmploymentTypes?: EmploymentType[];
+  preferredSeniorityLevels?: SeniorityLevel[];
+  desiredSalaryMin?: number | null;
+  desiredSalaryMax?: number | null;
+  salaryCurrency?: string | null;
+  payPeriod?: PayPeriod | null;
+  willingToRelocate?: boolean | null;
+  preferredIndustries?: string[];
+  preferredBenefits?: JobBenefit[];
+  excludedCompanies?: string[];
+  excludedJobTitles?: string[];
+  excludedLocations?: JobIntentLocation[];
+}
+
+/**
+ * The canonical intent every candidate→jobs surface reads.
+ *
+ * Deliberately the same shape the backend resolver produces: one candidate has
+ * ONE interpretation of what they want, whether it is being matched against an
+ * internal vacancy or (later) a Greenhouse, Lever, Ashby or Ninehire job.
+ */
+export interface CandidateJobIntent {
+  candidateAccountId: ID;
+  stated: boolean;
+  roles: string[];
+  locations: JobIntentLocation[];
+  /** De-duplicated country codes from `locations`; derived, never stored. */
+  countries: string[];
+  workModes: WorkMode[];
+  compensation: JobIntentCompensation | null;
+  employmentTypes: EmploymentType[];
+  seniorityLevels: SeniorityLevel[];
+  relocation: boolean | null;
+  preferredIndustries: string[];
+  preferredBenefits: JobBenefit[];
+  exclusions: {
+    companies: string[];
+    jobTitles: string[];
+    locations: JobIntentLocation[];
+  };
+  updatedAt: ISODateString | null;
+}
+
+/**
+ * Where one search dimension's value came from.
+ *
+ * UNSPECIFIED means NO RESTRICTION — never "reject everything".
+ */
+export type JobIntentSource = "REQUEST" | "PREFERENCE" | "UNSPECIFIED";
+
+export interface ResolvedDimension<T> {
+  value: T;
+  source: JobIntentSource;
+}
+
+/** One search's effective intent, dimension by dimension. */
+export interface JobSearchContext {
+  candidateAccountId: ID;
+  jobIntent: CandidateJobIntent;
+  resolved: {
+    query: ResolvedDimension<string | null>;
+    roles: ResolvedDimension<string[]>;
+    countries: ResolvedDimension<string[]>;
+    workModes: ResolvedDimension<WorkMode[]>;
+    employmentTypes: ResolvedDimension<EmploymentType[]>;
+    seniorityLevels: ResolvedDimension<SeniorityLevel[]>;
+    compensation: ResolvedDimension<JobIntentCompensation | null>;
+    exclusions: CandidateJobIntent["exclusions"];
+  };
+  locale: string;
+}
+
+
+/* -------------------------------------------------------------------------- */
 /* Public job board                                                            */
 /* -------------------------------------------------------------------------- */
 
@@ -1118,6 +1445,10 @@ export interface CandidateAccountInput {
  * carrying advertisement-safe fields alone: no applicant counts, no creator,
  * no processing or evidence data.
  */
+/**
+ * A job CARD. Carries the structured facts a seeker actually filters on —
+ * pay, where, how remote, how senior — and none of the long tail.
+ */
 export interface PublicJob {
   publicSlug: string;
   title: string;
@@ -1127,15 +1458,37 @@ export interface PublicJob {
   experienceLevel: string | null;
   createdAt: ISODateString;
   organizationName: string;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  currency: string | null;
+  payPeriod: PayPeriod | null;
+  salaryNegotiable: boolean;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  workMode: WorkMode | null;
+  seniorityLevel: SeniorityLevel | null;
+  /** People who applied — the same number the recruiter sees. Never who. */
+  applicantCount: number;
+  /** Why this result is placed here, when the search asked for anything soft. */
+  searchAlignment?: { score: number | null; alignments: IntentAlignment[] };
 }
 
-export interface PublicJobDetail extends PublicJob {
+/**
+ * The full advertised job.
+ *
+ * Work-authorization facts are advertisement content, not internal data: for a
+ * candidate who needs a visa they are the most decision-changing thing on the
+ * page, so they are shown rather than withheld.
+ */
+export interface PublicJobDetail extends PublicJob, Omit<JobProfile, keyof PublicJob> {
   description: string | null;
   requirements: {
     text: string;
     type: RequirementType;
     required: boolean;
   }[];
+  languages: VacancyLanguageRequirement[];
 }
 
 export interface PublicJobPage {
@@ -1158,8 +1511,10 @@ export interface MyApplication {
     location: string | null;
     employmentType: string | null;
     organizationName: string;
+    /** People who applied — the same number every other surface shows. */
+    applicantCount: number;
   };
-  }
+}
 
 export interface MyApplicationPage {
   applications: MyApplication[];
@@ -1239,6 +1594,78 @@ export interface MatchEvidence {
   sourceUrl: string | null;
 }
 
+/**
+ * The label beside a score. Presentation ONLY — a LOW match is rendered like
+ * any other and is never hidden or filtered out.
+ */
+export const MATCH_BANDS = ["STRONG", "GOOD", "PARTIAL", "LOW"] as const;
+export type MatchBand = (typeof MATCH_BANDS)[number];
+
+export type AlignmentState =
+  | "MATCH"
+  | "PARTIAL"
+  | "MISMATCH"
+  | "UNKNOWN"
+  | "NOT_COMPARABLE";
+
+/** Salary figures behind an alignment: what was offered, and in what money. */
+export interface AlignmentSalary {
+  originalMin: number | null;
+  originalMax: number | null;
+  originalCurrency: string | null;
+  originalPayPeriod: PayPeriod | null;
+  convertedMin: number | null;
+  convertedMax: number | null;
+  convertedCurrency: string | null;
+  convertedPayPeriod: PayPeriod | null;
+}
+
+/**
+ * One preference dimension's verdict, computed deterministically by the
+ * backend. The UI localizes `reason`; it never re-derives it, and never
+ * calculates money.
+ */
+export interface IntentAlignment {
+  dimension: string;
+  state: AlignmentState;
+  reason: string;
+  score: number | null;
+  salary?: AlignmentSalary;
+}
+
+/** Which exchange rates a ranking's salary figures came from. */
+export interface FxStamp {
+  snapshotVersion: string | null;
+  fetchedAt: string | null;
+}
+
+export interface JobSalaryView {
+  original: {
+    salaryMin: number | null;
+    salaryMax: number | null;
+    currency: string | null;
+    payPeriod: PayPeriod | null;
+    salaryNegotiable: boolean;
+  };
+  converted: {
+    salaryMin: number | null;
+    salaryMax: number | null;
+    currency: string;
+    payPeriod: PayPeriod;
+  } | null;
+  reason:
+    | "CONVERTED"
+    | "SAME_CURRENCY"
+    | "NO_PREFERENCE"
+    | "SALARY_UNKNOWN"
+    | "NOT_COMPARABLE";
+  fx: {
+    snapshotVersion: string | null;
+    fetchedAt: string | null;
+    freshness: "FRESH" | "STALE_USABLE" | "UNAVAILABLE";
+  } | null;
+}
+
 export interface JobMatch {
   vacancy: {
     /** Public slug — the only identifier this surface ever sees. */
@@ -1248,8 +1675,20 @@ export interface JobMatch {
     location: string | null;
     employmentType: string | null;
     status: VacancyStatus;
+    /** ORIGINAL pay as the employer stated it — never a converted figure. */
+    salaryMin: number | null;
+    salaryMax: number | null;
+    currency: string | null;
+    payPeriod: PayPeriod | null;
+    salaryNegotiable: boolean;
+    country: string | null;
+    region: string | null;
+    city: string | null;
+    workMode: WorkMode | null;
+    seniorityLevel: SeniorityLevel | null;
   };
   match: JobMatchStrength;
+  band: MatchBand;
   /** 1-based position in the full ranked list. */
   rank: number;
   /**
@@ -1258,6 +1697,16 @@ export interface JobMatch {
    * never label it as either.
    */
   score: number;
+  /** The evidence half of the score. Equals `score` when no intent applied. */
+  capabilityScore: number;
+  /**
+   * The preference half, or null when the candidate stated nothing this job
+   * could be compared on. Null and 0 mean opposite things: null is "no
+   * signal", 0 is "contradicts everything they asked for".
+   */
+  intentScore: number | null;
+  /** Per-dimension verdicts with machine-readable reason codes. */
+  alignments: IntentAlignment[];
   /** Per-signal breakdown, for showing WHY a job ranked where it did. */
   signals: Record<string, number>;
   /** Technologies the posting names that the candidate has evidence for. */
@@ -1305,6 +1754,10 @@ export interface JobMatchResult {
   hasMore: boolean;
   /** How many vacancies the candidate was eligible for in the first place. */
   totalEligible: number;
+  /** How many jobs the candidate's own explicit exclusions removed. */
+  totalExcluded: number;
+  /** The rates behind every converted figure in this ranking. */
+  fx: FxStamp;
   /** What the ranking knew about the candidate; for the evidence summary. */
   capability: CandidateCapabilitySummary;
 }
@@ -1390,3 +1843,390 @@ export type VacancyAccessReason =
   | "candidate_not_in_vacancy"
   | "candidate_already_in_vacancy"
   | "vacancy_not_found";
+
+/* -------------------------------------------------------------------------- */
+/* External jobs (Task 4C.2)                                                   */
+/*                                                                            */
+/* Roles published outside HR Copilot, discovered by the backend's provider    */
+/* integrations. They are NOT vacancies: nobody applies through this product,  */
+/* no Application row exists for one, and the apply link leaves for the        */
+/* employer's own site. The types below deliberately carry no provider         */
+/* internals — a job seeker is shown WHERE a role was published, never how it  */
+/* was ingested.                                                              */
+/* -------------------------------------------------------------------------- */
+
+/** One place a job is open in. Every part may be absent — nothing is inferred. */
+export interface ExternalJobPlace {
+  countryCode: string | null;
+  region: string | null;
+  city: string | null;
+}
+
+/**
+ * Where a listing came from and where applying goes.
+ *
+ * `sourceCount` is shown as corroboration and is NEVER a ranking input: two
+ * observations make a job better evidenced, not a better job. The backend does
+ * not let it reach the scorer, and neither does this type.
+ */
+export interface ExternalJobProvenance {
+  /** Provider code, e.g. GREENHOUSE. Localized for display; never a filter. */
+  primarySource: string | null;
+  applyVia: string | null;
+  sourceCount: number;
+}
+
+/**
+ * One deterministic reason a job ranked where it did.
+ *
+ * The backend emits CODES, never prose, and the UI localizes them. An unknown
+ * code is dropped rather than rendered raw — a future backend reason must not
+ * be able to print `SALARY_FOO_BAR` on a candidate's screen.
+ */
+export interface ExternalJobReason {
+  code: string;
+  dimension: string;
+  state: string;
+}
+
+/** Money exactly as the employer stated it. Never converted by this app. */
+export interface ExternalJobSalary {
+  min: number | null;
+  max: number | null;
+  currency: string | null;
+  payPeriod: PayPeriod | null;
+}
+
+/**
+ * How a result list is ordered.
+ *
+ * RELEVANCE is the default. NEWEST orders by the EMPLOYER's publication date —
+ * never by when this product first saw a posting, which is a fact about our
+ * crawler and not about the job.
+ */
+export const EXTERNAL_JOB_SORTS = ["RELEVANCE", "NEWEST"] as const;
+export type ExternalJobSort = (typeof EXTERNAL_JOB_SORTS)[number];
+
+/** One ranked external job, as the search returns it. */
+export interface ExternalJobResult {
+  externalJobId: ID;
+  title: string;
+  company: string;
+  companyWebsiteUrl: string | null;
+  /** ACTIVE or STALE. Closed/expired jobs never reach a candidate. */
+  status: string;
+  location: ExternalJobPlace;
+  /** Other offices this ONE posting is open in. Eligible, not duplicates. */
+  additionalLocations: ExternalJobPlace[];
+  workMode: WorkMode | null;
+  /**
+   * Countries a REMOTE role may be worked from, when the employer said so.
+   * Empty means the employer did not say — which is unknown, never worldwide.
+   */
+  remoteCountriesAllowed: string[];
+  employmentType: EmploymentType | null;
+  seniorityLevel: SeniorityLevel | null;
+  salary: ExternalJobSalary;
+  /**
+   * When the EMPLOYER's source says this listing was published, or null.
+   *
+   * Roughly half the catalogue is null, because one provider publishes no
+   * publication date at all. Null renders as nothing — never as a guess, and
+   * never filled in from when this product first saw the posting.
+   */
+  employerPostedAt: ISODateString | null;
+  /** 0–100 search relevance. Not a probability of being hired. */
+  score: number;
+  /**
+   * The backend's own band label. Null when it sent one this build does not
+   * know — the chip is then omitted rather than the threshold re-derived here,
+   * because there must be exactly one place that decides what STRONG means.
+   */
+  band: MatchBand | null;
+  textScore: number | null;
+  intentScore: number | null;
+  reasons: ExternalJobReason[];
+  applyUrl: string | null;
+  /**
+   * Per-candidate state: whether THIS reader saved it, and their own tracking
+   * record if they made one. Both are the backend's answer, never inferred
+   * here — and the two are independent of each other in both directions.
+   */
+  saved: boolean;
+  tracking: ExternalJobTracking | null;
+  provenance: ExternalJobProvenance;
+}
+
+/** Which dimensions came from this request and which from a saved preference. */
+export interface ExternalJobAppliedIntent {
+  query: string | null;
+  countries: { value: string[]; source: JobIntentSource };
+  workModes: { value: string[]; source: JobIntentSource };
+  employmentTypes: { value: string[]; source: JobIntentSource };
+  seniorityLevels: { value: string[]; source: JobIntentSource };
+  compensation: { stated: boolean; source: JobIntentSource };
+}
+
+export interface ExternalJobSearchPage {
+  runId: ID;
+  algorithmVersion: string;
+  /** The order the backend applied. Read from the response, never guessed. */
+  sort: ExternalJobSort;
+  /**
+   * When the backend produced this page.
+   *
+   * Relative posting ages are measured against this rather than against a
+   * clock read during render — which keeps the server pass and the browser
+   * hydration in agreement, and ties the wording to the moment the data was
+   * actually computed.
+   */
+  asOf: ISODateString;
+  applied: ExternalJobAppliedIntent;
+  /**
+   * How many results this snapshot holds — exactly what pagination covers.
+   * NOT the number of jobs matching the filters; that is `matched`. Paging
+   * off the larger number would offer pages that do not exist.
+   */
+  total: number;
+  /** How many jobs answer the hard filters, counted in the database. */
+  matched: number;
+  ranked: number;
+  /** True when deeper matches exist that this run did not rank. */
+  truncated: boolean;
+  page: number;
+  pageSize: number;
+  /** True when semantic retrieval was unavailable and this ran text-only. */
+  degraded: boolean;
+  results: ExternalJobResult[];
+}
+
+/** One external job in full, for a reader who opened it. No score, no rank. */
+export interface ExternalJobDetail {
+  externalJobId: ID;
+  title: string;
+  company: string;
+  companyWebsiteUrl: string | null;
+  status: string;
+  /** Plain text, sanitized at ingestion. Rendered as text, never as markup. */
+  description: string | null;
+  requirementsText: string | null;
+  location: ExternalJobPlace;
+  additionalLocations: ExternalJobPlace[];
+  workMode: WorkMode | null;
+  remoteCountriesAllowed: string[];
+  employmentType: EmploymentType | null;
+  seniorityLevel: SeniorityLevel | null;
+  salary: ExternalJobSalary;
+  employerPostedAt: ISODateString | null;
+  skills: string[];
+  industries: string[];
+  benefits: string[];
+  languageCodes: string[];
+  applyUrl: string | null;
+  /**
+   * Per-candidate state: whether THIS reader saved it, and their own tracking
+   * record if they made one. Both are the backend's answer, never inferred
+   * here — and the two are independent of each other in both directions.
+   */
+  saved: boolean;
+  tracking: ExternalJobTracking | null;
+  provenance: ExternalJobProvenance;
+}
+
+/* -------------------------------------------------------------------------- */
+/* External jobs — saving and self-tracked applications                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A listing's own lifecycle, as the catalogue last observed it.
+ *
+ * Search only ever returns ACTIVE and STALE — a closed job is not a search
+ * result. The other three exist because a SAVED job outlives the search that
+ * found it: a candidate can hold on to a posting for weeks, and the honest
+ * answer when they come back is "this closed", not a silently missing row.
+ *
+ * CLOSED, EXPIRED and UNAVAILABLE are three different facts and are not
+ * collapsed: an employer ending a role, a stated deadline passing, and every
+ * source becoming unreadable are things a reader may act on differently.
+ */
+export const EXTERNAL_JOB_LIFECYCLES = [
+  "ACTIVE",
+  "STALE",
+  "CLOSED",
+  "EXPIRED",
+  "UNAVAILABLE",
+] as const;
+export type ExternalJobLifecycle = (typeof EXTERNAL_JOB_LIFECYCLES)[number];
+
+/**
+ * How far along the candidate says they are — THEIR record, not ours.
+ *
+ * Nothing in this product observes an external hiring process. These values
+ * are typed in by the person, mean whatever they meant when they typed them,
+ * and are never inferred from behaviour: opening an employer's site is not
+ * applying, and this product must never claim it saw an interview happen.
+ *
+ * Deliberately flat. Real external processes skip stages, restart, and end in
+ * ways no linear machine models, so any status may follow any other.
+ */
+export const EXTERNAL_APPLICATION_STATUSES = [
+  "APPLIED",
+  "INTERVIEW",
+  "OFFER",
+  "REJECTED",
+  "WITHDRAWN",
+] as const;
+export type ExternalApplicationStatus =
+  (typeof EXTERNAL_APPLICATION_STATUSES)[number];
+
+/**
+ * The candidate's own tracking record against one external job.
+ *
+ * Independent of saving in both directions: a job may be tracked and not
+ * saved, saved and not tracked, or both. Nothing here creates an internal
+ * `Application` — this never enters an organization's pipeline, and no
+ * recruiter can see it.
+ */
+/**
+ * One point a generated explanation makes — a strength or a gap.
+ *
+ * Both halves are PLAIN TEXT and are rendered as text. Model output is never
+ * markup here: a title that happens to contain `<b>` is a title containing
+ * those characters, not an instruction to this product.
+ */
+export interface AiInsight {
+  /** Short label, e.g. "Six years of backend Python". */
+  title: string;
+  /** One or two sentences. May be empty when the model gave only a title. */
+  explanation: string;
+}
+
+/**
+ * Gemini's account of why a job was ranked where it was.
+ *
+ * ## It explains a score; it never computes one
+ *
+ * The number on the card comes from the deterministic ranker and is the only
+ * score this product has. Nothing here replaces it, adjusts it, or adds a
+ * second one — an explanation that disagreed with the ordering it explains
+ * would be worse than no explanation, and a model-authored percentage beside a
+ * computed one is exactly how that happens.
+ *
+ * ## Generated on request, for one job
+ *
+ * There is no field for "all jobs" because the explanation is never asked for
+ * in bulk. See the service function, which is called from one place.
+ */
+export interface ExternalWhyMatch {
+  externalJobId: ID;
+  /** The prompt/format contract that produced this, e.g. `external-why-match-v1`. */
+  version: string | null;
+  /** The locale the text is written in, when the backend states it. */
+  locale: string | null;
+  summary: string | null;
+  strengths: AiInsight[];
+  /** May legitimately be empty: a strong match with nothing to flag. */
+  gaps: AiInsight[];
+  /** ISO instant, or null. Not displayed by default. */
+  generatedAt: ISODateString | null;
+}
+
+export interface ExternalJobTracking {
+  id: ID;
+  status: ExternalApplicationStatus;
+  /** When the candidate says they applied. */
+  appliedAt: ISODateString;
+  /** The candidate's own reminder. Null when they wrote none. */
+  note: string | null;
+  updatedAt: ISODateString;
+}
+
+/**
+ * The per-candidate state layered over a job.
+ *
+ * Carried on search results, the detail read, and every list row, so one type
+ * describes "what is true for ME about this job" everywhere it is rendered.
+ */
+export interface ExternalJobPersonalState {
+  saved: boolean;
+  tracking: ExternalJobTracking | null;
+}
+
+/**
+ * One row of the saved list.
+ *
+ * A saved job is a snapshot the candidate chose to keep, so it carries the
+ * facts a card needs without a second read — and its own `status`, which is
+ * how a closed listing can say so instead of vanishing.
+ */
+export interface SavedExternalJob {
+  externalJobId: ID;
+  title: string;
+  company: string;
+  status: ExternalJobLifecycle;
+  location: ExternalJobPlace;
+  additionalLocations: ExternalJobPlace[];
+  workMode: WorkMode | null;
+  remoteCountriesAllowed: string[];
+  employmentType: EmploymentType | null;
+  seniorityLevel: SeniorityLevel | null;
+  salary: ExternalJobSalary;
+  employerPostedAt: ISODateString | null;
+  applyUrl: string | null;
+  provenance: ExternalJobProvenance;
+  /** When the candidate saved it. */
+  savedAt: ISODateString;
+  tracking: ExternalJobTracking | null;
+}
+
+export interface SavedExternalJobPage {
+  /**
+   * When the BACKEND read this list, so relative ages ("Posted 3 days ago")
+   * measure from one instant the server chose — never from a clock read during
+   * render, which would give the server pass and hydration different answers.
+   */
+  asOf: ISODateString;
+  saved: SavedExternalJob[];
+  total: number;
+  page: number;
+  pageSize: number;
+  /** Derived: the API reports `total` and `pageSize`, not a page count. */
+  totalPages: number;
+}
+
+/**
+ * One row of "my external applications".
+ *
+ * The tracker is the row; the listing is `job`, and `job` is NULLABLE. A
+ * tracker outlives the catalogue entry it points at — a candidate who applied
+ * to a job that has since been purged still applied to it, and their record
+ * must not vanish with the posting. The list renders such a row with the
+ * tracker's own facts and says the listing is no longer available.
+ */
+export interface ExternalJobApplication extends ExternalJobTracking {
+  externalJobId: ID;
+  job: ExternalTrackedJobCard | null;
+}
+
+/** The listing behind a tracked application, when the catalogue still has it. */
+export interface ExternalTrackedJobCard {
+  externalJobId: ID;
+  title: string;
+  company: string;
+  /** The LISTING's lifecycle — never a substitute for the tracked status. */
+  status: ExternalJobLifecycle;
+  location: ExternalJobPlace;
+  applyUrl: string | null;
+  /** Whether the same job is also saved. Independent of being tracked. */
+  saved: boolean;
+}
+
+export interface ExternalJobApplicationPage {
+  /** See SavedExternalJobPage.asOf. */
+  asOf: ISODateString;
+  applications: ExternalJobApplication[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}

@@ -76,7 +76,6 @@ function build(overrides: { prisma?: any; ai?: any } = {}) {
   return { service, prisma, producer, ai };
 }
 
-
 describe('CandidateEvidenceLifecycleService', () => {
   describe('what counts as evidence', () => {
     it('counts files and links independently, never as one pooled budget', async () => {
@@ -184,9 +183,10 @@ describe('CandidateEvidenceLifecycleService', () => {
 
       await service.cascadePersonalFileDeletion(ACCOUNT, 'doc-1');
 
-      expect(producer.enqueuePersonalResumeIndexDeletion).toHaveBeenCalledWith(
-        { documentId: 'doc-1', candidateAccountId: ACCOUNT },
-      );
+      expect(producer.enqueuePersonalResumeIndexDeletion).toHaveBeenCalledWith({
+        documentId: 'doc-1',
+        candidateAccountId: ACCOUNT,
+      });
     });
 
     it('leaves the APPLICATION alone — only the evidence is withdrawn', async () => {

@@ -292,6 +292,33 @@ export interface VacancyIndexInput {
   requirements: { text: string; required: boolean }[];
 }
 
+/**
+ * One external job, as PUBLIC facts only, for semantic indexing.
+ *
+ * No provider, no source count, no trust class — deliberately. A job is not a
+ * better answer to a search because of where this product found it, and the
+ * surest way to keep that true is for the index to be unable to know.
+ */
+export interface ExternalJobIndexInput {
+  externalJobId: string;
+  status: string;
+  title: string;
+  companyName?: string | null;
+  description?: string | null;
+  countryCode?: string | null;
+  region?: string | null;
+  city?: string | null;
+  workMode?: string | null;
+  employmentType?: string | null;
+  seniorityLevel?: string | null;
+}
+
+export interface ExternalJobSemanticHit {
+  externalJobId: string;
+  /** Raw cosine similarity. The caller decides what is worth proposing. */
+  similarity: number;
+}
+
 export interface AiCandidateProfile {
   headline?: string | null;
   summary?: string | null;
@@ -362,6 +389,55 @@ export interface AiJobMatchResult {
   /** Skills, role families and contributing sources the ranking actually saw. */
   capability: Record<string, unknown>;
   durationMs: number;
+}
+
+/** The candidate's CURRENT professional context. Minimized before it leaves. */
+export interface AiWhyMatchCandidate {
+  headline: string | null;
+  summary: string | null;
+  locationLabel: string | null;
+  skills: string[];
+  languages: string[];
+  experience: string[];
+  education: string[];
+  preferences: string[];
+  evidenceExcerpts: string[];
+}
+
+/** One external job's stored facts. Untrusted third-party content. */
+export interface AiWhyMatchJob {
+  title: string;
+  company: string | null;
+  status: string;
+  locationLabel: string | null;
+  workMode: string | null;
+  employmentType: string | null;
+  seniorityLevel: string | null;
+  salaryLabel: string | null;
+  skills: string[];
+  languages: string[];
+  benefits: string[];
+  description: string | null;
+  requirementsText: string | null;
+}
+
+/** What the deterministic pipeline already decided. Supplied, never derived. */
+export interface AiWhyMatchFacts {
+  score: number | null;
+  band: string | null;
+  matchedSkills: string[];
+  missingSkills: string[];
+  alignmentNotes: string[];
+}
+
+export interface AiWhyMatchResult {
+  jobId: string;
+  locale: SupportedLocale;
+  summary: string;
+  strengths: { title: string; explanation: string }[];
+  gaps: { title: string; explanation: string }[];
+  model?: string;
+  durationMs?: number;
 }
 
 @Injectable()
@@ -591,6 +667,34 @@ export class AiServiceClient {
     );
   }
 
+  /**
+   * Prose for ONE external job the caller already decided to show (4C.6).
+   *
+   * Everything travels as ALREADY-RESOLVED facts: the candidate's current
+   * professional context, the job's stored fields and the deterministic match
+   * facts. The AI service reads no store for this call and ranks nothing, so
+   * there is no path from here back into what exists or in what order.
+   *
+   * Deliberately carries no account id, no document id, no email and no
+   * token — a field that does not exist cannot be logged by a third party.
+   */
+  async externalWhyMatch(input: {
+    jobId: string;
+    locale: SupportedLocale;
+    candidate: AiWhyMatchCandidate;
+    job: AiWhyMatchJob;
+    facts: AiWhyMatchFacts;
+  }): Promise<AiWhyMatchResult> {
+    this.assertEnabled('generate an external match explanation');
+    return this.request<AiWhyMatchResult>('/internal/external-jobs/why-match', {
+      jobId: input.jobId,
+      locale: input.locale,
+      candidate: input.candidate,
+      job: input.job,
+      facts: input.facts,
+    });
+  }
+
   /** Removes a document's vectors, e.g. when the document is deleted. */
   async deleteDocument(
     organizationId: string,
@@ -692,6 +796,54 @@ export class AiServiceClient {
   async deleteVacancyIndex(vacancyId: string): Promise<void> {
     this.assertEnabled('delete vacancy index');
     await this.request('/internal/vacancies/delete', { vacancyId });
+  }
+
+  /**
+   * Indexes a batch of external jobs for semantic retrieval. Idempotent.
+   *
+   * Batched because the catalogue arrives in provider sweeps of several
+   * hundred, and a round trip per job would cost more than the sweep.
+   */
+  async indexExternalJobs(jobs: ExternalJobIndexInput[]): Promise<number> {
+    this.assertEnabled('index external jobs');
+    const result = await this.request<{ indexed: number }>(
+      '/internal/external-jobs/index',
+      { jobs },
+    );
+    return result.indexed;
+  }
+
+  /** Removes external jobs from the semantic index. Idempotent. */
+  async deleteExternalJobIndex(externalJobIds: string[]): Promise<number> {
+    this.assertEnabled('delete external job index');
+    const result = await this.request<{ deleted: number }>(
+      '/internal/external-jobs/delete',
+      { externalJobIds },
+    );
+    return result.deleted;
+  }
+
+  /**
+   * Nearest external jobs to a query — CANDIDATES, not results.
+   *
+   * Whatever comes back is revalidated against PostgreSQL before a person
+   * sees it. This call proposes; it never decides what exists.
+   */
+  async searchExternalJobs(input: {
+    query: string;
+    limit: number;
+    statuses?: string[];
+  }): Promise<ExternalJobSemanticHit[]> {
+    this.assertEnabled('search external jobs');
+    const result = await this.request<{ hits: ExternalJobSemanticHit[] }>(
+      '/internal/external-jobs/search',
+      {
+        query: input.query,
+        limit: input.limit,
+        statuses: input.statuses ?? [],
+      },
+    );
+    return result.hits;
   }
 
   /**

@@ -230,7 +230,9 @@ export class CandidateEvidenceLifecycleService {
 
     await this.evictPersonalLinkVectors(candidateAccountId, linkId);
 
-    this.logger.log(`Personal link ${linkId} deleted with its derived artifacts`);
+    this.logger.log(
+      `Personal link ${linkId} deleted with its derived artifacts`,
+    );
   }
 
   /**

@@ -30,6 +30,7 @@ function attempt(
       location: "Tashkent",
       employmentType: "Full-time",
       organizationName: "Northwind Labs",
+      applicantCount: 3,
     },
   };
 }

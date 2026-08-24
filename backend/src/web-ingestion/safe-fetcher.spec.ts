@@ -273,6 +273,115 @@ describe('SafeHttpFetcher — redirects', () => {
   });
 });
 
+describe('SafeHttpFetcher — caller host allowlist', () => {
+  /*
+   * A second gate, for callers that fetch on a SCHEDULE against a fixed set of
+   * approved sites rather than wherever a person pasted. "Public and
+   * reachable" is not the same question as "one of the hosts this caller was
+   * configured for", and external job ingestion needs both answered.
+   */
+  const publicAddress = [{ address: '93.184.216.34', family: 4 }];
+
+  it('fetches a host the caller allows', async () => {
+    mockLookup(publicAddress);
+    const transport = fakeTransport([ok('<h1>Careers</h1>')]);
+    const fetcher = new SafeHttpFetcher(transport);
+
+    const result = await fetcher.fetchText('https://example.com/careers', {
+      deadline: DEADLINE(),
+      allowHost: (url) => url.hostname === 'example.com',
+    });
+
+    expect(result.body).toContain('Careers');
+  });
+
+  it('refuses a host the caller does not allow, before any request', async () => {
+    mockLookup(publicAddress);
+    const transport = fakeTransport([ok('never reached')]);
+    const fetcher = new SafeHttpFetcher(transport);
+
+    await expectFailure(
+      fetcher.fetchText('https://other-company.org/careers', {
+        deadline: DEADLINE(),
+        allowHost: (url) => url.hostname === 'example.com',
+      }),
+      LinkFailureCode.ACCESS_DENIED,
+    );
+    // Not merely rejected afterwards — never sent.
+    expect(transport.requested).toEqual([]);
+  });
+
+  it('refuses a REDIRECT off the caller allowlist', async () => {
+    // The hop is the whole point: a check applied only to the first URL is a
+    // check the first response can redirect around.
+    mockLookup(publicAddress);
+    const transport = fakeTransport([
+      redirect('https://elsewhere.org/jobs'),
+      ok('should never be read'),
+    ]);
+    const fetcher = new SafeHttpFetcher(transport);
+
+    await expectFailure(
+      fetcher.fetchText('https://example.com/careers', {
+        deadline: DEADLINE(),
+        allowHost: (url) => url.hostname === 'example.com',
+      }),
+      LinkFailureCode.ACCESS_DENIED,
+    );
+    expect(transport.requested).toEqual(['https://example.com/careers']);
+  });
+
+  it('still allows a same-host redirect', async () => {
+    mockLookup(publicAddress);
+    const transport = fakeTransport([
+      redirect('https://example.com/company/careers'),
+      ok('<h1>Careers</h1>'),
+    ]);
+    const fetcher = new SafeHttpFetcher(transport);
+
+    const result = await fetcher.fetchText('https://example.com/careers', {
+      deadline: DEADLINE(),
+      allowHost: (url) => url.hostname === 'example.com',
+    });
+
+    expect(result.url).toBe('https://example.com/company/careers');
+  });
+
+  it('leaves callers without an allowlist unchanged', async () => {
+    mockLookup(publicAddress);
+    const transport = fakeTransport([ok('<h1>Portfolio</h1>')]);
+    const fetcher = new SafeHttpFetcher(transport);
+
+    const result = await fetcher.fetchText('https://anything.org/page', {
+      deadline: DEADLINE(),
+    });
+
+    expect(result.status).toBe(200);
+  });
+});
+
+describe('SafeHttpFetcher — user agent', () => {
+  it("sends the caller's agent when one is given", async () => {
+    // So a site operator can tell scheduled job ingestion from a
+    // candidate-submitted link fetch, and write a robots rule for one.
+    mockLookup([{ address: '93.184.216.34', family: 4 }]);
+    const seen: (string | undefined)[] = [];
+    const fetcher = new SafeHttpFetcher({
+      send: (_url, _pinned, options) => {
+        seen.push(options.userAgent);
+        return Promise.resolve(ok('<h1>hi</h1>'));
+      },
+    });
+
+    await fetcher.fetchText('https://example.com/careers', {
+      deadline: DEADLINE(),
+      userAgent: 'HRCopilotJobBot/1.0',
+    });
+
+    expect(seen).toEqual(['HRCopilotJobBot/1.0']);
+  });
+});
+
 describe('SafeHttpFetcher — response policy', () => {
   beforeEach(() => mockLookup([{ address: '93.184.216.34', family: 4 }]));
 

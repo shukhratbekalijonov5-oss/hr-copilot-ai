@@ -7,6 +7,9 @@ import {
   toMyApplication,
   toSavedJob,
   toJobMatchResult,
+  toJobPreferences,
+  toJobSearchContext,
+  toJobSalaryView,
 } from "@/lib/api/adapters";
 import type {
   CandidateAccountResponse,
@@ -16,6 +19,9 @@ import type {
   MyApplicationResponse,
   SavedJobResponse,
   JobMatchesResponse,
+  JobPreferencesResponse,
+  JobSearchContextResponse,
+  JobSalaryViewResponse,
 } from "@/lib/api/contracts";
 import { ApiError } from "@/lib/api/errors";
 import type {
@@ -30,7 +36,11 @@ import type {
   PersonalResume,
   SavedJobPage,
   JobMatchResult,
+  CandidateJobPreferences,
+  JobPreferencesInput,
+  JobSearchContext,
   Locale,
+  JobSalaryView,
 } from "@/lib/types";
 
 /**
@@ -286,4 +296,98 @@ export async function getJobMatches(input: {
     },
   );
   return toJobMatchResult(response);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Job preferences                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The caller's own stated preferences. Always resolves — a candidate who has
+ * stated nothing gets the empty shape, which is a real state and not an error.
+ */
+/**
+ * One job's pay in the currency this candidate stated.
+ *
+ * Candidate-scoped: the target currency is their own saved preference, which
+ * is why this is not part of the public job payload.
+ */
+export async function getJobSalaryView(slug: string): Promise<JobSalaryView> {
+  const response = await apiFetch<JobSalaryViewResponse>(
+    `/candidate-account/me/jobs/${encodeURIComponent(slug)}/salary-view`,
+  );
+  return toJobSalaryView(response);
+}
+
+export async function getJobPreferences(): Promise<CandidateJobPreferences> {
+  return toJobPreferences(
+    await apiFetch<JobPreferencesResponse>(
+      "/candidate-account/me/job-preferences",
+    ),
+  );
+}
+
+/**
+ * Replaces the whole profile. PUT, because the body is the complete current
+ * intent — anything absent from it is not stated.
+ */
+export async function saveJobPreferences(
+  input: JobPreferencesInput,
+): Promise<CandidateJobPreferences> {
+  return toJobPreferences(
+    await apiFetch<JobPreferencesResponse>(
+      "/candidate-account/me/job-preferences",
+      { method: "PUT", body: input },
+    ),
+  );
+}
+
+export async function deleteJobPreferences(): Promise<void> {
+  await apiFetch("/candidate-account/me/job-preferences", { method: "DELETE" });
+}
+
+/**
+ * The canonical intent for one search, each dimension labelled with where it
+ * came from (request filter, saved preference, or nothing stated).
+ *
+ * Reading this NEVER writes: passing filters resolves them for this search
+ * only, so searching for Berlin does not make Berlin a preference.
+ */
+export async function getJobSearchContext(
+  params: {
+    query?: string;
+    countries?: string[];
+    workModes?: string[];
+    employmentTypes?: string[];
+    seniorityLevels?: string[];
+    /** A complete triple, or nothing: a floor alone is not a filter. */
+    salaryMin?: number;
+    salaryCurrency?: string;
+    payPeriod?: string;
+    locale?: string;
+  } = {},
+): Promise<JobSearchContext> {
+  const search = new URLSearchParams();
+  if (params.query) search.set("query", params.query);
+  if (params.countries?.length)
+    search.set("countries", params.countries.join(","));
+  if (params.workModes?.length)
+    search.set("workModes", params.workModes.join(","));
+  if (params.employmentTypes?.length)
+    search.set("employmentTypes", params.employmentTypes.join(","));
+  if (params.seniorityLevels?.length)
+    search.set("seniorityLevels", params.seniorityLevels.join(","));
+  if (params.salaryMin && params.salaryCurrency && params.payPeriod) {
+    search.set("salaryMin", String(params.salaryMin));
+    search.set("salaryCurrency", params.salaryCurrency);
+    search.set("payPeriod", params.payPeriod);
+  }
+  if (params.locale) search.set("locale", params.locale);
+  const qs = search.toString();
+
+  return toJobSearchContext(
+    await apiFetch<JobSearchContextResponse>(
+      `/candidate-account/me/job-preferences/search-context${qs ? `?${qs}` : ""}`,
+    ),
+  );
 }

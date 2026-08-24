@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # `qdrant_collection`.
     qdrant_candidate_collection: str = "candidate_resume_chunks"
     qdrant_vacancy_collection: str = "vacancy_chunks"
+    # External job postings, ONE point per canonical job. Physically separate
+    # from every other collection: it holds public job ads with no tenant and
+    # no personal data, so nothing here can satisfy an organization filter or
+    # a candidate filter even by accident.
+    qdrant_external_job_collection: str = "external_jobs"
 
     # --- Candidate job matching --------------------------------------------
     #
@@ -253,6 +258,20 @@ class Settings(BaseSettings):
     def active_candidate_collection(self) -> str:
         """Personal-resume collection, e.g. ``candidate_resume_chunks_v1``."""
         return f"{self.qdrant_candidate_collection}_v{self.qdrant_collection_version}"
+
+    @property
+    def active_external_job_collection(self) -> str:
+        """External job index, e.g. ``external_jobs_v1``.
+
+        Versioned with the same counter as every other collection because the
+        thing that invalidates them is the same: a change of embedding model
+        changes the vector width, and a collection built by the old one cannot
+        be queried by the new.
+        """
+        return (
+            f"{self.qdrant_external_job_collection}"
+            f"_v{self.qdrant_collection_version}"
+        )
 
     @property
     def active_vacancy_collection(self) -> str:

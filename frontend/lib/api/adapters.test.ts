@@ -8,6 +8,7 @@ import {
   toCandidate,
   toEvidenceSearchResult,
   toVacancy,
+  toJobPreferences,
 } from "@/lib/api/adapters";
 import type { CandidateResponse, VacancyResponse } from "@/lib/api/contracts";
 import type { Evidence, JobRequirement } from "@/lib/types";
@@ -370,5 +371,160 @@ describe("aiReadiness", () => {
     // The badge warns about the failure; the panels still work.
     expect(aggregateDocumentStatus(documents)).toBe("FAILED");
     expect(aiReadiness(documents)).toBe("ready");
+  });
+});
+
+/**
+ * Backward compatibility at the wire boundary.
+ *
+ * The list endpoint omits the structured long tail, and every vacancy created
+ * before the structured model has those columns unset. Both arrive here as
+ * "absent", and both must come out as "not stated" — never as a value.
+ */
+describe("toVacancy — vacancies without a structured profile", () => {
+  const legacyPayload = {
+    id: "v1",
+    organizationId: "org",
+    title: "Frontend Engineer",
+    department: "Engineering",
+    location: "Seoul",
+    employmentType: "Full-time",
+    description: "…",
+    experienceLevel: "Mid-level",
+    status: "OPEN" as const,
+    createdById: "user-1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("maps a payload with no structured fields at all", () => {
+    const vacancy = toVacancy(legacyPayload);
+
+    expect(vacancy.salaryMin).toBeNull();
+    expect(vacancy.workMode).toBeNull();
+    expect(vacancy.seniorityLevel).toBeNull();
+    // Absent arrays become empty arrays, so `.map()` on a list page is safe.
+    expect(vacancy.benefits).toEqual([]);
+    expect(vacancy.eligibleVisaTypes).toEqual([]);
+    expect(vacancy.languages).toEqual([]);
+    // The legacy free-text location survives untouched.
+    expect(vacancy.location).toBe("Seoul");
+  });
+
+  it("defaults the two non-null columns to their 'nothing claimed' values", () => {
+    const vacancy = toVacancy(legacyPayload);
+
+    // Not "no": an employer who said nothing has not refused sponsorship.
+    expect(vacancy.visaSponsorship).toBe("UNKNOWN");
+    expect(vacancy.citizenshipRequirement).toBe("NONE");
+    expect(vacancy.foreignApplicantsAccepted).toBeNull();
+    expect(vacancy.salaryNegotiable).toBe(false);
+  });
+
+  it("carries a fully specified profile through unchanged", () => {
+    const vacancy = toVacancy({
+      ...legacyPayload,
+      salaryMin: 55_000_000,
+      salaryMax: 70_000_000,
+      currency: "KRW",
+      payPeriod: "YEARLY",
+      country: "KR",
+      city: "Seoul",
+      workMode: "HYBRID",
+      officeDaysPerWeek: 2,
+      visaSponsorship: "YES",
+      eligibleVisaTypes: ["E-7"],
+      seniorityLevel: "SENIOR",
+      benefits: ["HEALTH_INSURANCE"],
+      languages: [{ languageCode: "ko", level: "B1", required: true }],
+    });
+
+    expect(vacancy).toMatchObject({
+      salaryMin: 55_000_000,
+      currency: "KRW",
+      workMode: "HYBRID",
+      officeDaysPerWeek: 2,
+      visaSponsorship: "YES",
+      seniorityLevel: "SENIOR",
+    });
+    expect(vacancy.languages).toEqual([
+      { languageCode: "ko", level: "B1", required: true },
+    ]);
+  });
+});
+
+/**
+ * Candidate job preferences at the wire boundary.
+ *
+ * The adapter's job is to preserve the difference between "did not say" and a
+ * value — the distinction the whole preference model rests on.
+ */
+describe("toJobPreferences", () => {
+  const empty = {
+    stated: false,
+    preferredJobTitles: [],
+    preferredLocations: [],
+    preferredWorkModes: [],
+    preferredEmploymentTypes: [],
+    preferredSeniorityLevels: [],
+    desiredSalaryMin: null,
+    salaryCurrency: null,
+    payPeriod: null,
+    willingToRelocate: null,
+    preferredIndustries: [],
+    preferredBenefits: [],
+    excludedCompanies: [],
+    excludedJobTitles: [],
+    excludedLocations: [],
+    createdAt: null,
+    updatedAt: null,
+  };
+
+  it("keeps a candidate who has stated nothing recognisable as such", () => {
+    const preferences = toJobPreferences(empty);
+
+    expect(preferences.stated).toBe(false);
+    // Not zero and not false — the two mistakes this model exists to avoid.
+    expect(preferences.desiredSalaryMin).toBeNull();
+    expect(preferences.willingToRelocate).toBeNull();
+    expect(preferences.preferredWorkModes).toEqual([]);
+  });
+
+  it("preserves an explicit false as false, not as unstated", () => {
+    expect(
+      toJobPreferences({ ...empty, stated: true, willingToRelocate: false })
+        .willingToRelocate,
+    ).toBe(false);
+  });
+
+  it("carries a fully stated profile through unchanged", () => {
+    const preferences = toJobPreferences({
+      ...empty,
+      stated: true,
+      preferredJobTitles: ["DevOps Engineer"],
+      preferredLocations: [{ countryCode: "KR", region: null, city: "Seoul" }],
+      preferredWorkModes: ["REMOTE"],
+      preferredEmploymentTypes: ["FULL_TIME"],
+      desiredSalaryMin: 50_000_000,
+      salaryCurrency: "KRW",
+      payPeriod: "YEARLY",
+      willingToRelocate: true,
+      excludedCompanies: ["Company X"],
+      updatedAt: "2026-08-22T00:00:00.000Z",
+    });
+
+    expect(preferences).toMatchObject({
+      stated: true,
+      preferredJobTitles: ["DevOps Engineer"],
+      preferredWorkModes: ["REMOTE"],
+      preferredEmploymentTypes: ["FULL_TIME"],
+      desiredSalaryMin: 50_000_000,
+      salaryCurrency: "KRW",
+      willingToRelocate: true,
+      excludedCompanies: ["Company X"],
+    });
+    expect(preferences.preferredLocations).toEqual([
+      { countryCode: "KR", region: null, city: "Seoul" },
+    ]);
   });
 });

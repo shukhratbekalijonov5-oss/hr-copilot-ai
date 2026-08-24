@@ -55,6 +55,7 @@ const ko: Dictionary = {
     page: "페이지",
     showMore: "더 보기",
     showLess: "접기",
+    pagination: "페이지 이동",
     pageOf: "{page} / {total}",
     pageNumber: "{page}페이지",
     language: "언어",
@@ -71,6 +72,10 @@ const ko: Dictionary = {
   nav: {
     sectionWorkspace: "워크스페이스",
     sectionJobSearch: "구직",
+    sectionFindJobs: "채용 공고 찾기",
+    sectionAiJobSearch: "AI 채용 검색",
+    sectionYourSearch: "내 구직 활동",
+    plans: "요금제",
     dashboard: "대시보드",
     vacancies: "채용 공고",
     candidates: "지원자",
@@ -78,8 +83,10 @@ const ko: Dictionary = {
     compare: "비교",
     processing: "처리 현황",
     settings: "설정",
-    findJobs: "채용 공고 찾기",
-    aiJobMatch: "AI 잡 매칭",
+    findJobs: "일반 채용 검색",
+    externalAiJobs: "외부 AI 채용",
+    internalAiJobs: "내부 AI 채용",
+    jobPreferences: "희망 조건",
     myApplications: "지원 현황",
     interviewChats: "인터뷰 채팅",
     savedJobs: "저장한 공고",
@@ -898,6 +905,55 @@ const ko: Dictionary = {
     errRequirements:
       "요건을 하나 이상 추가하세요. 모든 이력서를 대조하는 기준입니다.",
     examples: ["NestJS", "Redis", "Kubernetes", "백엔드 경력 3년 이상"],
+    // -- 구조화된 섹션 -------------------------------------------------------
+    compensationHint: "급여를 공개하지 않으면 비워 두세요. 설명글에서 추측하지 않습니다.",
+    salaryMin: "최소 급여",
+    salaryMax: "최대 급여",
+    currency: "통화",
+    payPeriod: "지급 주기",
+    salaryNegotiable: "급여 협의 가능",
+    errSalaryRange: "최대 금액은 최소 금액 이상이어야 합니다.",
+    errCurrencyRequired: "급여 범위에 사용할 통화를 선택하세요.",
+    locationSectionHint: "구조화된 근무지 정보입니다. 이전 공고에는 위의 자유 입력 값이 계속 표시됩니다.",
+    countryLabel: "국가",
+    regionLabel: "지역 / 주",
+    regionPlaceholder: "타슈켄트주",
+    cityLabel: "도시",
+    cityPlaceholder: "서울",
+    officeDaysHint: "주당 0~7일 출근.",
+    errOfficeDays: "출근 일수는 0일에서 7일 사이여야 합니다.",
+    remoteCountriesHint: "이 원격 직무를 수행할 수 있는 국가입니다.",
+    choose: "선택…",
+    visaSectionHint: "실제로 결정된 내용만 입력하세요.",
+    citizenshipHint: "법령이나 계약상 실제로 제한되는 경우에만 사용하세요.",
+    errNationalitiesRequired: "국적을 하나 이상 추가하거나 제한을 해제하세요.",
+    experienceSectionHint: "연 단위입니다. 기준이 없으면 비워 두세요.",
+    errExperienceRange: "우대 경력은 최소 경력보다 적을 수 없습니다.",
+    educationSectionHint: "필수와 우대를 구분하면 근거를 따로 판단할 수 있습니다.",
+    domainExperienceHint: "산업 또는 문제 영역. 예: 핀테크, 물류.",
+    languagesHint: "언어당 한 줄입니다. 레벨은 CEFR 기준입니다.",
+    addLanguage: "언어 추가",
+    noLanguages: "언어 요건이 없습니다.",
+    languageAria: "언어 {index}",
+    languageLevelAria: "언어 {index} 레벨",
+    languagePriorityAria: "언어 {index} 우선순위",
+    removeLanguageAria: "언어 {index} 삭제",
+    errDuplicateLanguage: "같은 언어는 한 번만 지정할 수 있습니다.",
+    errLanguageIncomplete: "모든 줄에 언어를 선택하거나 빈 줄을 삭제하세요.",
+    benefitsHint: "회사가 실제로 제공하는 항목입니다.",
+    benefitsOther: "기타 복리후생",
+    timelineHint: "마감일이 입사일보다 앞서는 것은 정상입니다.",
+    startDateHint: "입사 예정 시점입니다.",
+    contractDurationHint: "개월 수. 정규직이면 비워 두세요.",
+    errOpenings: "모집 인원은 1명 이상이어야 합니다.",
+    errContractDuration: "계약 기간은 최소 1개월이어야 합니다.",
+    // -- 수정 모드 -----------------------------------------------------------
+    editTitle: "공고 수정",
+    editHint: "변경 사항은 이 공고에 즉시 반영됩니다.",
+    saveChanges: "변경 사항 저장",
+    saved: "공고가 수정되었습니다.",
+    notOwner: "이 공고는 동료가 만들었습니다. 작성자만 수정할 수 있습니다.",
+    editRequirementsNote: "요건은 공고 페이지에서 관리하며 여기서는 변경되지 않습니다.",
   },
 
   candidateForm: {
@@ -991,6 +1047,297 @@ const ko: Dictionary = {
     Lead: "리드",
     Principal: "프린시펄",
   },
+
+  /* ---------------------------------------------------------------------- */
+  /* 구조화된 채용 공고 용어                                                  */
+  /*                                                                        */
+  /* 키는 백엔드 enum 값이며 라벨만 번역합니다. 저장되는 값은 항상 동일하므로  */
+  /* 담당자가 어떤 언어를 쓰든 조직의 데이터가 갈라지지 않습니다.              */
+  /* ---------------------------------------------------------------------- */
+
+  payPeriod: {
+    HOURLY: "시급",
+    MONTHLY: "월급",
+    YEARLY: "연봉",
+  },
+
+  workMode: {
+    ONSITE: "출근",
+    HYBRID: "하이브리드",
+    REMOTE: "원격",
+  },
+
+  visaSponsorship: {
+    YES: "지원 가능",
+    NO: "지원 불가",
+    UNKNOWN: "명시되지 않음",
+  },
+
+  citizenshipRequirement: {
+    NONE: "국적 제한 없음",
+    SPECIFIC: "특정 국적으로 제한",
+  },
+
+  seniorityLevel: {
+    INTERN: "인턴",
+    JUNIOR: "주니어",
+    MID: "미들",
+    SENIOR: "시니어",
+    LEAD: "리드",
+    STAFF: "스태프",
+    MANAGER: "매니저",
+  },
+
+  languageLevel: {
+    A1: "A1 — 입문",
+    A2: "A2 — 기초",
+    B1: "B1 — 중급",
+    B2: "B2 — 중상급",
+    C1: "C1 — 고급",
+    C2: "C2 — 최상급",
+    NATIVE: "원어민",
+  },
+
+  educationLevel: {
+    HIGH_SCHOOL: "고등학교 졸업",
+    ASSOCIATE: "전문학사",
+    BACHELOR: "학사",
+    MASTER: "석사",
+    DOCTORATE: "박사",
+  },
+
+  hiringUrgency: {
+    LOW: "낮음",
+    NORMAL: "보통",
+    HIGH: "높음",
+  },
+
+  benefit: {
+    HEALTH_INSURANCE: "건강보험",
+    MEAL_ALLOWANCE: "식대 지원",
+    HOUSING_SUPPORT: "주거 지원",
+    RELOCATION_SUPPORT: "이주 지원",
+    EDUCATION_BUDGET: "교육비 지원",
+    REMOTE_ALLOWANCE: "재택근무 지원금",
+    FLEXIBLE_HOURS: "유연 근무제",
+    STOCK_OPTIONS: "스톡옵션",
+    BONUS: "성과급",
+    PAID_LEAVE: "추가 유급휴가",
+    OTHER: "기타",
+  },
+
+  /**
+   * ISO 3166-1 alpha-2 → 국가명.
+   *
+   * Intl.DisplayNames 대신 번역된 목록을 쓰는 이유: Node와 브라우저의 ICU
+   * 데이터가 일부 항목에서 달라 하이드레이션 불일치가 발생합니다
+   * (lib/i18n/format.ts 참고). 목록에 없는 코드는 코드 그대로 표시됩니다.
+   */
+  country: {
+    KR: "대한민국",
+    UZ: "우즈베키스탄",
+    RU: "러시아",
+    KZ: "카자흐스탄",
+    US: "미국",
+    GB: "영국",
+    DE: "독일",
+    FR: "프랑스",
+    NL: "네덜란드",
+    PL: "폴란드",
+    TR: "튀르키예",
+    AE: "아랍에미리트",
+    SG: "싱가포르",
+    JP: "일본",
+    CN: "중국",
+    IN: "인도",
+    VN: "베트남",
+    PH: "필리핀",
+    ID: "인도네시아",
+    MY: "말레이시아",
+    TH: "태국",
+    CA: "캐나다",
+    AU: "호주",
+    ES: "스페인",
+    IT: "이탈리아",
+  },
+
+  /**
+   * BCP-47 기본 서브태그 → 언어명. UI 언어 4종보다 넓습니다: 인터페이스
+   * 언어와 채용 공고가 요구하는 언어는 다른 문제입니다.
+   */
+  jobLanguage: {
+    en: "영어",
+    ko: "한국어",
+    ru: "러시아어",
+    uz: "우즈베크어",
+    ja: "일본어",
+    zh: "중국어",
+    de: "독일어",
+    fr: "프랑스어",
+    es: "스페인어",
+    it: "이탈리아어",
+    tr: "튀르키예어",
+    ar: "아랍어",
+    hi: "힌디어",
+    pt: "포르투갈어",
+    kk: "카자흐어",
+    vi: "베트남어",
+    id: "인도네시아어",
+    th: "태국어",
+  },
+
+  /**
+   * 정규화된 고용 형태. Task 1의 채용 공고 용어를 재사용합니다. 같은 단어는
+   * 공고에서든 지원자 희망 조건에서든 같은 의미여야 합니다.
+   */
+  employmentTypeValue: {
+    FULL_TIME: "정규직",
+    PART_TIME: "파트타임",
+    CONTRACT: "계약직",
+    INTERNSHIP: "인턴",
+    TEMPORARY: "임시직",
+  },
+
+  jobPreferences: {
+    title: "희망 조건",
+    description:
+      "찾고 있는 조건입니다. 채용 공고를 찾고 정렬하는 데 사용되며, 지원 시 기업에 공개되지 않습니다.",
+    navLabel: "희망 조건",
+
+    rolesTitle: "직무",
+    rolesHint:
+      "기술이 아니라 원하는 직무명입니다. “Kubernetes”가 아니라 “DevOps Engineer”.",
+    rolesPlaceholder: "DevOps Engineer",
+
+    locationsTitle: "근무지",
+    locationsHint: "일하고 싶은 지역입니다. 국가를 선택한 뒤 더 좁혀도 됩니다.",
+    addLocation: "근무지 추가",
+    country: "국가",
+    region: "지역 / 주",
+    city: "도시",
+    removeLocation: "근무지 {index} 삭제",
+    noLocations: "추가된 근무지가 없습니다.",
+
+    workModeTitle: "근무 형태",
+    workModeHint: "원하는 항목을 모두 선택하세요. 선택하지 않으면 조건 없음입니다.",
+
+    compensationTitle: "보상",
+    compensationHint: "고려할 수 있는 최소 금액입니다. 밝히고 싶지 않으면 비워 두세요.",
+    salaryMin: "최소 급여",
+    currency: "통화",
+    payPeriod: "기간",
+
+    employmentTitle: "고용 형태",
+    employmentHint: "수락할 수 있는 계약 형태입니다.",
+
+    seniorityTitle: "경력 수준",
+    seniorityHint:
+      "고려되고 싶은 직급입니다. 실제 경력에 대한 주장이 아닙니다.",
+
+    additionalTitle: "추가 조건",
+    relocationTitle: "이주",
+    relocationHint: "좋은 자리라면 이주할 의향이 있나요?",
+    relocationLabel: "이주 가능",
+
+    industriesTitle: "산업 분야",
+    industriesHint: "일하고 싶은 분야입니다.",
+    industriesPlaceholder: "핀테크",
+
+    benefitsTitle: "복리후생",
+    benefitsHint: "급여 외에 중요하게 생각하는 것입니다.",
+
+    exclusionsTitle: "제외 조건",
+    exclusionsHint:
+      "보고 싶지 않은 항목입니다. 직접 입력한 것만 반영되며, 건너뛴 공고에서 자동으로 학습하지 않습니다.",
+    excludedCompanies: "제외할 회사",
+    excludedCompaniesPlaceholder: "Company X",
+    excludedJobTitles: "제외할 직무",
+    excludedJobTitlesPlaceholder: "PHP Developer",
+    excludedLocations: "제외할 근무지",
+
+    notStated: "입력하지 않음",
+    noPreference: "조건 없음",
+    unknown: "입력하지 않음",
+    save: "희망 조건 저장",
+    saved: "희망 조건이 저장되었습니다.",
+    clearAll: "모든 희망 조건 삭제",
+    clearAllConfirm:
+      "입력한 모든 희망 조건이 삭제됩니다. 프로필, 문서, 지원 내역에는 영향이 없습니다.",
+    cleared: "희망 조건이 삭제되었습니다.",
+    empty:
+      "아직 희망 조건을 설정하지 않았습니다. 이력서에서 추측하지 않으며, 직접 입력한 내용만 반영됩니다.",
+    lastUpdated: "최종 수정 {date}",
+
+    errSalaryAmount: "0보다 큰 정수를 입력하거나 비워 두세요.",
+    errSalaryCurrency: "금액에 해당하는 통화를 선택하세요.",
+    errSalaryPeriod: "금액에 해당하는 기간을 선택하세요.",
+    errSalaryAmountMissing: "금액을 입력하거나 통화와 기간을 지우세요.",
+    errLocationCountry: "모든 근무지에 국가를 선택하세요.",
+    saveFailed: "희망 조건을 저장하지 못했습니다. 다시 시도하세요.",
+      salaryMax: "최대 (선택)",
+    salaryMaxHint: "생각하고 있는 범위의 상한입니다. 이보다 높은 급여의 공고도 계속 표시됩니다 — 상한이 아니라 목표입니다.",
+    errSalaryRange: "최대 금액은 최소 금액 이상이어야 합니다.",
+},
+
+  jobProfile: {
+    compensation: "보상",
+    locationWork: "근무지 및 근무 형태",
+    workAuthorization: "취업 자격",
+    experience: "경력 및 직급",
+    education: "학력 및 자격증",
+    languages: "언어",
+    benefits: "복리후생",
+    timeline: "채용 일정",
+
+    notSpecified: "명시되지 않음",
+    negotiable: "협의 가능",
+    required: "필수",
+    preferred: "우대",
+    yes: "예",
+    no: "아니오",
+
+    salary: "급여",
+    salaryRange: "{min} – {max}",
+    salaryFrom: "{min} 이상",
+    salaryUpTo: "{max} 이하",
+    perPeriod: "{amount} / {period}",
+
+    location: "근무지",
+    workModeLabel: "근무 형태",
+    officeDays: "출근 일수",
+    officeDaysValue: "주 {count}일",
+    remoteCountries: "지원 가능 국가",
+
+    foreignApplicants: "외국인 지원",
+    visaSponsorshipLabel: "비자 스폰서십",
+    existingWorkAuth: "기존 취업 자격",
+    existingWorkAuthRequired: "필요",
+    existingWorkAuthNotRequired: "불필요",
+    eligibleVisas: "해당 비자 종류",
+    citizenship: "국적",
+    eligibleNationalities: "지원 가능 국적",
+    visaDisclaimer:
+      "고용주가 명시한 내용입니다. 법률 자문이 아니며 자격을 보장하지 않습니다.",
+
+    seniority: "직급",
+    minExperience: "최소 경력",
+    preferredExperience: "우대 경력",
+    yearsValue: "{count}년",
+
+    requiredEducation: "필수 학력",
+    preferredEducation: "우대 학력",
+    requiredCertifications: "필수 자격증",
+    preferredCertifications: "우대 자격증",
+    domainExperience: "산업 경험",
+
+    deadline: "지원 마감",
+    expectedStart: "입사 예정일",
+    openings: "모집 인원",
+    urgency: "채용 긴급도",
+    contractDuration: "계약 기간",
+    monthsValue: "{count}개월",
+  },
+
 
   workspaces: {
     title: "워크스페이스 선택",
@@ -1164,6 +1511,13 @@ const ko: Dictionary = {
     noMatches: "검색 조건에 맞는 공고가 없습니다",
     noMatchesHint: "검색어를 줄이거나 근무지 필터를 해제해 보세요.",
     postedOn: "{date} 게시",
+    applicantCount: {
+      other: "지원자 {count}명",
+    } as Plural,
+    rankNote:
+      "근무 형태, 고용 형태, 경력, 급여는 가장 가까운 공고를 먼저 보여줄 뿐이며 아무것도 숨기지 않습니다.",
+    locationFilterNote: "지역을 선택하면 결과가 좁혀집니다.",
+    currencyNeeded: "국가 간 급여를 비교하려면 통화를 선택하세요.",
     save: "저장",
     saved: "저장됨",
     unsave: "저장 해제",
@@ -1196,7 +1550,22 @@ const ko: Dictionary = {
     alreadyAppliedHint:
       "공고당 한 번만 지원할 수 있습니다. 지원을 철회해도 다시 지원할 수는 없으며, 채용팀은 기존 지원 건을 계속 진행할 수 있습니다.",
     jobUnavailable: "이 공고는 더 이상 지원을 받지 않습니다",
-  },
+      filtersTitle: "필터",
+    moreFilters: "필터 더 보기",
+    fewerFilters: "필터 접기",
+    countryLabel: "국가",
+    workModeLabel: "근무 형태",
+    employmentLabel: "고용 형태",
+    seniorityLabel: "경력 수준",
+    salaryLabel: "최소 급여",
+    salaryAmountPlaceholder: "금액",
+    anyOption: "전체",
+    applyFilters: "검색",
+    usingPreferences: "저장된 희망 조건을 사용 중입니다. 여기서 변경한 내용은 이번 검색에만 적용됩니다.",
+    editPreferences: "희망 조건 수정",
+    salaryUnknownKept: "급여 미제시 — 그래도 표시됨",
+    salaryNotComparableKept: "급여를 비교할 수 없음 — 그래도 표시됨",
+},
 
   applications: {
     title: "지원 현황",
@@ -1372,7 +1741,72 @@ const ko: Dictionary = {
     unavailable: "매칭을 일시적으로 사용할 수 없습니다",
     unavailableHint:
       "매칭 서비스에 지금 연결할 수 없습니다. 아무것도 계산되지 않았으니 잠시 후 다시 시도하세요.",
-  },
+      scoreLabel: "매칭 점수",
+    scoreValue: "{score} / 100",
+    band: {
+      STRONG: "매우 적합",
+      GOOD: "적합",
+      PARTIAL: "부분 적합",
+      LOW: "낮은 적합도",
+    },
+    topReasons: "주요 이유",
+    whyMatches: "이 공고가 맞는 이유",
+    whyNotHigher: "점수가 더 높지 않은 이유",
+    capabilitySection: "역량",
+    preferencesSection: "희망 조건 일치",
+    salarySection: "급여",
+    approxSalary: "≈ {amount}",
+    convertedNote: "희망 급여와 비교할 수 있도록 고용주가 제시한 금액을 환산한 값입니다.",
+    fxUpdated: "환율 {ago} 업데이트됨",
+    fxUnavailable: "환율을 사용할 수 없습니다",
+    noPreferences: "희망 조건을 설정하면 각 공고가 원하는 조건과 얼마나 맞는지 확인할 수 있습니다.",
+    excludedNote: {
+      one: "제외 설정으로 {count}개 공고가 숨겨졌습니다",
+      other: "제외 설정으로 {count}개 공고가 숨겨졌습니다",
+    } as Plural,
+    capabilityStrong: "이 공고의 요구사항 중 {count}개가 제출한 자료로 뒷받침됩니다",
+    capabilityNone: "이 공고가 명시한 요구사항 중 제출한 자료에서 확인된 것이 없습니다",
+    capabilityMissing: "요구사항 {count}개는 제출한 자료에서 확인되지 않았습니다",
+    capabilityUnclear: "요구사항 {count}개는 사람이 확인해야 합니다",
+    skillsMatched: "{skills} 관련 근거 있음",
+    matchReason: {
+      ROLE_EXACT: "희망 직무와 일치",
+      ROLE_RELATED: "희망 직무와 매우 유사",
+      ROLE_FAMILY_MATCH: "찾고 있는 종류의 업무",
+      ROLE_FAMILY_ADJACENT: "찾고 있는 업무와 관련 있음",
+      ROLE_MISMATCH: "희망 직무와 다른 직무",
+      LOCATION_EXACT: "희망 도시에 위치",
+      LOCATION_REGION_MATCH: "희망 지역에 위치",
+      LOCATION_COUNTRY_MATCH: "희망 국가에 위치",
+      LOCATION_REMOTE_ELIGIBLE: "원격 근무이며 희망 국가에서 가능",
+      LOCATION_MISMATCH: "근무지가 희망 지역과 다름",
+      LOCATION_UNKNOWN: "고용주가 근무지를 명시하지 않음",
+      WORK_MODE_MATCH: "근무 형태가 희망과 일치",
+      WORK_MODE_MISMATCH: "근무 형태가 희망과 다름",
+      WORK_MODE_UNKNOWN: "고용주가 근무 형태를 명시하지 않음",
+      SALARY_WITHIN_DESIRED_RANGE: "급여가 희망 범위 안에 있음",
+      SALARY_ABOVE_DESIRED_RANGE: "급여가 희망 범위보다 높음",
+      SALARY_PARTIAL_OVERLAP: "급여가 희망 범위와 일부 겹침",
+      SALARY_MEETS_MINIMUM: "급여가 희망 최소 금액을 충족",
+      SALARY_BELOW_MINIMUM: "급여가 희망 최소 금액보다 낮음",
+      SALARY_UNKNOWN: "고용주가 급여를 제시하지 않음",
+      SALARY_NOT_COMPARABLE: "급여를 비교할 수 없음",
+      EMPLOYMENT_MATCH: "고용 형태가 희망과 일치",
+      EMPLOYMENT_MISMATCH: "고용 형태가 희망과 다름",
+      EMPLOYMENT_UNKNOWN: "고용주가 고용 형태를 명시하지 않음",
+      SENIORITY_MATCH: "경력 수준이 희망과 일치",
+      SENIORITY_ADJACENT: "경력 수준이 희망과 비슷함",
+      SENIORITY_MISMATCH: "경력 수준이 희망과 다름",
+      SENIORITY_UNKNOWN: "고용주가 경력 수준을 명시하지 않음",
+      INDUSTRY_MATCH: "희망 산업 분야",
+      INDUSTRY_MISMATCH: "지정한 산업 분야가 아님",
+      INDUSTRY_UNKNOWN: "고용주가 산업 분야를 명시하지 않음",
+      BENEFITS_MATCH: "희망한 복리후생을 제공",
+      BENEFITS_PARTIAL: "희망한 복리후생 중 일부를 제공",
+      BENEFITS_MISMATCH: "희망한 복리후생이 없음",
+      BENEFITS_UNKNOWN: "고용주가 복리후생을 명시하지 않음",
+    },
+},
   vacancyScope: {
     selectorLabel: "내 채용 공고",
     myVacancies: "내 채용 공고",
@@ -1542,6 +1976,320 @@ const ko: Dictionary = {
       requires_partner_approval: "파트너 승인 필요",
     },
   },
+
+  externalApplications: {
+    tab: "내 외부 지원",
+    title: "내 외부 지원",
+    description:
+      "채용 기업 사이트에서 직접 지원한 내역입니다. 이 목록은 본인이 직접 관리합니다. HR Copilot은 이 지원서를 받지 않으며 진행 상황을 확인할 수 없습니다.",
+    managedByYou: "이 목록은 본인이 직접 관리합니다.",
+    notInternal:
+      "HR Copilot 안에서 지원한 내역은 ‘내 지원 현황’에 있습니다.",
+    goToInternal: "내 지원 현황",
+    markApplied: "지원함으로 표시",
+    markAppliedHint:
+      "채용 기업 사이트를 여는 것만으로는 아무것도 기록되지 않습니다. 실제로 지원한 뒤 여기에 표시해 주세요.",
+    marking: "저장 중…",
+    markFailed: "기록하지 못했습니다. 다시 시도해 주세요.",
+    statusLabel: "지원 상태",
+    updateStatus: "상태 변경",
+    updateFailed: "상태를 변경하지 못했습니다. 다시 시도해 주세요.",
+    removeTracking: "기록 삭제",
+    removeTrackingHint:
+      "본인의 기록만 삭제합니다. 채용 기업에 낸 지원이 취소되지는 않습니다.",
+    removeFailed: "기록을 삭제하지 못했습니다. 다시 시도해 주세요.",
+    appliedOn: "{date}에 지원",
+    filterAll: "전체",
+    clearStatusFilter: "전체 보기",
+    emptyForStatus: "이 상태인 항목이 없습니다.",
+    emptyForStatusHint:
+      "상태 필터를 바꾸면 다른 외부 지원 내역을 볼 수 있습니다.",
+    listingGoneTitle: "공고를 더 이상 볼 수 없습니다",
+    listingGoneHint:
+      "이 공고는 목록에서 사라졌습니다. 직접 기록한 내용은 그대로 남아 있습니다.",
+    listingStatusLabel: "공고 현재 상태",
+    listingActive: "게시 중",
+    note: "메모",
+    notePlaceholder: "예: 채용 담당자 연락 옴 · 9월 4일 기술 면접",
+    saveNote: "메모 저장",
+    noteSaved: "메모를 저장했습니다",
+    empty: "아직 기록한 외부 지원이 없습니다.",
+    emptyHint:
+      "채용 기업 사이트에서 지원한 뒤 여기에 표시하면 이 목록에 나타납니다.",
+    errorTitle: "목록을 불러오지 못했습니다",
+    errorHint: "지금은 접근할 수 없습니다. 다시 시도해 주세요.",
+    viewJob: "공고 보기",
+    openOriginal: "채용 기업 사이트에서 열기",
+    status: {
+      APPLIED: "지원함",
+      INTERVIEW: "면접",
+      OFFER: "합격 제안",
+      REJECTED: "불합격",
+      WITHDRAWN: "지원 취소",
+    },
+  },
+
+  externalJobs: {
+    title: "외부 채용공고",
+    description:
+      "다른 채용 사이트와 기업 채용 페이지에 올라온 공고입니다. 지원은 해당 기업 사이트에서 진행되며, HR Copilot은 이 지원서를 받지 않습니다.",
+    searchTab: "검색",
+    whyMatchTitle: "왜 이 공고가 맞나요?",
+    whyMatchInvite: "이 공고가 왜 이 순위에 올랐는지 짧은 설명을 받아 보세요.",
+    whyMatchGenerate: "설명 생성",
+    whyMatchStrengths: "강점",
+    whyMatchGaps: "보완할 점",
+    tabsLabel: "공고가 게시된 곳",
+
+    searchLabel: "외부 채용공고 검색",
+    searchPlaceholder: "직무, 기술 또는 회사",
+    submit: "검색",
+    filters: "필터",
+    filtersWithCount: "필터 ({count})",
+    filtersTitle: "필터",
+    applyFilters: "결과 보기",
+    reset: "필터 초기화",
+    resetHint:
+      "여기에서 선택한 항목만 지웁니다. 저장된 희망 조건은 변경되지 않습니다.",
+    close: "닫기",
+    moreFilters: "필터 더 보기",
+    fewerFilters: "필터 접기",
+
+    countryLabel: "국가",
+    filterTag: "필터",
+    preferenceTag: "선호",
+    countryHint: "선택한 국가에서 채용 중인 공고만 표시합니다.",
+    preferenceHint:
+      "가장 잘 맞는 공고를 앞에 배치할 뿐, 다른 공고를 숨기지 않습니다.",
+    workModeLabel: "근무 형태",
+    employmentLabel: "고용 형태",
+    seniorityLabel: "경력 수준",
+    salaryLabel: "최소 연봉",
+    salaryAmountPlaceholder: "금액",
+    currencyLabel: "통화",
+    payPeriodLabel: "기준",
+    anyOption: "전체",
+    currencyNeeded: "국가 간 급여를 비교하려면 통화와 기준 기간을 선택하세요.",
+
+    usingPreferences: "저장된 희망 조건을 반영해 순서를 정했습니다.",
+    editPreferences: "희망 조건 수정",
+
+    resultCount: {
+      other: "일치하는 공고 {count}건",
+    } as Plural,
+    truncatedNote:
+      "가장 관련도가 높은 결과를 보여 주고 있습니다. 이 조건에 맞는 공고가 더 있습니다.",
+    degradedNotice:
+      "의미 기반 매칭을 일시적으로 사용할 수 없습니다. 지금은 텍스트 검색 결과만 표시됩니다.",
+
+    searching: "외부 채용공고를 검색하는 중…",
+    searchingHint: "한동안 검색이 없었다면 첫 검색에 몇 초가 걸릴 수 있습니다.",
+
+    empty: "검색과 일치하는 외부 공고가 없습니다",
+    emptyHint: "다음을 시도해 보세요:",
+    emptyFewerWords: "문장 대신 직무명으로 검색하기",
+    emptyClearCountry: "국가 필터 해제하기",
+    emptyClearAll: "필터 초기화하기",
+    browseTitle: "외부 채용공고 둘러보기",
+    browseHint:
+      "직무명으로 검색하거나 필터에서 국가를 선택하세요. 저장된 희망 조건은 이미 순서에 반영되어 있습니다.",
+
+    errorTitle: "외부 채용공고를 검색하지 못했습니다",
+    errorHint: "아무것도 계산되지 않았습니다. 잠시 후 다시 시도해 주세요.",
+    retry: "다시 시도",
+    needsAccountTitle: "먼저 프로필을 만들어 주세요",
+    needsAccountHint:
+      "외부 채용 검색은 지원자 프로필을 사용해 결과 순서를 정합니다. 먼저 프로필을 만들어 주세요.",
+    goToProfile: "내 프로필로 이동",
+
+    scoreLabel: "적합도",
+    scoreValue: "{score} / 100",
+    scoreNote:
+      "검색어와 희망 조건에 얼마나 부합하는지를 나타냅니다. 합격 가능성이 아닙니다.",
+    band: {
+      STRONG: "매우 적합",
+      GOOD: "적합",
+      PARTIAL: "부분 적합",
+      LOW: "낮은 적합",
+    },
+    whyThis: "이 결과가 나온 이유",
+
+    locationUnknown: "근무지 미기재",
+    alsoOpenIn: "다음 지역에서도 채용",
+    moreLocations: {
+      other: "+{count}개 지역",
+    } as Plural,
+    remoteStated: "원격 · {countries} 거주자 지원 가능",
+    remoteUnstated: "원격 · 지원 가능 국가 미기재",
+    remoteUnstatedHint:
+      "고용주가 이 원격 직무의 지원 가능 국가를 밝히지 않았습니다.",
+
+    salaryUnknown: "급여 미기재",
+    salaryNote: "고용주가 게시한 그대로입니다.",
+
+    staleNotice: "재확인이 필요한 공고일 수 있습니다",
+    staleHint:
+      "최근에 이 공고를 다시 확인한 출처가 없습니다. 아직 열려 있을 수 있으니 원본 공고를 확인해 주세요.",
+    save: "공고 저장",
+    savedState: "저장됨",
+    unsave: "저장 목록에서 제거",
+    saveFailed: "공고를 저장하지 못했습니다. 다시 시도해 주세요.",
+    unsaveFailed: "공고를 제거하지 못했습니다. 다시 시도해 주세요.",
+    savedTab: "저장한 공고",
+    savedTitle: "저장한 외부 공고",
+    savedDescription:
+      "외부 공고에서 저장해 둔 공고입니다. 지원은 채용 기업 사이트에서 진행합니다.",
+    savedEmpty: "아직 저장한 외부 공고가 없습니다.",
+    savedEmptyHint:
+      "외부 공고를 둘러보다가 저장하면 여기에 표시됩니다.",
+    savedPageEmpty: "이 페이지에는 아무것도 없습니다.",
+    savedPageEmptyHint: "나머지는 앞쪽 페이지에 있습니다.",
+    savedFirstPage: "첫 페이지로 이동",
+    savedErrorTitle: "저장한 공고를 불러오지 못했습니다",
+    savedErrorHint: "지금은 목록에 접근할 수 없습니다. 다시 시도해 주세요.",
+    savedOn: "{date}에 저장",
+    browseExternal: "외부 공고 둘러보기",
+    closedNotice: "채용 마감",
+    expiredNotice: "지원 기한 종료",
+    unavailableNotice: "공고를 확인할 수 없음",
+    unexpectedStatus: "이 공고는 더 이상 열려 있지 않을 수 있습니다",
+
+    sourceLine: "출처: {source}",
+    applyViaLine: "지원 경로: {source}",
+    sourceCountLine: "{count}개 출처에서 확인됨",
+    sourceUnknown: "외부 출처",
+    source: {
+      GREENHOUSE: "Greenhouse",
+      LEVER: "Lever",
+      ASHBY: "Ashby",
+      NINEHIRE: "나인하이어",
+      COMPANY_CAREERS: "기업 채용 페이지",
+    },
+
+    apply: "원본 사이트에서 지원",
+    applyHint:
+      "고용주 사이트를 새 탭에서 엽니다. HR Copilot은 이 지원서를 받지 않으며 진행 상황을 추적할 수 없습니다.",
+    externalLink: "새 탭에서 열림",
+    viewDetails: "상세 보기",
+    detailsTitle: "공고 상세",
+    aboutRole: "이 직무 소개",
+    requirements: "요구 사항",
+    noDescription:
+      "여기에는 설명이 없습니다. 원본 공고를 열어 확인해 주세요.",
+    skills: "기술",
+    languages: "언어",
+    benefits: "복리후생",
+    industries: "산업",
+    loadingDetail: "공고를 불러오는 중…",
+    detailError: "이 공고를 불러오지 못했습니다.",
+    detailGone: "이 공고는 더 이상 게시되어 있지 않습니다.",
+    companySite: "회사 웹사이트",
+
+
+    sortLabel: "정렬",
+    sortRelevance: "관련도순",
+    sortNewest: "최신순",
+    sortNewestNote:
+      "고용주가 공고를 게시한 날짜순입니다. 게시일이 표기되지 않은 공고는 뒤에 표시됩니다.",
+
+    postedToday: "오늘 게시",
+    postedYesterday: "어제 게시",
+    postedDaysAgo: {
+      other: "{count}일 전 게시",
+    } as Plural,
+    postedOn: "{date} 게시",
+    reason: {
+      TEXT_STRONG_MATCH: "검색어와 매우 잘 맞습니다",
+      TEXT_TITLE_MATCH: "검색어와 일치합니다",
+      TEXT_PARTIAL_MATCH: "검색어와 부분적으로 일치합니다",
+      TEXT_SEMANTIC_MATCH: "검색한 내용과 의미가 비슷합니다",
+      STALE_LISTING: "재확인이 필요한 공고일 수 있습니다",
+    },
+  },
+
+  aiJobSearch: {
+    tabsLabel: "AI 채용 검색",
+    internalTab: "내부 AI 채용",
+    externalTab: "외부 AI 채용",
+    lockedTabLabel: "{tab} — {plan} 요금제부터 이용할 수 있습니다",
+    internal: {
+      sourceName: "HR Copilot 채용공고",
+      applyMeaning: "HR Copilot 안에서 지원합니다",
+    },
+    external: {
+      sourceName: "외부 채용공고",
+      applyMeaning: "원본 사이트에서 지원합니다",
+    },
+  },
+
+  plans: {
+    title: "요금제",
+    description:
+      "각 요금제에 구직 기능이 어떻게 포함되는지 안내합니다. 가격은 월 기준입니다.",
+    names: { FREE: "Free", PRO: "Pro", MAX: "Max" },
+    availableOn: "{plan} 요금제부터 이용할 수 있습니다.",
+    upgradeTo: "{plan} 요금제로 업그레이드",
+    viewPlans: "요금제 보기",
+    priceMonthly: "월 ${amount}",
+    currentPlan: "현재 요금제",
+    currentPlanIs: "현재 {plan} 요금제를 이용 중입니다.",
+    noCheckoutNote:
+      "결제 기능은 아직 제공되지 않으므로 이 페이지에서 구매할 수 없습니다. 각 요금제에 무엇이 포함되는지 확인하는 용도입니다.",
+    locked: {
+      INTERNAL_AI_SEARCH: {
+        title: "내부 AI 채용 검색",
+        description:
+          "HR Copilot에 등록된 채용공고를 프로필과 대조해 순위를 매기고, 각 공고가 적합한 이유를 알려줍니다. 지원은 이곳에서 바로 할 수 있습니다. 일반 채용 검색은 모든 요금제에서 계속 이용할 수 있습니다.",
+      },
+      EXTERNAL_AI_SEARCH: {
+        title: "외부 AI 채용 검색",
+        description:
+          "HR Copilot 외부에 게시된 채용공고를 검색하고, 다시 보고 싶은 공고를 저장하며, 어디에 지원했는지 직접 기록해 둘 수 있습니다. 지원은 채용 기업의 사이트에서 진행합니다.",
+      },
+    },
+    cards: {
+      FREE: {
+        tagline: "HR Copilot에 등록된 채용공고를 검색하고 지원합니다.",
+        features: [
+          "일반 채용 검색",
+          "HR Copilot 공고 지원",
+          "저장한 공고와 지원 이력",
+        ],
+      },
+      PRO: {
+        tagline: "HR Copilot 공고에 AI 순위 추천을 더합니다.",
+        features: [
+          "Free의 모든 기능",
+          "내부 AI 채용 검색",
+          "공고별 매칭 근거",
+        ],
+      },
+      MAX: {
+        tagline: "HR Copilot 외부 채용공고까지 넓힙니다.",
+        features: [
+          "Pro의 모든 기능",
+          "외부 AI 채용 검색",
+          "왜 이 공고가 맞는지 AI 설명",
+          "저장한 외부 공고",
+          "외부 지원 현황 기록",
+        ],
+      },
+    },
+  },
+
+  premiumAi: {
+    disclaimer:
+      "프로필과 이 채용공고를 바탕으로 AI가 작성했습니다. 매칭 점수를 설명할 뿐 점수를 바꾸지 않으며, 내용이 정확하지 않을 수 있습니다.",
+    generating: "설명을 작성하고 있습니다…",
+    tryAgain: "다시 시도",
+    unavailable:
+      "지금은 설명을 작성하지 못했습니다. 이 페이지의 다른 내용에는 영향이 없습니다.",
+    failed: "설명을 불러오지 못했습니다.",
+    jobGone: "이 채용공고는 더 이상 게시되지 않아 설명할 내용이 없습니다.",
+    strengthLabel: "강점",
+    gapLabel: "보완할 점",
+  },
+
 };
 
 export default ko;

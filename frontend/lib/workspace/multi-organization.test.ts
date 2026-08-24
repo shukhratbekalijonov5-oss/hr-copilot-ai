@@ -6,6 +6,7 @@ import {
   personalFromSession,
 } from "@/lib/workspace/types";
 import { navigationFor } from "@/lib/workspace/navigation";
+import { resolveEntitlements } from "@/lib/entitlements/plan";
 import type { SessionUser } from "@/lib/types";
 
 const NORTHWIND = { id: "org-1", name: "Northwind Labs", slug: "northwind" };
@@ -27,6 +28,7 @@ function organizationAccount(activeId: string | null = NORTHWIND.id): SessionUse
     preferredLocale: "ko",
     avatarUrl: null,
     hasCandidateAccount: false,
+    entitlements: resolveEntitlements(null),
     activeOrganization: active
       ? { ...active.organization, role: active.role }
       : null,
@@ -43,6 +45,7 @@ function jobSeeker(): SessionUser {
     preferredLocale: "uz",
     avatarUrl: null,
     hasCandidateAccount: true,
+    entitlements: resolveEntitlements(null),
     activeOrganization: null,
     memberships: [],
   };

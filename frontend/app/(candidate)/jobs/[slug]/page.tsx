@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
+import { formatMoneyRange } from "@/lib/candidate/match-explanation";
 import { getTranslations } from "@/lib/i18n/server";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Chip } from "@/components/ui/Badge";
@@ -11,7 +12,9 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SaveJobButton } from "@/components/jobs/SaveJobButton";
 import { ApplyPanel } from "@/components/jobs/ApplyPanel";
 import { BriefcaseIcon } from "@/components/ui/icons";
-import { format, formatDateFor } from "@/lib/i18n/format";
+import { JobProfileSections } from "@/components/vacancies/JobProfileSections";
+import { formatJobLocation, formatSalary } from "@/lib/vacancy/job-profile";
+import { format, formatDateFor, plural } from "@/lib/i18n/format";
 import { applyEligibility } from "@/lib/candidate/apply-eligibility";
 import { getI18n } from "@/lib/i18n/server";
 
@@ -29,7 +32,7 @@ export default async function JobDetailPage(
   props: PageProps<"/jobs/[slug]">,
 ) {
   const { session } = await requirePersonalWorkspace();
-  const { d } = await getI18n();
+  const { d, locale } = await getI18n();
   const { slug } = await props.params;
 
   const job = await api.getPublicJob(slug);
@@ -66,13 +69,24 @@ export default async function JobDetailPage(
    * treating any past application as "already applied" is what used to lock
    * a rejected candidate out of the job permanently.
    */
-  const [applications, saved] = await Promise.all([
+  const [applications, saved, salaryView] = await Promise.all([
     session.hasCandidateAccount
       ? api.getMyApplications(1, 100).catch(() => ({ applications: [] }))
       : Promise.resolve({ applications: [] }),
     session.hasCandidateAccount
       ? api.getSavedJobs(1, 100).catch(() => ({ saved: [] }))
       : Promise.resolve({ saved: [] }),
+    /*
+     * The pay in this candidate's own currency.
+     *
+     * Candidate-scoped, and deliberately a separate call: the target currency
+     * comes from their private preference, which must never be readable
+     * through the public job endpoint. An anonymous visitor to this same page
+     * gets the employer's original figure and nothing else.
+     */
+    session.hasCandidateAccount
+      ? api.getJobSalaryView(job.publicSlug).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const eligibility = applyEligibility(
@@ -95,7 +109,38 @@ export default async function JobDetailPage(
         meta={
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] text-ink-muted">
             <span className="font-medium text-ink">{job.organizationName}</span>
-            {job.location ? <span>· {job.location}</span> : null}
+            {/*
+              The structured city/country when the employer gave one, the old
+              free-text line when they did not. Never both.
+            */}
+            {formatJobLocation(job, job.location, d) ? (
+              <span>· {formatJobLocation(job, job.location, d)}</span>
+            ) : null}
+            {job.workMode ? <span>· {d.workMode[job.workMode]}</span> : null}
+            {formatSalary(job, d) ? (
+              <span className="font-medium text-ink">
+                · {formatSalary(job, d)}
+              </span>
+            ) : null}
+            {/*
+              The approximation, beside the original and never instead of it.
+              Shown only when a conversion actually happened — a salary already
+              in the candidate's currency needs no "≈".
+            */}
+            {salaryView?.converted && salaryView.reason === "CONVERTED" ? (
+              <span className="text-ink-muted">
+                {d.jobMatch.approxSalary.replace(
+                  "{amount}",
+                  formatMoneyRange(
+                    salaryView.converted.salaryMin,
+                    salaryView.converted.salaryMax,
+                    salaryView.converted.currency,
+                    salaryView.converted.payPeriod,
+                    d,
+                  ) ?? "",
+                )}
+              </span>
+            ) : null}
             {job.employmentType ? (
               <span>
                 ·{" "}
@@ -117,6 +162,14 @@ export default async function JobDetailPage(
               {format(d.jobs.postedOn, {
                 date: formatDateFor(job.createdAt, d),
               })}
+            </span>
+            {/*
+              The same live number the recruiter sees and the board shows: how
+              many PEOPLE applied, never who. In the header meta so it is part
+              of the decision to apply rather than buried further down.
+            */}
+            <span>
+              · {plural(d.jobs.applicantCount, job.applicantCount, locale)}
             </span>
           </div>
         }
@@ -195,6 +248,17 @@ export default async function JobDetailPage(
             </CardBody>
           </Card>
         ) : null}
+        {/*
+          The same component the recruiter sees on the internal vacancy page.
+          A candidate deciding whether to apply — especially one who needs a
+          visa — reads exactly what the employer stated, not a summary of it.
+        */}
+        <JobProfileSections
+          profile={job}
+          legacyLocation={job.location}
+          languages={job.languages}
+          d={d}
+        />
       </div>
     </div>
   );

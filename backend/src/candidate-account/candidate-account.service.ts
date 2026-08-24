@@ -19,6 +19,10 @@ import {
   type SupportedLocale,
 } from '../ai/ai-service.client';
 import { JobMatchRankingService } from './job-match-ranking.service';
+import { CandidatePreferencesService } from '../candidate-preferences/candidate-preferences.service';
+import { emptyJobIntent } from '../candidate-preferences/candidate-job-intent';
+import { matchBand } from '../matching/match-policy';
+import { normalizeSalary } from '../fx/money';
 import { CandidateEvidenceLifecycleService } from '../candidate-evidence/candidate-evidence.service';
 import { NO_CANDIDATE_EVIDENCE } from '../candidate-evidence/evidence-policy';
 
@@ -47,6 +51,7 @@ import {
   MAX_PERSONAL_DOCUMENTS,
   personalDocumentLimitReached,
 } from '../documents/document-policy';
+import { uniqueApplicantCounts } from '../common/vacancy-access/applicant-counts';
 import type { CandidateAccount, Prisma } from '../generated/prisma/client';
 import type { PaginationQueryDto } from '../common/dto/pagination.dto';
 import type { UpsertCandidateAccountDto } from './dto/upsert-candidate-account.dto';
@@ -80,6 +85,7 @@ export class CandidateAccountService {
     private readonly accountTypes: AccountTypeService,
     private readonly evidence: CandidateEvidenceLifecycleService,
     private readonly ranking: JobMatchRankingService,
+    private readonly preferences: CandidatePreferencesService,
     configService: ConfigService,
   ) {
     this.maxFileSizeBytes = configService.get<number>(
@@ -522,7 +528,43 @@ export class CandidateAccountService {
       }),
       this.prisma.application.count({ where }),
     ]);
-    return paginated(data, total, query.page, query.limit);
+    return paginated(
+      await this.withApplicantCounts(data),
+      total,
+      query.page,
+      query.limit,
+    );
+  }
+
+  /**
+   * Attaches each vacancy's live applicant count, and drops its internal id.
+   *
+   * ONE query for the whole page. Counting per application would be an N+1
+   * that grows with how many jobs someone has applied to — the people who
+   * would feel it first are exactly the most active users of the page.
+   *
+   * The number is the same one the recruiter sees and the same one the job
+   * board shows, from the same helper: a candidate comparing their
+   * applications list against the job page must not find two different facts
+   * about the same vacancy. It is computed live rather than stored on the
+   * Application, because a count frozen at apply time starts drifting the
+   * moment anyone else applies.
+   */
+  private async withApplicantCounts<
+    T extends { vacancy: { id: string } | null },
+  >(rows: T[]): Promise<(Omit<T, 'vacancy'> & { vacancy: unknown })[]> {
+    const counts = await uniqueApplicantCounts(
+      this.prisma,
+      rows.map((row) => row.vacancy?.id).filter((id): id is string => !!id),
+    );
+    return rows.map((row) => {
+      if (!row.vacancy) return row;
+      const { id, ...vacancy } = row.vacancy;
+      return {
+        ...row,
+        vacancy: { ...vacancy, applicantCount: counts.get(id) ?? 0 },
+      };
+    });
   }
 
   async getMyApplication(userId: string, applicationId: string) {
@@ -532,7 +574,8 @@ export class CandidateAccountService {
       select: CANDIDATE_APPLICATION_SELECT,
     });
     if (!application) throw new NotFoundException('Application not found');
-    return application;
+    const [withCount] = await this.withApplicantCounts([application]);
+    return withCount;
   }
 
   /**
@@ -554,11 +597,16 @@ export class CandidateAccountService {
       );
     }
 
-    return this.prisma.application.update({
+    const updated = await this.prisma.application.update({
       where: { id: application.id },
       data: { status: ApplicationStatus.WITHDRAWN },
       select: CANDIDATE_APPLICATION_SELECT,
     });
+    // Withdrawing changes this candidate's status, not how many PEOPLE applied
+    // — the count is recomputed rather than adjusted, so it stays whatever is
+    // true right now.
+    const [withCount] = await this.withApplicantCounts([updated]);
+    return withCount;
   }
 
   // -- Saved jobs -----------------------------------------------------------
@@ -685,16 +733,32 @@ export class CandidateAccountService {
     const page = Math.max(1, dto.page ?? 1);
     const pageSize = Math.min(50, Math.max(1, dto.limit ?? DEFAULT_MATCH_PAGE));
 
+    /*
+     * The candidate's stated job intent, read ONCE through the ONE shared
+     * resolver — never per-vacancy, never from the tables.
+     *
+     * Since algorithm v2 it is a RANKING INPUT: hard exclusions carve the
+     * universe from it, intent alignment scores against it, and its semantic
+     * hash is part of the snapshot fingerprint — so a preference change (or
+     * deletion) makes the stored ranking unreachable on the next request
+     * (Rule N1: only the CURRENT intent ever influences anything). It still
+     * never touches the capability signals, and a candidate who has stated
+     * nothing ranks exactly as if this feature did not exist.
+     */
+    const jobIntent = await this.preferences.resolveIntent(account.id);
+    const intentHash = this.ranking.intentHash(jobIntent);
+
     // Reuse the stored ranking when it still describes the current inputs.
     // Paging must NEVER recompute: a fresh ranking between page 1 and page 2
     // could move a vacancy across the boundary and show it twice or not at all.
-    const fingerprint = await this.ranking.vacancyFingerprint();
+    const universe = await this.ranking.loadUniverse();
     let run = dto.refresh
       ? null
       : await this.ranking.currentRun(
           account.id,
           generatedFromRevision,
-          fingerprint,
+          universe.fingerprint,
+          intentHash,
         );
 
     let computed: Awaited<
@@ -708,17 +772,26 @@ export class CandidateAccountService {
         evidenceRevision: generatedFromRevision,
         allowedSourceIds,
         explainLimit: pageSize,
+        universe,
+        intent: jobIntent,
       });
       run = await this.ranking.currentRun(
         account.id,
         generatedFromRevision,
         computed.fingerprint,
+        computed.intentFingerprint,
       );
     }
     if (!run) {
       // The ranking was computed but immediately invalidated by a concurrent
       // evidence change. Reported as an empty page rather than a stale one.
-      return this.emptyMatchPage(locale, generatedFromRevision, page, pageSize);
+      return this.emptyMatchPage(
+        locale,
+        generatedFromRevision,
+        page,
+        pageSize,
+        account.id,
+      );
     }
 
     const entries = await this.ranking.page(
@@ -741,6 +814,20 @@ export class CandidateAccountService {
           location: true,
           employmentType: true,
           status: true,
+          // Structured pay and place, so a match card can show what the job
+          // actually offers instead of only its title. The candidate already
+          // sees all of this on the job page; a match that hides it forces a
+          // click to answer "is this even worth reading".
+          salaryMin: true,
+          salaryMax: true,
+          currency: true,
+          payPeriod: true,
+          salaryNegotiable: true,
+          country: true,
+          region: true,
+          city: true,
+          workMode: true,
+          seniorityLevel: true,
           organization: { select: { name: true } },
         },
       }),
@@ -789,10 +876,35 @@ export class CandidateAccountService {
             location: vacancy.location,
             employmentType: vacancy.employmentType,
             status: vacancy.status,
+            // ORIGINAL salary, exactly as the employer stated it. Any
+            // converted figure travels separately, inside the salary
+            // alignment, and never replaces this.
+            salaryMin: vacancy.salaryMin,
+            salaryMax: vacancy.salaryMax,
+            currency: vacancy.currency,
+            payPeriod: vacancy.payPeriod,
+            salaryNegotiable: vacancy.salaryNegotiable,
+            country: vacancy.country,
+            region: vacancy.region,
+            city: vacancy.city,
+            workMode: vacancy.workMode,
+            seniorityLevel: vacancy.seniorityLevel,
           },
           rank: entry.rank,
+          // Canonical (order-deciding) score, and its two halves. On a pre-v2
+          // stored row the halves are null; the run is about to recompute
+          // anyway because its fingerprints cannot match.
           score: entry.score,
+          capabilityScore: entry.capabilityScore ?? entry.score,
+          intentScore: entry.intentScore,
+          // Machine-readable per-dimension facts (state + reason codes) —
+          // presentation and Gemini narration read these; nothing re-derives.
+          alignments: (entry.alignments ?? []) as unknown[],
           match: entry.tier as JobMatchLabel,
+          // The band shown beside the score. Derived centrally from the
+          // canonical score and capped by the capability tier, so the number
+          // and the words can never tell different stories.
+          band: matchBand(entry.score, entry.tier),
           signals: entry.signals as Record<string, number>,
           matchedSkills: entry.matchedSkills,
           missingSkills: entry.missingSkills,
@@ -830,8 +942,105 @@ export class CandidateAccountService {
       total,
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
       hasMore: page * pageSize < total,
+      // The rankable universe (OPEN minus the candidate's explicit
+      // exclusions). totalRanked equals it — low scores are IN the list.
       totalEligible: run.totalEligible,
+      // How many jobs the candidate's own explicit exclusions removed — the
+      // only removals that exist. Never score-based.
+      totalExcluded: run.totalExcluded ?? 0,
       capability: run.capability ?? {},
+      /*
+       * The exchange rates THIS ranking used, so the client shows the same
+       * conversion the order was computed from. Null whenever no
+       * cross-currency comparison took part — including for every candidate
+       * who stated no salary expectation at all.
+       */
+      fx: {
+        snapshotVersion: run.fxSnapshotVersion ?? null,
+        fetchedAt: run.fxFetchedAt ? run.fxFetchedAt.toISOString() : null,
+      },
+      // The intent this ranking was computed FROM (same resolver, same
+      // request). Soft signal only: it reordered, it never filtered.
+      jobIntent,
+    };
+  }
+
+  /**
+   * One OPEN job's pay, expressed in the currency this candidate stated.
+   *
+   * Returns the employer's ORIGINAL figures untouched plus, when a conversion
+   * is both needed and possible, the same money in the candidate's currency.
+   * `converted` is null whenever the candidate named no salary expectation
+   * (there is then no currency to convert INTO), the employer stated no pay,
+   * or no usable rate exists — three different situations the caller is told
+   * apart through `reason`, because "the employer didn't say" and "we couldn't
+   * convert" must not render as the same sentence.
+   */
+  async jobSalaryView(userId: string, slug: string) {
+    const account = await this.requireAccount(userId);
+    const vacancy = await this.prisma.vacancy.findFirst({
+      where: { publicSlug: slug, status: 'OPEN' },
+      select: {
+        salaryMin: true,
+        salaryMax: true,
+        currency: true,
+        payPeriod: true,
+        salaryNegotiable: true,
+      },
+    });
+    if (!vacancy) throw new NotFoundException('Job not found');
+
+    const intent = await this.preferences.resolveIntent(account.id);
+    const original = {
+      salaryMin: vacancy.salaryMin,
+      salaryMax: vacancy.salaryMax,
+      currency: vacancy.currency,
+      payPeriod: vacancy.payPeriod,
+      salaryNegotiable: vacancy.salaryNegotiable,
+    };
+
+    if (!intent.compensation) {
+      return { original, converted: null, reason: 'NO_PREFERENCE', fx: null };
+    }
+    const fxView = await this.ranking.fxSnapshot();
+    const result = normalizeSalary(
+      {
+        min: vacancy.salaryMin,
+        max: vacancy.salaryMax,
+        currency: vacancy.currency,
+        payPeriod: vacancy.payPeriod,
+      },
+      intent.compensation.currency,
+      intent.compensation.payPeriod,
+      fxView.table,
+    );
+    if (!result.ok) {
+      return {
+        original,
+        converted: null,
+        reason:
+          result.reason === 'UNSTATED' ? 'SALARY_UNKNOWN' : 'NOT_COMPARABLE',
+        fx: null,
+      };
+    }
+    return {
+      original,
+      converted: {
+        salaryMin: result.salary.min,
+        salaryMax: result.salary.max,
+        currency: result.salary.currency,
+        payPeriod: result.salary.payPeriod,
+      },
+      // `converted: false` means it was already in their currency — the UI
+      // then has no reason to show an approximation line at all.
+      reason: result.salary.converted ? 'CONVERTED' : 'SAME_CURRENCY',
+      fx: result.salary.converted
+        ? {
+            snapshotVersion: fxView.snapshot?.snapshotVersion ?? null,
+            fetchedAt: fxView.snapshot?.fetchedAt ?? null,
+            freshness: fxView.freshness,
+          }
+        : null,
     };
   }
 
@@ -841,6 +1050,7 @@ export class CandidateAccountService {
     evidenceRevision: number,
     page: number,
     limit: number,
+    candidateAccountId: string,
   ) {
     return {
       matches: [],
@@ -856,7 +1066,10 @@ export class CandidateAccountService {
       totalPages: 1,
       hasMore: false,
       totalEligible: 0,
+      totalExcluded: 0,
       capability: {},
+      fx: { snapshotVersion: null, fetchedAt: null },
+      jobIntent: emptyJobIntent(candidateAccountId),
     };
   }
 
@@ -930,6 +1143,9 @@ const CANDIDATE_APPLICATION_SELECT = {
   updatedAt: true,
   vacancy: {
     select: {
+      // Read to count applicants, stripped before the row is returned.
+      // See `withApplicantCounts`.
+      id: true,
       publicSlug: true,
       title: true,
       location: true,

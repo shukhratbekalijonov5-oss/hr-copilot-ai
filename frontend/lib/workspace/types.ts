@@ -1,4 +1,5 @@
 import type { Role, SessionUser } from "@/lib/types";
+import type { Entitlements } from "@/lib/entitlements/plan";
 
 /**
  * Workspaces.
@@ -54,6 +55,14 @@ export interface WorkspaceContext {
    * false by backend invariant.
    */
   hasCandidateAccount: boolean;
+  /**
+   * What the caller's plan unlocks.
+   *
+   * Carried on the workspace rather than fetched per screen so that the
+   * sidebar, the tab strip and the page body cannot disagree about what is
+   * locked within a single render.
+   */
+  entitlements: Entitlements;
 }
 
 /**
@@ -95,6 +104,7 @@ export function buildWorkspaceContext(
     personal: personalFromSession(session),
     activeOrganizationId: session.activeOrganization?.id ?? null,
     hasCandidateAccount: session.hasCandidateAccount,
+    entitlements: session.entitlements,
   };
 }
 

@@ -26,6 +26,16 @@ export class ApiError extends Error {
   readonly kind: ApiErrorKind;
   readonly fieldErrors: FieldErrors;
   readonly code: string | null;
+  /**
+   * The scalar siblings of `message` in the error body, e.g. the `trackingId`
+   * on an already-tracked 409 or the `requiredPlan` on a plan 403.
+   *
+   * Deliberately strings only, top level only, and never populated for a 500 —
+   * the point is to carry the handful of machine-readable hints this API
+   * attaches to its refusals, not to hand components a raw backend payload to
+   * rummage through. Callers read named keys through a typed helper.
+   */
+  readonly details: Readonly<Record<string, string>>;
 
   constructor(
     message: string,
@@ -33,6 +43,7 @@ export class ApiError extends Error {
     kind: ApiErrorKind = "server",
     fieldErrors: FieldErrors = {},
     code: string | null = null,
+    details: Readonly<Record<string, string>> = {},
   ) {
     super(message);
     this.name = "ApiError";
@@ -40,6 +51,7 @@ export class ApiError extends Error {
     this.kind = kind;
     this.fieldErrors = fieldErrors;
     this.code = code;
+    this.details = details;
   }
 
   get isAuthFailure(): boolean {
@@ -101,6 +113,32 @@ interface NestErrorBody {
   code?: string;
 }
 
+/** Keys that carry copy or plumbing rather than a machine-readable hint. */
+const NON_DETAIL_KEYS = new Set(["message", "error", "statusCode"]);
+
+/**
+ * Pulls the short string hints out of an error body.
+ *
+ * Bounded on purpose — a handful of short keys, nothing nested, nothing from a
+ * 500. A refusal is allowed to say "which plan"; it is not allowed to become a
+ * channel for whatever else happens to be in scope on the server.
+ */
+function toDetails(
+  body: NestErrorBody | null,
+  kind: ApiErrorKind,
+): Readonly<Record<string, string>> {
+  if (!body || kind === "server") return {};
+
+  const details: Record<string, string> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (NON_DETAIL_KEYS.has(key)) continue;
+    if (typeof value !== "string" || value.length > 200) continue;
+    details[key] = value;
+    if (Object.keys(details).length >= 12) break;
+  }
+  return details;
+}
+
 /** Builds an ApiError from a non-OK backend response. */
 export async function apiErrorFromResponse(
   response: Response,
@@ -114,6 +152,8 @@ export async function apiErrorFromResponse(
     // A non-JSON error body carries nothing we can safely surface.
   }
 
+  const details = toDetails(body, kind);
+
   if (Array.isArray(body?.message)) {
     const fieldErrors = toFieldErrors(body.message);
     return new ApiError(
@@ -122,6 +162,7 @@ export async function apiErrorFromResponse(
       kind,
       fieldErrors,
       typeof body.code === "string" ? body.code : null,
+      details,
     );
   }
 
@@ -137,6 +178,7 @@ export async function apiErrorFromResponse(
     kind,
     {},
     typeof body?.code === "string" ? body.code : null,
+    details,
   );
 }
 

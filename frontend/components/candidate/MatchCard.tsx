@@ -16,7 +16,18 @@ import {
 } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
-import type { JobMatch, JobMatchStrength, MatchRequirement } from "@/lib/types";
+import {
+  formatMoneyRange,
+  matchExplanation,
+  topReasons,
+  type ExplanationFact,
+} from "@/lib/candidate/match-explanation";
+import type {
+  JobMatch,
+  JobMatchStrength,
+  MatchBand,
+  MatchRequirement,
+} from "@/lib/types";
 
 /**
  * One matched vacancy.
@@ -39,6 +50,9 @@ export function MatchCard({
 }) {
   const { d } = useI18n();
   const { vacancy } = match;
+  // Deterministic, computed from facts the backend already sent. No model is
+  // involved and nothing here recalculates a score or converts money.
+  const explanation = matchExplanation(match, d);
 
   const open = vacancy.status === "OPEN";
   const employmentTypeLabel = vacancy.employmentType
@@ -52,7 +66,7 @@ export function MatchCard({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <MatchStrengthBadge strength={match.match} />
+            <MatchBandBadge band={match.band} />
             {!open ? (
               <Badge tone="neutral">{d.savedJobs.closed}</Badge>
             ) : null}
@@ -82,6 +96,10 @@ export function MatchCard({
               </span>
             ) : null}
           </p>
+          <MatchSalary match={match} />
+        </div>
+        <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+          <MatchScore match={match} />
         </div>
         <SaveJobButton
           slug={vacancy.slug}
@@ -108,6 +126,19 @@ export function MatchCard({
             : d.jobMatch.explanationUnavailable}
         </p>
       )}
+
+      <TopReasons match={match} />
+
+      <div className="flex flex-col gap-1.5">
+        <Disclosure label={d.jobMatch.whyMatches}>
+          <ExplanationList facts={explanation.matches} empty={d.jobMatch.noPreferences} />
+        </Disclosure>
+        {explanation.notHigher.length > 0 ? (
+          <Disclosure label={d.jobMatch.whyNotHigher}>
+            <ExplanationList facts={explanation.notHigher} />
+          </Disclosure>
+        ) : null}
+      </div>
 
       <RequirementBreakdown match={match} />
 
@@ -150,6 +181,164 @@ export function MatchCard({
         ) : null}
       </div>
     </Card>
+  );
+}
+
+const BAND_TONES: Record<MatchBand, BadgeTone> = {
+  STRONG: "positive",
+  GOOD: "positive",
+  PARTIAL: "warning",
+  LOW: "neutral",
+};
+
+/**
+ * The band beside the score.
+ *
+ * A LOW badge is rendered exactly like the others and the card is shown in
+ * full: a weak match is a real result on the last page, not something to hide.
+ */
+export function MatchBandBadge({ band }: { band: MatchBand }) {
+  const { d } = useI18n();
+  return (
+    <Badge
+      tone={BAND_TONES[band]}
+      className="px-2 py-1 text-[12px] font-semibold"
+    >
+      {d.jobMatch.band[band]}
+    </Badge>
+  );
+}
+
+/**
+ * The 0-100 canonical score.
+ *
+ * Labelled as a match score and nothing else — never a percentage of the job
+ * the person can do, and never a probability of being hired.
+ */
+function MatchScore({ match }: { match: JobMatch }) {
+  const { d, f } = useI18n();
+  return (
+    <div className="flex flex-col items-start gap-0.5 sm:items-end">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+        {d.jobMatch.scoreLabel}
+      </span>
+      <span className="text-[19px] font-semibold leading-none tracking-tight text-ink">
+        {f(d.jobMatch.scoreValue, { score: match.score })}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Pay, as the employer stated it — with the candidate's own currency beneath
+ * it when a conversion actually happened.
+ *
+ * The original always comes first and is never replaced: the employer said
+ * ₩40M, and the ≈ line is our arithmetic, clearly marked as approximate.
+ */
+function MatchSalary({ match }: { match: JobMatch }) {
+  const { d } = useI18n();
+  const { vacancy } = match;
+  if (!vacancy.currency || (vacancy.salaryMin === null && vacancy.salaryMax === null)) {
+    return null;
+  }
+  const original = formatMoneyRange(
+    vacancy.salaryMin,
+    vacancy.salaryMax,
+    vacancy.currency,
+    vacancy.payPeriod,
+    d,
+  );
+  if (!original) return null;
+
+  const salaryFact = match.alignments.find(
+    (alignment) => alignment.dimension === "salary",
+  );
+  const converted =
+    salaryFact?.salary?.convertedCurrency &&
+    salaryFact.salary.convertedCurrency !== salaryFact.salary.originalCurrency
+      ? formatMoneyRange(
+          salaryFact.salary.convertedMin,
+          salaryFact.salary.convertedMax,
+          salaryFact.salary.convertedCurrency,
+          salaryFact.salary.convertedPayPeriod,
+          d,
+        )
+      : null;
+
+  return (
+    <p className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13px]">
+      <span className="font-medium text-ink">{original}</span>
+      {converted ? (
+        <span className="text-[12.5px] text-ink-muted">
+          {d.jobMatch.approxSalary.replace("{amount}", converted)}
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
+/** Two or three positives, shown without a click. */
+function TopReasons({ match }: { match: JobMatch }) {
+  const { d } = useI18n();
+  const reasons = topReasons(match, d);
+  if (reasons.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-1">
+      {reasons.map((fact) => (
+        <li
+          key={fact.key}
+          className="flex items-start gap-2 text-[13px] leading-relaxed text-ink"
+        >
+          <span aria-hidden className="mt-px text-positive-ink">
+            ✓
+          </span>
+          <span className="min-w-0 break-words">{fact.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** One explanation list. Tone decides the marker, never the wording. */
+function ExplanationList({
+  facts,
+  empty,
+}: {
+  facts: ExplanationFact[];
+  empty?: string;
+}) {
+  if (facts.length === 0) {
+    return empty ? (
+      <p className="text-[12.5px] leading-relaxed text-ink-muted">{empty}</p>
+    ) : null;
+  }
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {facts.map((fact) => (
+        <li key={fact.key} className="flex items-start gap-2 text-[13px]">
+          <span
+            aria-hidden
+            className={cn(
+              "mt-px shrink-0",
+              fact.tone === "positive" && "text-positive-ink",
+              fact.tone === "negative" && "text-warning-ink",
+              fact.tone === "neutral" && "text-ink-muted",
+            )}
+          >
+            {fact.tone === "positive" ? "✓" : fact.tone === "negative" ? "△" : "·"}
+          </span>
+          <span className="min-w-0 break-words leading-relaxed text-ink">
+            {fact.text}
+            {fact.detail ? (
+              <span className="block text-[12.5px] text-ink-muted">
+                {fact.detail}
+              </span>
+            ) : null}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

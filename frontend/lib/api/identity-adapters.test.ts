@@ -201,6 +201,7 @@ describe("public job adapters", () => {
     experienceLevel: "Senior",
     createdAt: "2026-08-01T00:00:00.000Z",
     organization: { name: "Northwind Labs" },
+    applicantCount: 4,
   };
 
   it("flattens the organization to its display name only", () => {
@@ -232,6 +233,38 @@ describe("public job adapters", () => {
 });
 
 describe("toMyApplication", () => {
+  const reviewing = {
+    id: "app-1",
+    status: "REVIEWING" as const,
+    source: "DIRECT" as const,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-05T00:00:00.000Z",
+    vacancy: {
+      publicSlug: "slug",
+      title: "Backend Engineer",
+      location: "Seoul",
+      employmentType: "Full-time",
+      organization: { name: "Northwind Labs" },
+      applicantCount: 12,
+    },
+  };
+
+  it("carries the live applicant count through to the card", () => {
+    // The same number the recruiter and the job board see. A candidate
+    // comparing their applications list against the job page must not find
+    // two different facts about one vacancy.
+    expect(toMyApplication(reviewing).job.applicantCount).toBe(12);
+  });
+
+  it("treats a missing count as zero rather than undefined", () => {
+    // A card rendering "undefined applicants" would be worse than one saying
+    // nobody has applied yet.
+    const vacancy = { ...reviewing.vacancy };
+    delete (vacancy as Partial<typeof vacancy>).applicantCount;
+    const application = toMyApplication({ ...reviewing, vacancy });
+    expect(application.job.applicantCount).toBe(0);
+  });
+
   it("keeps the submitted snapshot separate from the current profile resume", () => {
     const application = toMyApplication({
       id: "app-1",
@@ -245,6 +278,7 @@ describe("toMyApplication", () => {
         location: "Seoul",
         employmentType: "Full-time",
         organization: { name: "Northwind Labs" },
+        applicantCount: 12,
       },
     });
 
@@ -265,6 +299,7 @@ describe("toMyApplication", () => {
         location: null,
         employmentType: null,
         organization: { name: "Org" },
+        applicantCount: 0,
       },
     }) as unknown as Record<string, unknown>;
 

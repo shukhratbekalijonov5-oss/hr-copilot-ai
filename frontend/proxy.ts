@@ -33,6 +33,7 @@ import {
 const AUTH_ROUTES = ["/login", "/register"];
 const CANDIDATE_ROUTE_PREFIXES = [
   "/jobs",
+  "/external-jobs",
   "/job-matches",
   "/my-applications",
   "/my-interview-chats",

@@ -14,9 +14,16 @@ import { DomainEventsService } from '../common/events/domain-events.service';
 import { OwnedVacancyService } from '../common/vacancy-access/owned-vacancy.service';
 import { vacancyNotOwned } from '../common/vacancy-access/vacancy-policy';
 import { APPLICANT_APPLICATION_SCOPE } from '../common/vacancy-access/applicant-scope';
+import { uniqueApplicantCounts } from '../common/vacancy-access/applicant-counts';
 import { paginated, type PaginatedResult } from '../common/dto/pagination.dto';
 import { VacancyStatus } from '../generated/prisma/enums';
 import { buildPublicSlug } from './vacancy-slug.util';
+import {
+  assertVacancyProfile,
+  normalizeVacancyProfile,
+  type VacancyProfileShape,
+} from './vacancy-profile.validation';
+import type { VacancyLanguageRequirementDto } from './dto/vacancy-language.dto';
 import type { Prisma } from '../generated/prisma/client';
 import type { CreateVacancyDto } from './dto/create-vacancy.dto';
 import type { UpdateVacancyDto } from './dto/update-vacancy.dto';
@@ -135,6 +142,102 @@ export class VacanciesService {
     }
   }
 
+  /**
+   * The stored fields the cross-field rules read. A PATCH is judged against
+   * the row as it WILL BE, so the current values have to be in hand before a
+   * fragment can be validated.
+   */
+  private static readonly PROFILE_SELECT = {
+    salaryMin: true,
+    salaryMax: true,
+    currency: true,
+    workMode: true,
+    officeDaysPerWeek: true,
+    remoteCountriesAllowed: true,
+    minExperienceYears: true,
+    preferredExperienceYears: true,
+    citizenshipRequirement: true,
+    eligibleNationalities: true,
+    benefits: true,
+    benefitsOther: true,
+  } as const;
+
+  /**
+   * Turns a create/update payload into the columns to write.
+   *
+   * Three things happen here, in this order, and the order is the point:
+   *
+   *  1. only the keys the client actually SENT become a patch — an absent key
+   *     means "leave it alone", never "set it to null";
+   *  2. the patch is merged onto the stored row and normalized, so a value the
+   *     row's own shape makes meaningless (office days on a REMOTE job) is
+   *     cleared rather than left to contradict the rest;
+   *  3. the merged, normalized result is validated. Validating the fragment
+   *     instead would let a PATCH that only lowers `salaryMax` produce a
+   *     stored row where min > max.
+   *
+   * Anything the normalizer cleared is written back explicitly — otherwise the
+   * database would keep the stale value the API just decided was meaningless.
+   */
+  private buildProfileWrite(
+    stored: VacancyProfileShape,
+    dto: CreateVacancyDto | UpdateVacancyDto,
+  ): {
+    data: Record<string, unknown>;
+    languages?: VacancyLanguageRequirementDto[];
+  } {
+    const { languages, ...scalars } = dto as CreateVacancyDto;
+
+    const patch: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(scalars)) {
+      if (value !== undefined) patch[key] = value;
+    }
+
+    for (const key of VacanciesService.DATE_FIELDS) {
+      if (typeof patch[key] === 'string') {
+        patch[key] = calendarDate(patch[key]);
+      }
+    }
+
+    const merged = { ...stored, ...patch };
+    const normalized = normalizeVacancyProfile(merged);
+    assertVacancyProfile(normalized);
+
+    for (const key of Object.keys(
+      VacanciesService.PROFILE_SELECT,
+    ) as (keyof VacancyProfileShape)[]) {
+      if (JSON.stringify(normalized[key]) !== JSON.stringify(merged[key])) {
+        patch[key] = normalized[key];
+      }
+    }
+
+    return { data: patch, languages };
+  }
+
+  /**
+   * Fields a date input fills in. They arrive as `yyyy-mm-dd`, which Prisma
+   * refuses — it wants a full ISO-8601 DateTime.
+   */
+  private static readonly DATE_FIELDS = [
+    'applicationDeadline',
+    'expectedStartDate',
+  ] as const;
+
+  /**
+   * Language requirements are REPLACED as a set, never merged row by row.
+   *
+   * `undefined` (the field was not sent) leaves them untouched; `[]` clears
+   * them. The set is at most a handful of rows, and replace-all is the only
+   * semantics that needs no ids the create form has never seen.
+   */
+  private static languageRows(languages: VacancyLanguageRequirementDto[]) {
+    return languages.map((language) => ({
+      languageCode: language.languageCode,
+      level: language.level,
+      required: language.required ?? true,
+    }));
+  }
+
   async create(
     organizationId: string,
     createdById: string,
@@ -148,19 +251,31 @@ export class VacanciesService {
       'Organization',
     );
 
+    // A create has no stored row to merge onto, so the payload IS the merged
+    // result — but it runs through the same coherence pass as an edit, so the
+    // two paths can never disagree about what a valid vacancy looks like.
+    const { data, languages } = this.buildProfileWrite({}, dto);
+
     // The random suffix makes a collision vanishingly rare; the retry exists
     // so that even that case never surfaces to the caller.
     for (let attempt = 1; ; attempt += 1) {
       try {
         const vacancy = await this.prisma.vacancy.create({
           data: {
-            ...dto,
+            ...data,
             status: dto.status ?? VacancyStatus.DRAFT,
             publicSlug: buildPublicSlug(dto.title, organization.slug),
             organizationId,
             createdById,
-          },
-          include: { requirements: true },
+            ...(languages
+              ? {
+                  languages: {
+                    create: VacanciesService.languageRows(languages),
+                  },
+                }
+              : {}),
+          } as Prisma.VacancyUncheckedCreateInput,
+          include: { requirements: true, languages: LANGUAGE_ORDER },
         });
         await this.queueIndexSync(vacancy.id);
         return vacancy;
@@ -282,38 +397,12 @@ export class VacanciesService {
   /**
    * How many PEOPLE are attached to each vacancy.
    *
-   * `_count.applications` counts ATTEMPTS, and since reapply-after-rejection
-   * one candidate can hold several of them on the same vacancy — so a field
-   * named `candidateCount` fed from it reports 5 where three people applied,
-   * and disagrees with the applicant list it labels.
-   *
-   * Prisma's `_count` has no DISTINCT, so the distinct (vacancy, candidate)
-   * pairs are read for the page's vacancies in one query and tallied here.
-   * The filter is the SAME applicant scope every other surface uses, so the
-   * number can never describe a different universe than the list beside it.
-   *
-   * Nothing is deduplicated in the data: the attempts all still exist, and
-   * every attempt-level endpoint still returns every one of them.
+   * Delegates to the shared counter so a recruiter's number and the number a
+   * candidate reads on the job page are the same number, computed once. See
+   * `uniqueApplicantCounts`.
    */
-  private async candidateCounts(
-    vacancyIds: string[],
-  ): Promise<Map<string, number>> {
-    if (vacancyIds.length === 0) return new Map();
-
-    const pairs = await this.prisma.application.findMany({
-      where: {
-        vacancyId: { in: vacancyIds },
-        ...APPLICANT_APPLICATION_SCOPE,
-      },
-      select: { vacancyId: true, candidateId: true },
-      distinct: ['vacancyId', 'candidateId'],
-    });
-
-    const counts = new Map<string, number>();
-    for (const pair of pairs) {
-      counts.set(pair.vacancyId, (counts.get(pair.vacancyId) ?? 0) + 1);
-    }
-    return counts;
+  private candidateCounts(vacancyIds: string[]): Promise<Map<string, number>> {
+    return uniqueApplicantCounts(this.prisma, vacancyIds);
   }
 
   /**
@@ -493,6 +582,7 @@ export class VacanciesService {
       where: { id, ...this.tenant.scope(organizationId) },
       include: {
         requirements: { orderBy: { type: 'asc' } },
+        languages: LANGUAGE_ORDER,
         createdBy: { select: { id: true, fullName: true, email: true } },
         _count: {
           select: { applications: { where: APPLICANT_APPLICATION_SCOPE } },
@@ -519,13 +609,31 @@ export class VacanciesService {
       id,
     );
 
+    // Ownership is settled; now judge the EDIT against the row it lands on.
+    const stored = await this.prisma.vacancy.findUniqueOrThrow({
+      where: { id },
+      select: VacanciesService.PROFILE_SELECT,
+    });
+    const { data, languages } = this.buildProfileWrite(stored, dto);
+
     const vacancy = await this.applyStatusChange(
       organizationId,
       id,
       current.status,
-      dto,
+      {
+        ...data,
+        // Replace-all: absent leaves the set alone, [] clears it.
+        ...(languages
+          ? {
+              languages: {
+                deleteMany: {},
+                create: VacanciesService.languageRows(languages),
+              },
+            }
+          : {}),
+      },
       dto.status ?? current.status,
-      { requirements: true },
+      { requirements: true, languages: LANGUAGE_ORDER },
     );
     await this.queueIndexSync(id);
     return vacancy;
@@ -770,4 +878,30 @@ function isUniqueViolation(error: unknown, column: string): boolean {
   return Array.isArray(target)
     ? target.includes(column)
     : typeof target === 'string' && target.includes(column);
+}
+
+/**
+ * One stable order for language requirements everywhere they are read:
+ * must-haves first, then alphabetically by code. Without it Postgres is free
+ * to return them in any order and the same vacancy renders differently
+ * between two page loads.
+ */
+const LANGUAGE_ORDER: {
+  orderBy: Prisma.VacancyLanguageRequirementOrderByWithRelationInput[];
+} = { orderBy: [{ required: 'desc' }, { languageCode: 'asc' }] };
+
+/**
+ * A calendar date as an instant.
+ *
+ * "Apply by 30 September" is a DAY, not a moment, but the column is a
+ * DateTime. Midnight UTC is the representation chosen because it is the only
+ * one that survives the round trip the edit form depends on: the API renders
+ * it back with `.slice(0, 10)` and must produce the same `yyyy-mm-dd` the
+ * recruiter typed, in every timezone. A local-midnight or end-of-day value
+ * would shift the date by one for readers on the other side of UTC.
+ *
+ * Anything already carrying a time is passed through untouched.
+ */
+function calendarDate(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00.000Z` : value;
 }

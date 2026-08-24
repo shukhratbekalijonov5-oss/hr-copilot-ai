@@ -80,7 +80,12 @@ function createPrismaMock() {
       count: jest.fn().mockResolvedValue(0),
     },
     candidate: { findUnique: jest.fn() },
-    application: { findUnique: jest.fn(), findFirst: jest.fn() },
+    application: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      // The applicant counter reads distinct (vacancy, candidate) pairs.
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     // findFirst is the resume liveness probe. findMany is mocked but must never
     // be called: apply has no reason to enumerate a candidate's files now that
     // it copies none of them.
@@ -100,6 +105,7 @@ describe('PublicJobsService', () => {
   let accounts: { requireAccount: jest.Mock };
   let service: PublicJobsService;
   let events: { publish: jest.Mock };
+  let fx: { current: jest.Mock };
 
   beforeEach(() => {
     prisma = createPrismaMock();
@@ -113,10 +119,21 @@ describe('PublicJobsService', () => {
       }),
     };
     events = { publish: jest.fn() };
+    // FX defaults to "no usable snapshot": a salary filter then works only in
+    // the currency the candidate asked in, and everything unreadable is kept.
+    fx = {
+      current: jest.fn().mockResolvedValue({
+        snapshot: null,
+        freshness: 'UNAVAILABLE',
+        ageMs: null,
+        table: null,
+      }),
+    };
     service = new PublicJobsService(
       prisma as unknown as PrismaService,
       accounts as unknown as CandidateAccountService,
       events as never,
+      fx as never,
     );
 
     prisma.user.findUniqueOrThrow.mockResolvedValue({
@@ -143,11 +160,39 @@ describe('PublicJobsService', () => {
       );
     });
 
-    it('selects only advertisement-safe fields', async () => {
-      await service.list({ page: 1, limit: 20, skip: 0 });
+    it('never RETURNS an internal field', async () => {
+      // Asserted on what leaves the service rather than on the SELECT: `id` is
+      // now read deliberately (the applicant count needs it, and it is the
+      // ordering tie-break's companion) and stripped on the way out. Checking
+      // the query would forbid reading it; checking the payload forbids
+      // leaking it, which is the invariant that actually protects anyone.
+      prisma.vacancy.findMany.mockResolvedValue([
+        {
+          id: 'vac-secret',
+          publicSlug: 'a-job',
+          title: 'A job',
+          createdAt: new Date(),
+        },
+      ]);
+      prisma.vacancy.count.mockResolvedValue(1);
+
+      const { data } = await service.list({ page: 1, limit: 20, skip: 0 });
+
+      expect(data).toHaveLength(1);
+      const job = data[0] as Record<string, unknown>;
+      for (const leaked of [
+        'id',
+        'createdBy',
+        'createdById',
+        'organizationId',
+        '_count',
+        'applications',
+      ]) {
+        expect(job).not.toHaveProperty(leaked);
+      }
+      expect(JSON.stringify(job)).not.toContain('vac-secret');
 
       const select = prisma.vacancy.findMany.mock.calls[0][0].select;
-      expect(select).not.toHaveProperty('id');
       expect(select).not.toHaveProperty('createdBy');
       expect(select).not.toHaveProperty('createdById');
       expect(select).not.toHaveProperty('_count');
@@ -450,11 +495,28 @@ describe('PublicJobsService', () => {
       it('queues no indexing: the candidate corpus is already indexed', async () => {
         await service.apply(ME, SLUG);
 
-        // Structural, not incidental: the service is constructed from exactly
-        // three collaborators (prisma, candidate accounts, domain events).
-        // Storage, the processing tracker and the queue producer are no longer
-        // injectable, so no apply can upload or enqueue anything.
-        expect(PublicJobsService.length).toBe(3);
+        /*
+         * Structural, not incidental: nothing that could move bytes or queue
+         * work is injectable here, so no apply can upload or enqueue anything.
+         *
+         * Asserted against the constructor SOURCE rather than its arity — an
+         * arity check breaks every time a legitimate read-only collaborator is
+         * added (FxRateService, for one) while saying nothing about what the
+         * new dependency can actually do.
+         */
+        const constructorSource = PublicJobsService.toString().slice(
+          0,
+          PublicJobsService.toString().indexOf('}'),
+        );
+        for (const forbidden of [
+          'StorageService',
+          'storage',
+          'Producer',
+          'producer',
+          'ProcessingService',
+        ]) {
+          expect(constructorSource).not.toContain(forbidden);
+        }
         expect(txWrites(prisma.tx)).toEqual(ONLY_METADATA_WRITES);
       });
 

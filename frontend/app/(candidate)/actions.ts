@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { api, ApiError } from "@/lib/api";
+import { isPlanUpgradeError } from "@/lib/entitlements/plan-error";
 import { candidateFailureReason } from "@/lib/api/candidate-errors";
 import { getLocale } from "@/lib/i18n/server";
 import type {
@@ -249,6 +250,15 @@ export type JobMatchFailure =
   | "not_ready"
   /** The matching service is down; nothing was computed. */
   | "unavailable"
+  /**
+   * The plan does not include internal AI job search.
+   *
+   * Distinct from every other reason here because it is not a failure at all:
+   * nothing is broken, retrying can never help, and there is a concrete thing
+   * the reader can do. Folding it into `error` would show "Something went
+   * wrong" next to a Retry button that is guaranteed to fail forever.
+   */
+  | "plan_required"
   | "network"
   | "error";
 
@@ -286,6 +296,11 @@ export async function runJobMatchesAction(
   } catch (error) {
     if (!(error instanceof ApiError)) return { ok: false, reason: "error" };
     if (error.kind === "network") return { ok: false, reason: "network" };
+    // The backend is the authority on plans, and this is how it says no. The
+    // session carries no plan today, so for internal AI search this 403 is the
+    // ONLY signal the frontend gets — which is exactly why it must not be
+    // swallowed by the generic branch below.
+    if (isPlanUpgradeError(error)) return { ok: false, reason: "plan_required" };
     if (error.kind === "unavailable") return { ok: false, reason: "unavailable" };
     // 400 = no candidate account, 422 = nothing to match on. Both read the
     // same to the person: the profile is not ready yet.

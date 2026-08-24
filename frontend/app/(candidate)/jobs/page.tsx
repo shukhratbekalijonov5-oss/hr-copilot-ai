@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
-import { getTranslations } from "@/lib/i18n/server";
+import { getLocale, getTranslations } from "@/lib/i18n/server";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { JobBoard } from "@/components/jobs/JobBoard";
+import {
+  explicitFilters,
+  readSearchParams,
+  resolveJobQuery,
+} from "@/lib/candidate/job-search-filters";
 
 export async function generateMetadata(): Promise<Metadata> {
   const d = await getTranslations();
@@ -12,16 +17,30 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function JobsPage(props: PageProps<"/jobs">) {
   const { session } = await requirePersonalWorkspace();
-  const [d, searchParams] = await Promise.all([
+  const [d, locale, searchParams] = await Promise.all([
     getTranslations(),
+    getLocale(),
     props.searchParams,
   ]);
 
-  const asText = (value: string | string[] | undefined) =>
-    typeof value === "string" ? value : "";
-  const search = asText(searchParams.search);
-  const location = asText(searchParams.location);
-  const page = Number(asText(searchParams.page)) || 1;
+  const params = readSearchParams(searchParams);
+
+  /*
+   * The candidate's SAVED intent, resolved against what they just typed.
+   *
+   * The backend owns the precedence (explicit request beats saved preference,
+   * per dimension) so this page never re-implements it — and resolving is
+   * read-only, so searching for Toronto today leaves a saved Seoul exactly
+   * where it was. A candidate with no account or no preferences gets null,
+   * which means "no restriction": the search is then whatever they typed and
+   * nothing more.
+   */
+  const context = session.hasCandidateAccount
+    ? await api
+        .getJobSearchContext({ ...explicitFilters(params), locale })
+        .catch(() => null)
+    : null;
+  const query = resolveJobQuery(params, context);
 
   /**
    * Saved state comes from the caller's own bookmarks, so every card can show
@@ -30,7 +49,7 @@ export default async function JobsPage(props: PageProps<"/jobs">) {
    * rather than a failed page.
    */
   const [jobs, saved] = await Promise.all([
-    api.getPublicJobs({ page, search, location }),
+    api.getPublicJobs({ page: params.page, ...query }),
     session.hasCandidateAccount
       ? api.getSavedJobs(1, 100).catch(() => ({ saved: [] }))
       : Promise.resolve({ saved: [] }),
@@ -42,8 +61,8 @@ export default async function JobsPage(props: PageProps<"/jobs">) {
       <JobBoard
         page={jobs}
         savedSlugs={saved.saved.map((item) => item.job.publicSlug)}
-        search={search}
-        location={location}
+        params={params}
+        usingPreferences={query.usingPreferences}
       />
     </div>
   );

@@ -66,3 +66,46 @@ class MatchExplanationPayload(BaseModel):
 
 class MatchExplanationsPayload(BaseModel):
     explanations: list[MatchExplanationPayload] = Field(default_factory=list)
+
+
+class WhyMatchItemPayload(BaseModel):
+    title: str = Field(
+        description=(
+            "A short label for this point (2-6 words, in the requested "
+            "language)."
+        )
+    )
+    explanation: str = Field(
+        description=(
+            "1-2 concise sentences, in the requested language, grounded ONLY "
+            "in the supplied facts."
+        )
+    )
+
+
+class ExternalWhyMatchPayload(BaseModel):
+    """The structured 'why this external job matches you' answer.
+
+    Bounds are enforced twice: described here for the model, and clamped by
+    the caller after validation — the model's cooperation is expected, never
+    trusted.
+    """
+
+    summary: str = Field(
+        description=(
+            "80-150 words, in the requested language, addressed to the job "
+            "seeker: how this specific job relates to their documented "
+            "profile. Uses only supplied facts; no scores or percentages."
+        )
+    )
+    strengths: list[WhyMatchItemPayload] = Field(
+        default_factory=list,
+        description="2-4 genuine alignment points, strongest first.",
+    )
+    gaps: list[WhyMatchItemPayload] = Field(
+        default_factory=list,
+        description=(
+            "0-2 honest gaps or unknowns. Return FEWER or none rather than "
+            "inventing a weakness to fill the list."
+        ),
+    )

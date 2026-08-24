@@ -14,6 +14,43 @@ os.environ.setdefault("QDRANT_CANDIDATE_COLLECTION", "candidate_resume_chunks_te
 os.environ.setdefault("ENVIRONMENT", "test")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _sweep_pytest_scratch_collections():
+    """Delete the fixed-name pytest scratch collections when the session ends.
+
+    They are recreated on demand by ``ensure_collection``, so keeping them
+    between runs saves nothing — but their data accumulated forever
+    (``resume_chunks_test`` reached 47MB over ~73 runs) and, together with the
+    uuid-named leaks fixed in test_collections.py, contributed to the
+    306-collection pile-up that OOM-killed the dev Qdrant (2026-08-24).
+
+    Only names that literally contain "test" are ever deleted: if a developer
+    exports QDRANT_COLLECTION themselves, ``setdefault`` above does not
+    override it, and this sweep must never be able to reach a real collection.
+    """
+    yield
+    import httpx
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    names: set[str] = set()
+    for base in (settings.qdrant_collection, settings.qdrant_candidate_collection):
+        names.add(base)
+        names.add(f"{base}_v{settings.qdrant_collection_version}")
+        # test_web_sources derives one more scratch name this way.
+        names.add(f"{base}_test")
+    for name in sorted(names):
+        if "test" not in name:
+            continue
+        try:
+            httpx.delete(
+                f"{settings.qdrant_url}/collections/{name}", timeout=10.0
+            )
+        except Exception:
+            pass
+
+
 @pytest.fixture(scope="session")
 def internal_token() -> str:
     return os.environ["INTERNAL_SERVICE_TOKEN"]
@@ -86,8 +123,15 @@ def candidate_store(qdrant_available: bool):
         f"test_candidate_chunks_{uuid.uuid4().hex[:8]}",
         api_key=settings.qdrant_api_key,
     )
-    yield scratch
-    scratch._client.delete_collection(scratch.collection)
+    try:
+        yield scratch
+    finally:
+        # Best-effort: if Qdrant died mid-test, a raising teardown both masks
+        # the real failure and still leaks the collection.
+        try:
+            scratch._client.delete_collection(scratch.collection)
+        except Exception:
+            pass
 
 
 @pytest.fixture()
@@ -106,8 +150,13 @@ def vacancy_store(qdrant_available: bool):
         f"test_vacancy_chunks_{uuid.uuid4().hex[:8]}",
         api_key=settings.qdrant_api_key,
     )
-    yield scratch
-    scratch._client.delete_collection(scratch.collection)
+    try:
+        yield scratch
+    finally:
+        try:
+            scratch._client.delete_collection(scratch.collection)
+        except Exception:
+            pass
 
 
 @pytest.fixture(scope="session")

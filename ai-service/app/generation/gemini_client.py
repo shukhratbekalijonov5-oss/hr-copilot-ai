@@ -19,11 +19,13 @@ from typing import Any
 
 from app.common.logging import get_logger
 from app.generation.client import (
+    ExternalWhyMatch,
     GeneratedQuestion,
     GenerationClient,
     GenerationDisabledError,
     GenerationFailedError,
     GroundedAnswer,
+    bounded_why_match,
 )
 from app.models.schemas import EvidenceHit
 
@@ -187,6 +189,24 @@ class GeminiGenerationClient(GenerationClient):
             for e in payload.explanations
             if e.vacancy_id in wanted and e.explanation.strip()
         }
+
+    def generate_external_why_match(
+        self, *, context: str, locale: str
+    ) -> ExternalWhyMatch:
+        from app.generation.prompts import (
+            EXTERNAL_WHY_MATCH_RULES,
+            build_external_why_match_prompt,
+        )
+        from app.generation.schemas import ExternalWhyMatchPayload
+
+        payload = self._generate(
+            system=EXTERNAL_WHY_MATCH_RULES,
+            prompt=build_external_why_match_prompt(context, locale),
+            schema=ExternalWhyMatchPayload,
+            operation="generate an external match explanation",
+        )
+        # Bounds are ours to enforce, not the model's to respect.
+        return bounded_why_match(payload)
 
     # -- transport ---------------------------------------------------------
 

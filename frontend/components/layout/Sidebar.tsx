@@ -6,21 +6,31 @@ import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import { CloseIcon, SparkIcon } from "@/components/ui/icons";
 import {
+  groupNavItems,
   isNavItemActive,
   navigationFor,
   type NavItem,
 } from "@/lib/workspace/navigation";
+import { PlanBadge } from "@/components/plan/PlanBadge";
+import {
+  allows,
+  requiredPlanFor,
+  type Entitlements,
+} from "@/lib/entitlements/plan";
 import type { Workspace } from "@/lib/workspace/types";
 
 function NavLink({
   item,
   label,
   active,
+  locked,
   onNavigate,
 }: {
   item: NavItem;
   label: string;
   active: boolean;
+  /** Shown with the plan it needs — still a real, focusable link. */
+  locked: boolean;
   onNavigate?: () => void;
 }) {
   const Icon = item.icon;
@@ -38,22 +48,47 @@ function NavLink({
       )}
     >
       <Icon className="size-4.5 shrink-0" />
-      {label}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {/*
+        The plan a locked entry needs, named on the entry itself.
+
+        It is a badge and not a `disabled` state on purpose: the link still
+        works, and the page behind it explains the plan. A greyed-out nav item
+        that swallows its own click is the worst of both — it neither opens
+        nor tells you why.
+      */}
+      {locked && item.capability ? (
+        <PlanBadge plan={requiredPlanFor(item.capability)} locked />
+      ) : null}
     </Link>
   );
 }
 
 interface SidebarProps {
   workspace: Workspace;
+  /**
+   * What this account's plan unlocks, so a gated entry can wear its plan.
+   * Purely presentational — the backend guards every one of these routes.
+   */
+  entitlements: Entitlements;
   /** Rendered inside the mobile drawer, which needs a close affordance. */
   onNavigate?: () => void;
   onClose?: () => void;
 }
 
-export function Sidebar({ workspace, onNavigate, onClose }: SidebarProps) {
+export function Sidebar({
+  workspace,
+  entitlements,
+  onNavigate,
+  onClose,
+}: SidebarProps) {
   const pathname = usePathname();
   const { d } = useI18n();
   const { primary, secondary } = navigationFor(workspace);
+  const groups = groupNavItems(primary);
+  // The recruiting side has one unlabelled group, so it keeps its old heading.
+  const fallbackHeading =
+    workspace.kind === "personal" ? d.nav.sectionJobSearch : d.nav.sectionWorkspace;
 
   // Nav items carry a dictionary key rather than a literal, so one definition
   // serves every locale.
@@ -87,19 +122,30 @@ export function Sidebar({ workspace, onNavigate, onClose }: SidebarProps) {
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3 scrollbar-slim">
-        <p className="px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
-          {workspace.kind === "personal"
-            ? d.nav.sectionJobSearch
-            : d.nav.sectionWorkspace}
-        </p>
-        {primary.map((item) => (
-          <NavLink
-            key={item.href}
-            item={item}
-            label={labelFor(item)}
-            active={isNavItemActive(pathname, item.href)}
-            onNavigate={onNavigate}
-          />
+        {/*
+          Headed groups rather than one flat list. The job-seeker side has
+          three product areas — ordinary search, the paid AI searches, and the
+          reader's own records — and a flat list made "AI Job Match" look like
+          a peer of "Saved jobs" instead of half of a paid feature.
+        */}
+        {groups.map((group, index) => (
+          <div key={group.labelKey ?? `group-${index}`} className={index > 0 ? "mt-3" : undefined}>
+            <p className="px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+              {group.labelKey ? d.nav[group.labelKey] : fallbackHeading}
+            </p>
+            {group.items.map((item) => (
+              <NavLink
+                key={item.href}
+                item={item}
+                label={labelFor(item)}
+                active={isNavItemActive(pathname, item.href)}
+                locked={Boolean(
+                  item.capability && !allows(entitlements, item.capability),
+                )}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
         ))}
 
         {secondary.length > 0 ? (
@@ -110,6 +156,9 @@ export function Sidebar({ workspace, onNavigate, onClose }: SidebarProps) {
                 item={item}
                 label={labelFor(item)}
                 active={isNavItemActive(pathname, item.href)}
+                locked={Boolean(
+                  item.capability && !allows(entitlements, item.capability),
+                )}
                 onNavigate={onNavigate}
               />
             ))}

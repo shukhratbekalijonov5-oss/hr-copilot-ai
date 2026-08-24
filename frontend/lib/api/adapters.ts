@@ -39,8 +39,14 @@ import type {
   ProcessingJobResponse,
   UserResponse,
   VacancyResponse,
+  JobProfileResponse,
+  JobPreferencesResponse,
+  JobSearchContextResponse,
+  CandidateJobIntentResponse,
+  JobSalaryViewResponse,
 } from "@/lib/api/contracts";
 import { PIPELINE_STAGES } from "@/lib/types";
+import { resolveEntitlements } from "@/lib/entitlements/plan";
 import type {
   AccountProfile,
   Application,
@@ -52,6 +58,11 @@ import type {
   OrganizationInterviewConversation,
   PublicJob,
   PublicJobDetail,
+  JobProfile,
+  VacancyLanguageRequirement,
+  CandidateJobPreferences,
+  CandidateJobIntent,
+  JobSearchContext,
   SavedJob,
   JobMatchResult,
   MyVacancy,
@@ -81,6 +92,9 @@ import type {
   SessionUser,
   TeamMember,
   Vacancy,
+  JobMatchStrength,
+  MatchBand,
+  JobSalaryView,
 } from "@/lib/types";
 
 /* -------------------------------------------------------------------------- */
@@ -104,6 +118,16 @@ export function toSessionUser(response: MeResponse): SessionUser {
     preferredLocale: response.user.preferredLocale,
     avatarUrl: response.user.avatarUrl ?? null,
     hasCandidateAccount: response.candidateAccount.exists,
+    /*
+     * Resolved once, here, from whatever the backend stated — and from nothing
+     * else. There is no localStorage fallback, no URL parameter and no
+     * remembered value: a plan the frontend made up is a plan the backend will
+     * refuse, and the refusal would land on the reader as a broken screen.
+     */
+    entitlements: resolveEntitlements({
+      plan: response.candidateAccount.plan ?? response.plan,
+      capabilities: response.candidateAccount.capabilities ?? response.capabilities,
+    }),
     activeOrganization: response.activeOrganization,
     memberships: response.memberships.map((membership) => ({
       organization: membership.organization,
@@ -178,10 +202,80 @@ export function toJobRequirement(
   };
 }
 
+/**
+ * The structured job profile, normalized once for every surface that shows a
+ * job — internal vacancy or public posting.
+ *
+ * Collapses two different absences into one: a field the payload omits (a
+ * summary endpoint) and a field the employer never filled in both become
+ * `null` / `[]`. Components then have a single question to ask — "is this
+ * specified?" — rather than having to know which endpoint they came from.
+ *
+ * The two NOT NULL columns keep their honest defaults: an unstated visa policy
+ * reads UNKNOWN, never "no".
+ */
+export function toJobProfile(response: JobProfileResponse): JobProfile {
+  return {
+    salaryMin: response.salaryMin ?? null,
+    salaryMax: response.salaryMax ?? null,
+    currency: response.currency ?? null,
+    payPeriod: response.payPeriod ?? null,
+    salaryNegotiable: response.salaryNegotiable ?? false,
+
+    country: response.country ?? null,
+    region: response.region ?? null,
+    city: response.city ?? null,
+    workMode: response.workMode ?? null,
+    officeDaysPerWeek: response.officeDaysPerWeek ?? null,
+    remoteCountriesAllowed: response.remoteCountriesAllowed ?? [],
+
+    // `?? null` and not `?? false`: "the employer did not say" is a third
+    // state, and flattening it to false would advertise every unspecified
+    // vacancy as closed to foreign applicants.
+    foreignApplicantsAccepted: response.foreignApplicantsAccepted ?? null,
+    visaSponsorship: response.visaSponsorship ?? "UNKNOWN",
+    existingWorkAuthorizationRequired:
+      response.existingWorkAuthorizationRequired ?? null,
+    eligibleVisaTypes: response.eligibleVisaTypes ?? [],
+    citizenshipRequirement: response.citizenshipRequirement ?? "NONE",
+    eligibleNationalities: response.eligibleNationalities ?? [],
+
+    seniorityLevel: response.seniorityLevel ?? null,
+    minExperienceYears: response.minExperienceYears ?? null,
+    preferredExperienceYears: response.preferredExperienceYears ?? null,
+
+    requiredEducation: response.requiredEducation ?? null,
+    preferredEducation: response.preferredEducation ?? null,
+    requiredCertifications: response.requiredCertifications ?? [],
+    preferredCertifications: response.preferredCertifications ?? [],
+    domainExperience: response.domainExperience ?? [],
+
+    benefits: response.benefits ?? [],
+    benefitsOther: response.benefitsOther ?? null,
+
+    applicationDeadline: response.applicationDeadline ?? null,
+    expectedStartDate: response.expectedStartDate ?? null,
+    openingsCount: response.openingsCount ?? null,
+    hiringUrgency: response.hiringUrgency ?? null,
+    contractDurationMonths: response.contractDurationMonths ?? null,
+  };
+}
+
+function toLanguageRequirements(
+  languages: { languageCode: string; level: VacancyLanguageRequirement["level"]; required: boolean }[] | undefined,
+): VacancyLanguageRequirement[] {
+  return (languages ?? []).map((language) => ({
+    languageCode: language.languageCode,
+    level: language.level,
+    required: language.required,
+  }));
+}
+
 export function toVacancy(response: VacancyResponse): Vacancy {
   const requirements = (response.requirements ?? []).map(toJobRequirement);
 
   return {
+    ...toJobProfile(response),
     id: response.id,
     organizationId: response.organizationId,
     title: response.title,
@@ -195,6 +289,7 @@ export function toVacancy(response: VacancyResponse): Vacancy {
     createdAt: response.createdAt,
     updatedAt: response.updatedAt,
     requirements,
+    languages: toLanguageRequirements(response.languages),
     // The list endpoint returns counts instead of the nested collections.
     // `candidateCount` counts people; `_count.applications` counts attempts,
     // and a re-applicant makes those differ — so the explicit field wins and
@@ -829,6 +924,7 @@ export function toCandidateAccount(
 
 export function toPublicJob(response: PublicJobResponse): PublicJob {
   return {
+    ...toJobProfile(response),
     publicSlug: response.publicSlug,
     title: response.title,
     department: response.department,
@@ -837,6 +933,15 @@ export function toPublicJob(response: PublicJobResponse): PublicJob {
     experienceLevel: response.experienceLevel,
     createdAt: response.createdAt,
     organizationName: response.organization.name,
+    applicantCount: response.applicantCount ?? 0,
+    searchAlignment: response.searchAlignment
+      ? {
+          score: response.searchAlignment.score,
+          // Structurally identical to the domain shape, like every other
+          // alignment on the candidate side — passed through, not re-mapped.
+          alignments: response.searchAlignment.alignments ?? [],
+        }
+      : undefined,
   };
 }
 
@@ -844,9 +949,14 @@ export function toPublicJobDetail(
   response: PublicJobDetailResponse,
 ): PublicJobDetail {
   return {
+    // The card mapper's RETURN TYPE is the card subset, so the long tail has
+    // to be spread in explicitly — a detail page shows visa, education,
+    // benefits and lifecycle, and a card does not.
+    ...toJobProfile(response),
     ...toPublicJob(response),
     description: response.description,
     requirements: response.requirements ?? [],
+    languages: toLanguageRequirements(response.languages),
   };
 }
 
@@ -865,6 +975,7 @@ export function toMyApplication(
       location: response.vacancy.location,
       employmentType: response.vacancy.employmentType,
       organizationName: response.vacancy.organization.name,
+      applicantCount: response.vacancy.applicantCount ?? 0,
     },
   };
 }
@@ -901,10 +1012,29 @@ export function toJobMatchResult(response: JobMatchesResponse): JobMatchResult {
         location: match.vacancy.location,
         employmentType: match.vacancy.employmentType,
         status: match.vacancy.status,
+        // Original pay, passed straight through. `?? null` and never `?? 0`:
+        // an employer who stated no salary has not offered zero.
+        salaryMin: match.vacancy.salaryMin ?? null,
+        salaryMax: match.vacancy.salaryMax ?? null,
+        currency: match.vacancy.currency ?? null,
+        payPeriod: match.vacancy.payPeriod ?? null,
+        salaryNegotiable: match.vacancy.salaryNegotiable ?? false,
+        country: match.vacancy.country ?? null,
+        region: match.vacancy.region ?? null,
+        city: match.vacancy.city ?? null,
+        workMode: match.vacancy.workMode ?? null,
+        seniorityLevel: match.vacancy.seniorityLevel ?? null,
       },
       match: match.match,
+      // A band is always shown; falling back to the capability strength keeps
+      // an older payload rendering rather than blank.
+      band: match.band ?? bandFromStrength(match.match),
       rank: match.rank ?? 0,
       score: match.score ?? 0,
+      capabilityScore: match.capabilityScore ?? match.score ?? 0,
+      // PRESERVED as null: "no comparable preference" is not a zero score.
+      intentScore: match.intentScore ?? null,
+      alignments: match.alignments ?? [],
       signals: match.signals ?? {},
       matchedSkills: match.matchedSkills ?? [],
       missingSkills: match.missingSkills ?? [],
@@ -939,7 +1069,50 @@ export function toJobMatchResult(response: JobMatchesResponse): JobMatchResult {
     totalPages: response.totalPages ?? 1,
     hasMore: response.hasMore ?? false,
     totalEligible: response.totalEligible ?? 0,
+    totalExcluded: response.totalExcluded ?? 0,
+    fx: {
+      snapshotVersion: response.fx?.snapshotVersion ?? null,
+      fetchedAt: response.fx?.fetchedAt ?? null,
+    },
     capability: (response.capability ?? {}) as JobMatchResult["capability"],
+  };
+}
+
+/**
+ * A band for a payload that predates bands.
+ *
+ * Only a fallback: the backend owns the thresholds, and deriving them here
+ * would be a second source of truth that could disagree with the score.
+ */
+function bandFromStrength(strength: JobMatchStrength): MatchBand {
+  if (strength === "STRONG") return "STRONG";
+  if (strength === "PARTIAL") return "PARTIAL";
+  return "LOW";
+}
+
+/** One job's pay in the candidate's own currency. */
+export function toJobSalaryView(
+  response: JobSalaryViewResponse,
+): JobSalaryView {
+  return {
+    original: {
+      salaryMin: response.original.salaryMin ?? null,
+      salaryMax: response.original.salaryMax ?? null,
+      currency: response.original.currency ?? null,
+      payPeriod: response.original.payPeriod ?? null,
+      salaryNegotiable: response.original.salaryNegotiable ?? false,
+    },
+    // Null is meaningful and preserved: there is no conversion to show.
+    converted: response.converted
+      ? {
+          salaryMin: response.converted.salaryMin ?? null,
+          salaryMax: response.converted.salaryMax ?? null,
+          currency: response.converted.currency,
+          payPeriod: response.converted.payPeriod,
+        }
+      : null,
+    reason: response.reason,
+    fx: response.fx ?? null,
   };
 }
 
@@ -965,5 +1138,82 @@ export function toVacancyCandidate(
   return {
     candidate: { ...response.candidate },
     application: { ...response.application },
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Candidate job preferences                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The candidate's stated preferences.
+ *
+ * Nothing is defaulted on the way through. `?? null` and `?? []` appear only
+ * where the wire may omit a key entirely; a `null` the API actually sent
+ * survives as null, because "named no salary" and "wants zero" are different
+ * answers and the UI has to be able to tell them apart.
+ */
+export function toJobPreferences(
+  response: JobPreferencesResponse,
+): CandidateJobPreferences {
+  return {
+    stated: response.stated,
+    preferredJobTitles: response.preferredJobTitles ?? [],
+    preferredLocations: response.preferredLocations ?? [],
+    preferredWorkModes: response.preferredWorkModes ?? [],
+    preferredEmploymentTypes: response.preferredEmploymentTypes ?? [],
+    preferredSeniorityLevels: response.preferredSeniorityLevels ?? [],
+    desiredSalaryMin: response.desiredSalaryMin ?? null,
+    desiredSalaryMax: response.desiredSalaryMax ?? null,
+    salaryCurrency: response.salaryCurrency ?? null,
+    payPeriod: response.payPeriod ?? null,
+    // Never `?? false`: an unanswered relocation question is not a refusal.
+    willingToRelocate: response.willingToRelocate ?? null,
+    preferredIndustries: response.preferredIndustries ?? [],
+    preferredBenefits: response.preferredBenefits ?? [],
+    excludedCompanies: response.excludedCompanies ?? [],
+    excludedJobTitles: response.excludedJobTitles ?? [],
+    excludedLocations: response.excludedLocations ?? [],
+    createdAt: response.createdAt ?? null,
+    updatedAt: response.updatedAt ?? null,
+  };
+}
+
+export function toCandidateJobIntent(
+  response: CandidateJobIntentResponse,
+): CandidateJobIntent {
+  return {
+    candidateAccountId: response.candidateAccountId,
+    stated: response.stated,
+    roles: response.roles ?? [],
+    locations: response.locations ?? [],
+    countries: response.countries ?? [],
+    workModes: response.workModes ?? [],
+    compensation: response.compensation ?? null,
+    employmentTypes: response.employmentTypes ?? [],
+    seniorityLevels: response.seniorityLevels ?? [],
+    relocation: response.relocation ?? null,
+    preferredIndustries: response.preferredIndustries ?? [],
+    preferredBenefits: response.preferredBenefits ?? [],
+    exclusions: response.exclusions ?? {
+      companies: [],
+      jobTitles: [],
+      locations: [],
+    },
+    updatedAt: response.updatedAt ?? null,
+  };
+}
+
+export function toJobSearchContext(
+  response: JobSearchContextResponse,
+): JobSearchContext {
+  return {
+    candidateAccountId: response.candidateAccountId,
+    jobIntent: toCandidateJobIntent(response.jobIntent),
+    // Passed through as-is: the per-dimension `source` labels are the contract
+    // Task 3 will explain results with, and rewriting them here would be the
+    // second interpretation of intent this architecture exists to prevent.
+    resolved: response.resolved,
+    locale: response.locale,
   };
 }

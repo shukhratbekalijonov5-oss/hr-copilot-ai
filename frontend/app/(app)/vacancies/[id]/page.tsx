@@ -13,8 +13,9 @@ import {
   VacancyStatusBadge,
 } from "@/components/ui/StatusBadge";
 import { buttonStyles } from "@/components/ui/Button";
-import { CompareIcon, MessageIcon, UsersIcon } from "@/components/ui/icons";
+import { CompareIcon, EditIcon, MessageIcon, UsersIcon } from "@/components/ui/icons";
 import { VacancyCloseButton } from "@/components/vacancies/VacancyCloseButton";
+import { JobProfileSections } from "@/components/vacancies/JobProfileSections";
 import { getI18n } from "@/lib/i18n/server";
 import {
   attemptNumber,
@@ -41,7 +42,7 @@ export async function generateMetadata(
 export default async function VacancyDetailPage(
   props: PageProps<"/vacancies/[id]">,
 ) {
-  await requireSession();
+  const session = await requireSession();
   const { locale, d } = await getI18n();
   const { id } = await props.params;
 
@@ -130,6 +131,21 @@ export default async function VacancyDetailPage(
         }
         actions={
           <>
+            {/*
+              Shown to the creator only — but that is presentation, not
+              authorization. The PATCH behind the form is re-checked
+              server-side, so a colleague who reaches the URL is refused
+              there.
+            */}
+            {vacancy.createdById === session.id ? (
+              <Link
+                href={`/vacancies/${vacancy.id}/edit`}
+                className={buttonStyles("secondary", "md")}
+              >
+                <EditIcon className="size-4" />
+                {d.common.edit}
+              </Link>
+            ) : null}
             <Link
               href={`/compare?vacancyId=${vacancy.id}`}
               className={buttonStyles("secondary", "md")}
@@ -224,6 +240,18 @@ export default async function VacancyDetailPage(
               </CardBody>
             )}
           </Card>
+
+          {/*
+            Everything the employer actually stated about the role. Rendered
+            from the SAME component the candidate-facing posting uses, so the
+            two can never describe the job differently.
+          */}
+          <JobProfileSections
+            profile={vacancy}
+            legacyLocation={vacancy.location}
+            languages={vacancy.languages}
+            d={d}
+          />
 
           <Card>
             <CardHeader

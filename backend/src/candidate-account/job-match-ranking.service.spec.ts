@@ -1,30 +1,55 @@
 import { JobMatchRankingService } from './job-match-ranking.service';
+import { emptyJobIntent } from '../candidate-preferences/candidate-job-intent';
+import type { CandidateJobIntent } from '../candidate-preferences/candidate-job-intent';
+import { MATCH_ALGORITHM_VERSION } from '../matching/match-policy';
+import { Prisma } from '../generated/prisma/client';
 
 /**
- * The ranked snapshot: what decides the universe, when it recomputes, and how
- * a page relates to the whole.
+ * The ranked snapshot: what decides the universe, what may shrink it, when it
+ * recomputes, and how a page relates to the whole.
  *
  * The failure this guards against is specific and was real: a candidate with
  * 153 open vacancies available to them received about two matches, because a
  * top-K vector search decided the universe and a `limit` truncated it before
  * anything was ranked. So the properties asserted here are mostly about
- * COUNTS and STABILITY rather than about any single match being right.
+ * COUNTS and STABILITY rather than about any single match being right — and,
+ * since algorithm v2, about the one rule that shrinks a universe: the
+ * candidate's own explicit exclusions, never a score.
  */
 
 const ACCOUNT = 'acct-me';
 
+/** One OPEN vacancy row exactly as RANKING_VACANCY_SELECT returns it. */
+function vacRow(index: number, overrides: Record<string, unknown> = {}) {
+  return {
+    id: `vac-${index}`,
+    title: `Role ${index}`,
+    description: null,
+    country: null,
+    region: null,
+    city: null,
+    workMode: null,
+    remoteCountriesAllowed: [],
+    salaryMin: null,
+    salaryMax: null,
+    currency: null,
+    payPeriod: null,
+    employmentType: null,
+    seniorityLevel: null,
+    benefits: [],
+    domainExperience: [],
+    organization: { name: `Org ${index}` },
+    requirements: [],
+    ...overrides,
+  };
+}
+
+const CATALOGUE = Array.from({ length: 57 }, (_, i) => vacRow(i));
+
 function createPrismaMock(overrides: Record<string, unknown> = {}) {
   const prisma: any = {
     vacancy: {
-      findMany: jest
-        .fn()
-        .mockResolvedValue(
-          Array.from({ length: 57 }, (_, i) => ({ id: `vac-${i}` })),
-        ),
-      count: jest.fn().mockResolvedValue(57),
-      findFirst: jest
-        .fn()
-        .mockResolvedValue({ updatedAt: new Date('2026-08-21T10:00:00.000Z') }),
+      findMany: jest.fn().mockResolvedValue(CATALOGUE),
     },
     candidateJobMatchRun: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -46,13 +71,13 @@ function createPrismaMock(overrides: Record<string, unknown> = {}) {
   return prisma;
 }
 
-function aiMatch(index: number) {
+function aiMatch(index: number, overrides: Record<string, unknown> = {}) {
   return {
     vacancyId: `vac-${index}`,
     organizationId: 'org-1',
     title: `Role ${index}`,
     match: index < 10 ? 'STRONG' : 'PARTIAL',
-    score: 100 - index,
+    score: Math.max(0, 100 - index),
     rank: index + 1,
     signals: { semantic: 0.5 },
     matchedSkills: ['react'],
@@ -62,10 +87,11 @@ function aiMatch(index: number) {
     unsupportedRequirements: [],
     unclearRequirements: [],
     evidence: [],
+    ...overrides,
   };
 }
 
-function build(overrides: { prisma?: any; ai?: any } = {}) {
+function build(overrides: { prisma?: any; ai?: any; fx?: any } = {}) {
   const prisma = overrides.prisma ?? createPrismaMock();
   const ai = overrides.ai ?? {
     enabled: true,
@@ -85,12 +111,58 @@ function build(overrides: { prisma?: any; ai?: any } = {}) {
   const producer = {
     enqueueVacancyIndexSync: jest.fn().mockResolvedValue('job-1'),
   };
+  // FX defaults to "no usable snapshot": salary still compares in the
+  // candidate's own currency, and a cross-currency pair reports
+  // NOT_COMPARABLE — the degraded path is the one worth defaulting to.
+  const fx = overrides.fx ?? {
+    ensureSnapshot: jest.fn().mockResolvedValue({
+      snapshot: null,
+      freshness: 'UNAVAILABLE',
+      ageMs: null,
+      table: null,
+    }),
+    current: jest.fn().mockResolvedValue({
+      snapshot: null,
+      freshness: 'UNAVAILABLE',
+      ageMs: null,
+      table: null,
+    }),
+  };
   const service = new JobMatchRankingService(
     prisma as never,
     ai as never,
     producer as never,
+    fx as never,
   );
-  return { service, prisma, ai, producer };
+  return { service, prisma, ai, producer, fx };
+}
+
+/** computeRun's input for one universe and one intent, defaults empty. */
+async function computeInput(
+  service: JobMatchRankingService,
+  intent: CandidateJobIntent = emptyJobIntent(ACCOUNT),
+) {
+  return {
+    candidateAccountId: ACCOUNT,
+    profile: {} as never,
+    locale: 'en' as const,
+    evidenceRevision: 3,
+    allowedSourceIds: ['doc-1'],
+    explainLimit: 20,
+    universe: await service.loadUniverse(),
+    intent,
+  };
+}
+
+function storedEntries(prisma: any) {
+  return prisma.candidateJobMatchEntry.createMany.mock.calls[0][0]
+    .data as Array<{
+    vacancyId: string;
+    rank: number;
+    score: number;
+    capabilityScore: number;
+    intentScore: number | null;
+  }>;
 }
 
 describe('JobMatchRankingService', () => {
@@ -101,26 +173,17 @@ describe('JobMatchRankingService', () => {
       // database's answer makes those ghosts unreachable rather than unlikely.
       const { service, prisma } = build();
 
-      await service.eligibleVacancyIds();
+      await service.loadUniverse();
 
-      expect(prisma.vacancy.findMany).toHaveBeenCalledWith({
-        where: { status: 'OPEN' },
-        select: { id: true },
-        orderBy: { id: 'asc' },
-      });
+      const call = prisma.vacancy.findMany.mock.calls[0][0];
+      expect(call.where).toEqual({ status: 'OPEN' });
+      expect(call.orderBy).toEqual({ id: 'asc' });
     });
 
     it('passes EVERY eligible id to the ranking', async () => {
       const { service, ai } = build();
 
-      await service.computeRun({
-        candidateAccountId: ACCOUNT,
-        profile: {} as never,
-        locale: 'en',
-        evidenceRevision: 3,
-        allowedSourceIds: ['doc-1'],
-        explainLimit: 20,
-      });
+      await service.computeRun(await computeInput(service));
 
       expect(
         ai.candidateJobMatches.mock.calls[0][0].eligibleVacancyIds,
@@ -130,46 +193,113 @@ describe('JobMatchRankingService', () => {
     it('stores every ranked entry, not a page of them', async () => {
       const { service, prisma } = build();
 
-      const run = await service.computeRun({
-        candidateAccountId: ACCOUNT,
-        profile: {} as never,
-        locale: 'en',
-        evidenceRevision: 3,
-        allowedSourceIds: [],
-        explainLimit: 20,
-      });
+      const run = await service.computeRun(await computeInput(service));
 
       expect(run.totalRanked).toBe(57);
+      expect(run.totalRanked).toBe(run.totalEligible);
+      expect(storedEntries(prisma)).toHaveLength(57);
+    });
+
+    it('keeps score-zero entries in the ranking — a low score is not a filter', async () => {
+      // 0/100 means "weak compatibility", never "does not exist". The bottom
+      // of the list must be as real and paginatable as the top.
+      const ai = {
+        enabled: true,
+        candidateJobMatches: jest.fn().mockResolvedValue({
+          matches: Array.from({ length: 57 }, (_, i) =>
+            aiMatch(i, { score: i < 3 ? 0 : Math.max(0, 100 - i) }),
+          ),
+          locale: 'en',
+          vacanciesConsidered: 57,
+          eligibleConsidered: 57,
+          generated: false,
+          capability: {},
+          durationMs: 100,
+        }),
+        matchExplanations: jest.fn(),
+      };
+      const { service, prisma } = build({ ai });
+
+      const run = await service.computeRun(await computeInput(service));
+
+      const entries = storedEntries(prisma);
+      expect(run.totalRanked).toBe(57);
       expect(
-        prisma.candidateJobMatchEntry.createMany.mock.calls[0][0].data,
-      ).toHaveLength(57);
+        entries.filter((e) => e.score === 0).length,
+      ).toBeGreaterThanOrEqual(3);
+      // And they hold the LAST ranks rather than disappearing.
+      expect(entries[entries.length - 1].score).toBe(0);
     });
 
     it('spends generation on the FIRST PAGE only', async () => {
       // Explaining 57 matches to show 20 is money spent on text nobody reads.
       const { service, ai } = build();
 
-      await service.computeRun({
-        candidateAccountId: ACCOUNT,
-        profile: {} as never,
-        locale: 'en',
-        evidenceRevision: 3,
-        allowedSourceIds: [],
-        explainLimit: 20,
-      });
+      await service.computeRun(await computeInput(service));
 
       expect(ai.candidateJobMatches.mock.calls[0][0].explainLimit).toBe(20);
       expect(ai.candidateJobMatches.mock.calls[0][0].explainOffset).toBe(0);
     });
   });
 
+  describe('hard exclusions — the ONLY thing that shrinks the universe', () => {
+    it("removes a vacancy from the candidate's own excluded company, and reports it", async () => {
+      const intent = emptyJobIntent(ACCOUNT);
+      intent.exclusions.companies = ['org 3'];
+      const { service, ai } = build();
+
+      const run = await service.computeRun(await computeInput(service, intent));
+
+      expect(run.totalEligible).toBe(56);
+      expect(run.totalExcluded).toBe(1);
+      const sent = ai.candidateJobMatches.mock.calls[0][0]
+        .eligibleVacancyIds as string[];
+      expect(sent).toHaveLength(56);
+      expect(sent).not.toContain('vac-3');
+    });
+
+    it('saved POSITIVE preferences never shrink the universe', async () => {
+      // Preferred Seoul + REMOTE + a salary floor + a role: all soft. The
+      // rankable universe stays whole; only order may move.
+      const intent = emptyJobIntent(ACCOUNT);
+      intent.stated = true;
+      intent.roles = ['Backend Engineer'];
+      intent.locations = [{ countryCode: 'KR', region: null, city: 'Seoul' }];
+      intent.countries = ['KR'];
+      intent.workModes = ['REMOTE'];
+      intent.compensation = {
+        minAmount: 50_000_000,
+        maxAmount: null,
+        currency: 'KRW',
+        payPeriod: 'YEARLY',
+      };
+      const { service, ai } = build();
+
+      const run = await service.computeRun(await computeInput(service, intent));
+
+      expect(run.totalEligible).toBe(57);
+      expect(run.totalExcluded).toBe(0);
+      expect(
+        ai.candidateJobMatches.mock.calls[0][0].eligibleVacancyIds,
+      ).toHaveLength(57);
+    });
+
+    it('an empty intent excludes nothing', async () => {
+      const { service } = build();
+
+      const run = await service.computeRun(await computeInput(service));
+
+      expect(run.totalEligible).toBe(57);
+      expect(run.totalExcluded).toBe(0);
+    });
+  });
+
   describe('an eligible vacancy missing from the index', () => {
-    it('is queued for re-indexing rather than silently dropped', async () => {
-      // 57 eligible, but the ranking only saw 55: two never reached the index.
-      // Dropping them quietly is the exact failure this rewrite is about.
-      const ai = {
+    function subsetAi() {
+      return {
         enabled: true,
         candidateJobMatches: jest.fn().mockResolvedValue({
+          // 57 eligible, but the index only knew 55 of them.
           matches: Array.from({ length: 55 }, (_, i) => aiMatch(i)),
           locale: 'en',
           vacanciesConsidered: 55,
@@ -180,16 +310,29 @@ describe('JobMatchRankingService', () => {
         }),
         matchExplanations: jest.fn(),
       };
-      const { service, producer } = build({ ai });
+    }
 
-      await service.computeRun({
-        candidateAccountId: ACCOUNT,
-        profile: {} as never,
-        locale: 'en',
-        evidenceRevision: 1,
-        allowedSourceIds: [],
-        explainLimit: 20,
-      });
+    it('is still RANKED — a retrieval gap must not shrink the universe', async () => {
+      // Qdrant accelerates scoring; it never defines what exists. The two
+      // unindexed vacancies enter the ranking with zero capability signal,
+      // hold the last ranks, and remain reachable by pagination.
+      const { service, prisma } = build({ ai: subsetAi() });
+
+      const run = await service.computeRun(await computeInput(service));
+
+      expect(run.totalRanked).toBe(57);
+      expect(run.totalEligible).toBe(57);
+      const entries = storedEntries(prisma);
+      expect(entries).toHaveLength(57);
+      const tail = entries.slice(-2).map((e) => e.vacancyId);
+      expect(tail).toEqual(expect.arrayContaining(['vac-55', 'vac-56']));
+      expect(entries[56].capabilityScore).toBe(0);
+    });
+
+    it('is queued for re-indexing so the gap heals', async () => {
+      const { service, producer } = build({ ai: subsetAi() });
+
+      await service.computeRun(await computeInput(service));
 
       expect(producer.enqueueVacancyIndexSync).toHaveBeenCalledTimes(2);
       expect(producer.enqueueVacancyIndexSync).toHaveBeenCalledWith({
@@ -200,14 +343,7 @@ describe('JobMatchRankingService', () => {
     it('queues nothing when every eligible vacancy was ranked', async () => {
       const { service, producer } = build();
 
-      await service.computeRun({
-        candidateAccountId: ACCOUNT,
-        profile: {} as never,
-        locale: 'en',
-        evidenceRevision: 1,
-        allowedSourceIds: [],
-        explainLimit: 20,
-      });
+      await service.computeRun(await computeInput(service));
 
       expect(producer.enqueueVacancyIndexSync).not.toHaveBeenCalled();
     });
@@ -232,89 +368,229 @@ describe('JobMatchRankingService', () => {
       );
 
       await expect(
-        service.computeRun({
-          candidateAccountId: ACCOUNT,
-          profile: {} as never,
+        service.computeRun(await computeInput(service)),
+      ).resolves.toMatchObject({ totalRanked: 57 });
+    });
+  });
+
+  describe('combining capability and intent', () => {
+    it('an empty intent is a NO-OP: canonical score IS the capability score, in the same order', async () => {
+      // The provable baseline: a candidate who stated nothing ranks exactly
+      // as if preferences did not exist — same scores, same order.
+      const { service, prisma } = build();
+
+      await service.computeRun(await computeInput(service));
+
+      const entries = storedEntries(prisma);
+      entries.forEach((entry, index) => {
+        expect(entry.score).toBe(entry.capabilityScore);
+        expect(entry.intentScore).toBeNull();
+        expect(entry.rank).toBe(index + 1);
+      });
+      // ai order was score desc by construction; the stored order matches it.
+      expect(entries[0].vacancyId).toBe('vac-0');
+      expect(entries[56].vacancyId).toBe('vac-56');
+    });
+
+    it('stated intent reorders within the bounded intent share — capability still dominates', async () => {
+      const rows = [
+        vacRow(0, { country: 'KR', city: 'Seoul', workMode: 'REMOTE' }),
+        vacRow(1),
+      ];
+      const prisma = createPrismaMock();
+      prisma.vacancy.findMany.mockResolvedValue(rows);
+      const ai = {
+        enabled: true,
+        candidateJobMatches: jest.fn().mockResolvedValue({
+          // Capability: vac-1 slightly ahead of vac-0.
+          matches: [aiMatch(1, { score: 80 }), aiMatch(0, { score: 78 })],
           locale: 'en',
-          evidenceRevision: 1,
-          allowedSourceIds: [],
-          explainLimit: 20,
+          vacanciesConsidered: 2,
+          eligibleConsidered: 2,
+          generated: false,
+          capability: {},
+          durationMs: 50,
         }),
-      ).resolves.toMatchObject({ totalRanked: 1 });
+        matchExplanations: jest.fn(),
+      };
+      const intent = emptyJobIntent(ACCOUNT);
+      intent.stated = true;
+      intent.locations = [{ countryCode: 'KR', region: null, city: 'Seoul' }];
+      intent.countries = ['KR'];
+      intent.workModes = ['REMOTE'];
+      const { service, prisma: p } = build({ prisma, ai });
+
+      await service.computeRun(await computeInput(service, intent));
+
+      const entries = storedEntries(p);
+      // vac-0 matches the stated location and work mode; vac-1 says nothing
+      // (unknown = neutral, so it keeps its pure capability score). The two-
+      // point capability edge is inside the intent share, so vac-0 overtakes.
+      expect(entries[0].vacancyId).toBe('vac-0');
+      expect(entries[0].intentScore).toBe(100);
+      expect(entries[1].vacancyId).toBe('vac-1');
+      expect(entries[1].intentScore).toBeNull();
+      expect(entries[1].score).toBe(80);
+      // Both remain in the ranking — a mismatch or unknown never removes.
+      expect(entries).toHaveLength(2);
     });
   });
 
   describe('when a stored ranking may be reused', () => {
-    it('is reused when both inputs are unchanged', async () => {
+    const stored = {
+      id: 'run-1',
+      evidenceRevision: 5,
+      vacancyFingerprint: 'fp',
+      intentFingerprint: 'ih',
+      algorithmVersion: MATCH_ALGORITHM_VERSION,
+      totalRanked: 57,
+      totalEligible: 57,
+      totalExcluded: 0,
+      capability: {},
+      generatedAt: new Date(),
+    };
+
+    it('is reused when every input is unchanged', async () => {
       const prisma = createPrismaMock();
-      prisma.candidateJobMatchRun.findUnique.mockResolvedValue({
-        id: 'run-1',
-        evidenceRevision: 5,
-        vacancyFingerprint: 'fp',
-        totalRanked: 57,
-        totalEligible: 57,
-        capability: {},
-        generatedAt: new Date(),
-      });
+      prisma.candidateJobMatchRun.findUnique.mockResolvedValue({ ...stored });
       const { service } = build({ prisma });
 
-      await expect(service.currentRun(ACCOUNT, 5, 'fp')).resolves.toMatchObject(
-        {
-          id: 'run-1',
-        },
-      );
+      await expect(
+        service.currentRun(ACCOUNT, 5, 'fp', 'ih'),
+      ).resolves.toMatchObject({ id: 'run-1' });
     });
 
     it('is discarded when the candidate evidence moved on', async () => {
       const prisma = createPrismaMock();
-      prisma.candidateJobMatchRun.findUnique.mockResolvedValue({
-        id: 'run-1',
-        evidenceRevision: 5,
-        vacancyFingerprint: 'fp',
-        totalRanked: 57,
-        totalEligible: 57,
-        capability: {},
-        generatedAt: new Date(),
-      });
+      prisma.candidateJobMatchRun.findUnique.mockResolvedValue({ ...stored });
       const { service } = build({ prisma });
 
       // A deleted file or a refreshed link bumps the revision. Serving the old
       // ranking would rank jobs against evidence that no longer exists.
-      await expect(service.currentRun(ACCOUNT, 6, 'fp')).resolves.toBeNull();
+      await expect(
+        service.currentRun(ACCOUNT, 6, 'fp', 'ih'),
+      ).resolves.toBeNull();
     });
 
     it('is discarded when the vacancy catalogue changed', async () => {
       const prisma = createPrismaMock();
+      prisma.candidateJobMatchRun.findUnique.mockResolvedValue({ ...stored });
+      const { service } = build({ prisma });
+
+      await expect(
+        service.currentRun(ACCOUNT, 5, 'fp-new', 'ih'),
+      ).resolves.toBeNull();
+    });
+
+    it("is discarded when the candidate's intent changed — Rule N1 reaches the cache", async () => {
+      // Seoul → Toronto: the old snapshot, with every Seoul-flavored score
+      // and reason inside it, must be unreachable from that moment on.
+      const prisma = createPrismaMock();
+      prisma.candidateJobMatchRun.findUnique.mockResolvedValue({ ...stored });
+      const { service } = build({ prisma });
+
+      await expect(
+        service.currentRun(ACCOUNT, 5, 'fp', 'ih-toronto'),
+      ).resolves.toBeNull();
+    });
+
+    it('is discarded when the algorithm version moved — same data, new math', async () => {
+      const prisma = createPrismaMock();
       prisma.candidateJobMatchRun.findUnique.mockResolvedValue({
-        id: 'run-1',
-        evidenceRevision: 5,
-        vacancyFingerprint: 'fp-old',
-        totalRanked: 57,
-        totalEligible: 57,
-        capability: {},
-        generatedAt: new Date(),
+        ...stored,
+        algorithmVersion: 'v1',
       });
       const { service } = build({ prisma });
 
       await expect(
-        service.currentRun(ACCOUNT, 5, 'fp-new'),
+        service.currentRun(ACCOUNT, 5, 'fp', 'ih'),
       ).resolves.toBeNull();
     });
 
-    it('the fingerprint moves when a vacancy opens, closes or is edited', async () => {
+    it('a pre-v2 run (null fingerprints) can never be served', async () => {
       const prisma = createPrismaMock();
+      prisma.candidateJobMatchRun.findUnique.mockResolvedValue({
+        ...stored,
+        intentFingerprint: null,
+        algorithmVersion: null,
+      });
       const { service } = build({ prisma });
 
-      const before = await service.vacancyFingerprint();
+      await expect(
+        service.currentRun(ACCOUNT, 5, 'fp', 'ih'),
+      ).resolves.toBeNull();
+    });
+  });
 
-      prisma.vacancy.count.mockResolvedValue(58); // one opened
-      expect(await service.vacancyFingerprint()).not.toBe(before);
+  describe('concurrent recomputes', () => {
+    it('concurrent recomputes for one candidate share a single run', async () => {
+      // Found live: six simultaneous requests (two tabs, or a prefetch racing
+      // a click, after a preference change) each started their own
+      // 155-vacancy run, and three of them died with a 500 — every
+      // transaction deleted a row the others could not see yet, then collided
+      // on the one-run-per-candidate unique index.
+      const { service, prisma, ai } = build();
+      const input = await computeInput(service);
 
-      prisma.vacancy.count.mockResolvedValue(57);
-      prisma.vacancy.findFirst.mockResolvedValue({
-        updatedAt: new Date('2026-08-22T10:00:00.000Z'), // one edited
+      const results = await Promise.all([
+        service.computeRun(input),
+        service.computeRun(input),
+        service.computeRun(input),
+        service.computeRun(input),
+      ]);
+
+      // One computation, one write — and every caller still got an answer.
+      expect(ai.candidateJobMatches).toHaveBeenCalledTimes(1);
+      expect(prisma.candidateJobMatchRun.create).toHaveBeenCalledTimes(1);
+      expect(results).toHaveLength(4);
+      expect(new Set(results.map((r) => r.runId)).size).toBe(1);
+    });
+
+    it('callers with different intent do NOT share a ranking', async () => {
+      // Sharing is keyed on the inputs. If the reader changed a preference
+      // between two requests, the second must be answered from what it
+      // actually asked about rather than handed its neighbour's stale intent.
+      const { service, ai } = build();
+      const empty = await computeInput(service);
+      const stated = {
+        ...empty,
+        intent: {
+          ...emptyJobIntent(ACCOUNT),
+          stated: true,
+          roles: ['Frontend Engineer'],
+        },
+      };
+
+      await Promise.all([
+        service.computeRun(empty),
+        service.computeRun(stated as never),
+      ]);
+
+      expect(ai.candidateJobMatches).toHaveBeenCalledTimes(2);
+    });
+
+    it('a lost write race is retried, not surfaced as a failure', async () => {
+      // A second API instance has its own in-flight map and cannot know about
+      // ours. Losing that race is harmless — the winner stored a ranking built
+      // from the same current state — so the job search must not 500.
+      const prisma = createPrismaMock();
+      const conflict = new Prisma.PrismaClientKnownRequestError('unique', {
+        code: 'P2002',
+        clientVersion: 'test',
       });
-      expect(await service.vacancyFingerprint()).not.toBe(before);
+      let attempts = 0;
+      prisma.$transaction = jest.fn((fn: any) => {
+        attempts += 1;
+        return attempts === 1
+          ? Promise.reject(conflict)
+          : Promise.resolve(fn(prisma));
+      });
+
+      const { service } = build({ prisma });
+      const result = await service.computeRun(await computeInput(service));
+
+      expect(attempts).toBe(2);
+      expect(result.totalRanked).toBeGreaterThan(0);
     });
   });
 
@@ -333,7 +609,8 @@ describe('JobMatchRankingService', () => {
     });
 
     it('every ranked entry is reachable across pages, with no repeats', async () => {
-      // The headline property: a ranking of 57 must be fully retrievable.
+      // The headline property: a ranking of 57 must be fully retrievable —
+      // including its lowest-scoring tail, which is a page like any other.
       const stored = Array.from({ length: 57 }, (_, i) => ({
         id: `e-${i}`,
         vacancyId: `vac-${i}`,
@@ -452,6 +729,63 @@ describe('JobMatchRankingService', () => {
       expect(prose.size).toBe(0);
       expect(pending).toBe(true);
       resolveLate({ explanations: {}, generated: false });
+    });
+
+    it('refuses to start more than two generations at once', async () => {
+      // The 3A incident: paging a 154-job ranking started a background
+      // generation per page, eight piled onto a single-worker model, and the
+      // NEXT ranking request timed out at 120s. Over the cap a page is served
+      // from stored prose and asks for nothing new.
+      const { service, ai } = build();
+      ai.matchExplanations.mockReturnValue(new Promise(() => undefined));
+
+      const entry = (id: string) => ({
+        id,
+        vacancyId: id,
+        tier: 'PARTIAL',
+        matchedSkills: [],
+        missingSkills: [],
+        supportedRequirements: [],
+        unsupportedRequirements: [],
+        unclearRequirements: [],
+        explanations: null,
+      });
+
+      const pages = await Promise.all([
+        service.explainPage([entry('v1')], 'en', 5),
+        service.explainPage([entry('v2')], 'en', 5),
+        service.explainPage([entry('v3')], 'en', 5),
+        service.explainPage([entry('v4')], 'en', 5),
+      ]);
+
+      expect(ai.matchExplanations).toHaveBeenCalledTimes(2);
+      // Every page still came back, and honestly reports its prose as pending.
+      expect(pages).toHaveLength(4);
+      expect(pages.every((page) => page.pending)).toBe(true);
+    });
+
+    it('asks the model about at most one bounded batch per request', async () => {
+      const { service, ai } = build();
+      ai.matchExplanations.mockResolvedValue({
+        explanations: {},
+        generated: false,
+      });
+
+      const entries = Array.from({ length: 50 }, (_, i) => ({
+        id: `v${i}`,
+        vacancyId: `v${i}`,
+        tier: 'PARTIAL',
+        matchedSkills: [],
+        missingSkills: [],
+        supportedRequirements: [],
+        unsupportedRequirements: [],
+        unclearRequirements: [],
+        explanations: null,
+      }));
+
+      await service.explainPage(entries, 'en', 5);
+
+      expect(ai.matchExplanations.mock.calls[0][0].items).toHaveLength(20);
     });
 
     it('a generation outage costs prose, never the page', async () => {

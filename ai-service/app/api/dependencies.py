@@ -107,6 +107,28 @@ _vacancy_store = None
 _vacancy_store_lock = threading.Lock()
 
 
+_external_job_store = None
+_external_job_store_lock = threading.Lock()
+
+
+def get_external_job_store():
+    """External job index — public job ads, no tenant and no personal data."""
+    global _external_job_store
+    if _external_job_store is None:
+        with _external_job_store_lock:
+            if _external_job_store is None:
+                from app.candidate.store import ExternalJobStore
+
+                settings = get_settings()
+                _external_job_store = ExternalJobStore(
+                    settings.qdrant_url,
+                    settings.active_external_job_collection,
+                    api_key=settings.qdrant_api_key,
+                    timeout=settings.qdrant_timeout_seconds,
+                )
+    return _external_job_store
+
+
 def get_vacancy_store():
     """Candidate-discoverable vacancy index."""
     global _vacancy_store

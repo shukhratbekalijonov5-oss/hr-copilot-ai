@@ -35,6 +35,8 @@ function result(overrides: Partial<JobMatchResult> = {}): JobMatchResult {
     totalPages: 1,
     hasMore: false,
     totalEligible: 0,
+  totalExcluded: 0,
+  fx: { snapshotVersion: null, fetchedAt: null },
     capability: {},
     ...overrides,
   };

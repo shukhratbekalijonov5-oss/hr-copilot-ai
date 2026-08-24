@@ -14,6 +14,7 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 from app.common.errors import GenerationUnavailableError
 from app.common.logging import get_logger
@@ -59,6 +60,63 @@ class GeneratedQuestion:
     question: str
     reason: str
     cited_chunk_ids: list[str]
+
+
+@dataclass
+class WhyMatchItem:
+    title: str
+    explanation: str
+
+
+@dataclass
+class ExternalWhyMatch:
+    """One grounded 'why this external job matches you' explanation.
+
+    Prose only. There is deliberately no score, band, rank or percentage
+    field: the deterministic pipeline already decided all of those and this
+    structure has nowhere to put a competing number.
+    """
+
+    summary: str
+    strengths: list[WhyMatchItem]
+    gaps: list[WhyMatchItem]
+
+
+#: Bounds for a why-match answer, enforced on OUR side after validation.
+#: The schema descriptions ask the model for these counts; this is what makes
+#: them true. A model that returns six strengths gets its four best kept, and
+#: one that returns a padded gap list gets it truncated -- never extended,
+#: because inventing a gap to reach a minimum is exactly the dishonesty the
+#: feature must not commit.
+MAX_WHY_MATCH_STRENGTHS = 4
+MAX_WHY_MATCH_GAPS = 2
+
+
+def bounded_why_match(payload: Any) -> ExternalWhyMatch:
+    """Validated payload -> bounded dataclass.
+
+    Drops items missing a title or an explanation rather than rendering an
+    empty bullet, and clamps both lists. There is no lower bound to enforce:
+    "fewer, honest" is always the correct direction.
+    """
+
+    def items(raw: Any, limit: int) -> list[WhyMatchItem]:
+        out: list[WhyMatchItem] = []
+        for item in raw or []:
+            title = (item.title or "").strip()
+            explanation = (item.explanation or "").strip()
+            if not title or not explanation:
+                continue
+            out.append(WhyMatchItem(title=title, explanation=explanation))
+            if len(out) == limit:
+                break
+        return out
+
+    return ExternalWhyMatch(
+        summary=(payload.summary or "").strip(),
+        strengths=items(payload.strengths, MAX_WHY_MATCH_STRENGTHS),
+        gaps=items(payload.gaps, MAX_WHY_MATCH_GAPS),
+    )
 
 
 class GenerationClient(ABC):
@@ -118,6 +176,23 @@ class GenerationClient(ABC):
         """
         raise GenerationDisabledError("generate job match explanations")
 
+    def generate_external_why_match(
+        self, *, context: str, locale: str
+    ) -> ExternalWhyMatch:
+        """Why ONE external job relates to ONE candidate's current profile.
+
+        Single-job by design: this is a lazy, user-initiated action ("why this
+        match?"), never something a page of twenty results triggers. The
+        caller supplies an already-assembled, already-minimized context — the
+        candidate's CURRENT profile, the job's stored facts, and the
+        deterministic match facts — and gets prose back.
+
+        Non-abstract for the same reason as `generate_match_explanations`: a
+        provider that cannot do it refuses honestly, and the caller turns that
+        refusal into a controlled "explanation unavailable".
+        """
+        raise GenerationDisabledError("generate an external match explanation")
+
 
 class DisabledGenerationClient(GenerationClient):
     """Used when no provider is configured. Refuses, never improvises."""
@@ -141,6 +216,9 @@ class DisabledGenerationClient(GenerationClient):
 
     def generate_match_explanations(self, **_: object) -> dict[str, str]:
         raise GenerationDisabledError("generate job match explanations")
+
+    def generate_external_why_match(self, **_: object) -> ExternalWhyMatch:
+        raise GenerationDisabledError("generate an external match explanation")
 
 
 class AnthropicGenerationClient(GenerationClient):
@@ -289,6 +367,23 @@ class AnthropicGenerationClient(GenerationClient):
             for e in payload.explanations
             if e.vacancy_id in wanted and e.explanation.strip()
         }
+
+    def generate_external_why_match(
+        self, *, context: str, locale: str
+    ) -> ExternalWhyMatch:
+        from app.generation.prompts import (
+            EXTERNAL_WHY_MATCH_RULES,
+            build_external_why_match_prompt,
+        )
+        from app.generation.schemas import ExternalWhyMatchPayload
+
+        payload = self._parse(
+            system=EXTERNAL_WHY_MATCH_RULES,
+            prompt=build_external_why_match_prompt(context, locale),
+            output_format=ExternalWhyMatchPayload,
+            operation="generate an external match explanation",
+        )
+        return bounded_why_match(payload)
 
     # -- transport ---------------------------------------------------------
 

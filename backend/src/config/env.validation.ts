@@ -114,6 +114,24 @@ export class EnvironmentVariables {
   @IsOptional()
   @IsBoolean()
   WEB_RENDER_ENABLED?: boolean;
+
+  /**
+   * Exchange-rate provider credentials. BOTH are optional and the backend runs
+   * without them: with no provider configured the FX snapshot is simply
+   * UNAVAILABLE, cross-currency salary comparison reports NOT_COMPARABLE, and
+   * every job stays eligible and ranked. FX is an enrichment, never a gate.
+   *
+   * The URL is separate from the key on purpose. A key alone does not identify
+   * a provider, and guessing an endpoint would mean sending someone's
+   * credential to a service that may not be theirs.
+   */
+  @IsOptional()
+  @IsString()
+  EXCHANGE_RATE_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  EXCHANGE_RATE_API_URL?: string;
 }
 
 /** Fields that must be present and non-empty when STORAGE_DRIVER=r2. */
@@ -131,6 +149,9 @@ export function validateEnv(
   // exist yet; an empty string would otherwise trip @IsUrl.
   const normalised = { ...raw };
   if (normalised.AI_SERVICE_URL === '') delete normalised.AI_SERVICE_URL;
+  if (normalised.EXCHANGE_RATE_API_URL === '') {
+    delete normalised.EXCHANGE_RATE_API_URL;
+  }
 
   const parsed = plainToInstance(EnvironmentVariables, normalised, {
     enableImplicitConversion: true,

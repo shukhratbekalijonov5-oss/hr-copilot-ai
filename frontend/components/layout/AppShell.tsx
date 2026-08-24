@@ -35,7 +35,7 @@ export function AppShell({
   return (
     <div className="flex min-h-dvh">
       <aside className="fixed inset-y-0 left-0 hidden w-60 lg:block">
-        <Sidebar workspace={workspace.active} />
+        <Sidebar workspace={workspace.active} entitlements={workspace.entitlements} />
       </aside>
 
       {sidebarOpen ? (
@@ -48,6 +48,7 @@ export function AppShell({
           <div className="absolute inset-y-0 left-0 w-64 shadow-pop">
             <Sidebar
               workspace={workspace.active}
+              entitlements={workspace.entitlements}
               onNavigate={() => setSidebarOpen(false)}
               onClose={() => setSidebarOpen(false)}
             />

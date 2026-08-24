@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
+import { CandidateEntitlementsService } from '../entitlements/candidate-entitlements.service';
 import { AuthSessionService } from './auth-session.service';
 import { MembershipService } from '../common/membership/membership.service';
 import { AccountTypeService } from '../common/identity/account-type.service';
@@ -41,7 +42,10 @@ function createPrismaMock() {
     },
     organization: { findUnique: jest.fn(), create: jest.fn() },
     organizationMember: { findUnique: jest.fn(), create: jest.fn() },
-    candidateAccount: { create: jest.fn() },
+    candidateAccount: {
+      create: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue({ plan: 'FREE' }),
+    },
     $transaction: jest.fn(),
   };
 }
@@ -101,6 +105,7 @@ describe('AuthService', () => {
       jwtService,
       createConfigMock(),
       createStorageMock(),
+      new CandidateEntitlementsService(prisma as unknown as PrismaService),
     );
   });
 
@@ -742,6 +747,9 @@ describe('AuthService', () => {
       expect(result.accountType).toBe(AccountType.ORGANIZATION);
       expect(result.user.accountType).toBe(AccountType.ORGANIZATION);
       expect(result.candidateAccount).toEqual({ exists: false });
+      // No plan and no capabilities on an org identity — the plan model is
+      // candidate-only and the recruiter response shape is unchanged.
+      expect(result.candidateAccount).not.toHaveProperty('plan');
       expect(result.memberships).toHaveLength(2);
       expect(result.activeOrganization).toEqual({
         id: 'org-2',
@@ -762,11 +770,49 @@ describe('AuthService', () => {
       const result = await service.currentUser(actor({ id: 'user-9' }));
 
       expect(result.accountType).toBe(AccountType.CANDIDATE);
-      expect(result.candidateAccount).toEqual({ exists: true });
+      // The read contract (Task 4C.5.1 follow-up): plan + everything it
+      // grants, resolved through the entitlement seam. FREE grants nothing.
+      expect(result.candidateAccount).toEqual({
+        exists: true,
+        plan: 'FREE',
+        capabilities: [],
+      });
       expect(result.memberships).toHaveLength(0);
       expect(result.activeOrganization).toBeNull();
       expect(result.role).toBeNull();
       expect(result.organizationId).toBeNull();
+    });
+
+    it.each([
+      ['FREE', []],
+      ['PRO', ['INTERNAL_AI_SEARCH']],
+      ['MAX', ['INTERNAL_AI_SEARCH', 'EXTERNAL_AI_SEARCH']],
+    ])(
+      'publishes the %s plan with exactly what it grants',
+      async (plan, granted) => {
+        prisma.user.findUnique.mockResolvedValue(candidateDbUser);
+        prisma.candidateAccount.findUnique.mockResolvedValue({ plan });
+
+        const result = await service.currentUser(actor({ id: 'user-9' }));
+
+        expect(result.candidateAccount).toEqual({
+          exists: true,
+          plan,
+          capabilities: granted,
+        });
+      },
+    );
+
+    it('publishes an unknown plan value fail-closed — zero capabilities', async () => {
+      // A future tier read by this deploy: the plan echoes as stored, but
+      // grants NOTHING until the policy table knows it.
+      prisma.user.findUnique.mockResolvedValue(candidateDbUser);
+      prisma.candidateAccount.findUnique.mockResolvedValue({
+        plan: 'ENTERPRISE',
+      });
+
+      const result = await service.currentUser(actor({ id: 'user-9' }));
+      expect(result.candidateAccount).toMatchObject({ capabilities: [] });
     });
 
     it('treats a stale org claim (revoked membership) as no active organization', async () => {

@@ -81,17 +81,31 @@ describe("navigation labels", () => {
     }
   });
 
-  it("keeps AI Job Match in the personal workspace only", () => {
+  it("keeps the AI job searches in the personal workspace only", () => {
     const { primary } = navigationFor(personalWorkspace);
     expect(primary.map((item) => item.href)).toEqual([
+      // Ordinary search first, and on its own: it is the one job search every
+      // plan includes, and it answers a different question from the two below.
       "/jobs",
+
+      // The two AI searches, adjacent and in one section. They stay SEPARATE
+      // entries — never one merged board — because applying differs: here,
+      // versus on the employer's own site. Internal comes first because it is
+      // the cheaper plan and the one whose applications this product can
+      // actually report on.
       "/job-matches",
+      "/external-jobs",
+
+      // The reader's own records and settings.
+      "/job-preferences",
       "/my-applications",
       "/my-interview-chats",
       "/saved-jobs",
       "/my-profile",
+      "/plans",
     ]);
-    expect(en.nav.aiJobMatch).toBe("AI Job Match");
+    expect(en.nav.internalAiJobs).toBe("Internal AI Jobs");
+    expect(en.nav.externalAiJobs).toBe("External AI Jobs");
 
     for (const role of ROLES) {
       const { primary, secondary } = navigationFor(workspaceFor(role));

@@ -24,6 +24,19 @@ import type {
   RequirementType,
   Role,
   VacancyStatus,
+  CitizenshipRequirement,
+  EducationLevel,
+  HiringUrgency,
+  JobBenefit,
+  LanguageProficiency,
+  PayPeriod,
+  SeniorityLevel,
+  VisaSponsorship,
+  WorkMode,
+  EmploymentType,
+  JobIntentLocation,
+  JobIntentCompensation,
+  JobIntentSource,
 } from "@/lib/types";
 import type { Locale } from "@/lib/i18n/locales";
 
@@ -110,7 +123,24 @@ export interface MeResponse {
     /** Short-lived signed URL, or null when the account has no picture. */
     avatarUrl?: string | null;
   };
-  candidateAccount: { exists: boolean };
+  candidateAccount: {
+    exists: boolean;
+    /**
+     * The candidate's plan, when this API knows about plans.
+     *
+     * Optional on purpose: builds of this frontend run against backends that
+     * predate plan entitlement, and the adapter reads absence as "not stated"
+     * rather than as FREE. Accepted here AND at the top level because the
+     * field's final home is the backend's call, not ours — reading both costs
+     * one `??` and removes a coordination step from a parallel rollout.
+     */
+    plan?: string | null;
+    /** The backend's own capability grants, when it sends them. */
+    capabilities?: string[] | null;
+  };
+  /** @see candidateAccount.plan — the same value, if the backend puts it here. */
+  plan?: string | null;
+  capabilities?: string[] | null;
   activeOrganization: {
     id: string;
     name: string;
@@ -228,7 +258,56 @@ export interface JobRequirementResponse {
   required: boolean;
 }
 
-export interface VacancyResponse {
+export interface VacancyLanguageResponse {
+  languageCode: string;
+  level: LanguageProficiency;
+  required: boolean;
+}
+
+/**
+ * The structured job profile as the API sends it.
+ *
+ * Optional at the TYPE level because summary payloads (the vacancy list, a
+ * public job card) omit the long tail; `null` inside it means the employer
+ * stated nothing. The adapter collapses both to null so a component never has
+ * to tell "absent from this payload" from "absent from this job".
+ */
+export interface JobProfileResponse {
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  currency?: string | null;
+  payPeriod?: PayPeriod | null;
+  salaryNegotiable?: boolean;
+  country?: string | null;
+  region?: string | null;
+  city?: string | null;
+  workMode?: WorkMode | null;
+  officeDaysPerWeek?: number | null;
+  remoteCountriesAllowed?: string[];
+  foreignApplicantsAccepted?: boolean | null;
+  visaSponsorship?: VisaSponsorship;
+  existingWorkAuthorizationRequired?: boolean | null;
+  eligibleVisaTypes?: string[];
+  citizenshipRequirement?: CitizenshipRequirement;
+  eligibleNationalities?: string[];
+  seniorityLevel?: SeniorityLevel | null;
+  minExperienceYears?: number | null;
+  preferredExperienceYears?: number | null;
+  requiredEducation?: EducationLevel | null;
+  preferredEducation?: EducationLevel | null;
+  requiredCertifications?: string[];
+  preferredCertifications?: string[];
+  domainExperience?: string[];
+  benefits?: JobBenefit[];
+  benefitsOther?: string | null;
+  applicationDeadline?: string | null;
+  expectedStartDate?: string | null;
+  openingsCount?: number | null;
+  hiringUrgency?: HiringUrgency | null;
+  contractDurationMonths?: number | null;
+}
+
+export interface VacancyResponse extends JobProfileResponse {
   id: string;
   organizationId: string;
   title: string;
@@ -242,6 +321,8 @@ export interface VacancyResponse {
   createdAt: string;
   updatedAt: string;
   requirements?: JobRequirementResponse[];
+  /** Detail payloads only — the list endpoint omits the relation. */
+  languages?: VacancyLanguageResponse[];
   /**
    * How many PEOPLE are attached, not how many applications. The two differ
    * for any vacancy someone re-applied to, so the count is its own field —
@@ -610,10 +691,74 @@ export interface CandidateAccountResponse {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Candidate job preferences                                                   */
+/* -------------------------------------------------------------------------- */
+
+/** GET/PUT /candidate-account/me/job-preferences */
+export interface JobPreferencesResponse {
+  stated: boolean;
+  preferredJobTitles: string[];
+  preferredLocations: JobIntentLocation[];
+  preferredWorkModes: WorkMode[];
+  preferredEmploymentTypes: EmploymentType[];
+  preferredSeniorityLevels: SeniorityLevel[];
+  desiredSalaryMin: number | null;
+  desiredSalaryMax?: number | null;
+  salaryCurrency: string | null;
+  payPeriod: PayPeriod | null;
+  willingToRelocate: boolean | null;
+  preferredIndustries: string[];
+  preferredBenefits: JobBenefit[];
+  excludedCompanies: string[];
+  excludedJobTitles: string[];
+  excludedLocations: JobIntentLocation[];
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface CandidateJobIntentResponse {
+  candidateAccountId: string;
+  stated: boolean;
+  roles: string[];
+  locations: JobIntentLocation[];
+  countries: string[];
+  workModes: WorkMode[];
+  compensation: JobIntentCompensation | null;
+  employmentTypes: EmploymentType[];
+  seniorityLevels: SeniorityLevel[];
+  relocation: boolean | null;
+  preferredIndustries: string[];
+  preferredBenefits: JobBenefit[];
+  exclusions: {
+    companies: string[];
+    jobTitles: string[];
+    locations: JobIntentLocation[];
+  };
+  updatedAt: string | null;
+}
+
+/** GET /candidate-account/me/job-preferences/search-context */
+export interface JobSearchContextResponse {
+  candidateAccountId: string;
+  jobIntent: CandidateJobIntentResponse;
+  resolved: {
+    query: { value: string | null; source: JobIntentSource };
+    roles: { value: string[]; source: JobIntentSource };
+    countries: { value: string[]; source: JobIntentSource };
+    workModes: { value: WorkMode[]; source: JobIntentSource };
+    employmentTypes: { value: EmploymentType[]; source: JobIntentSource };
+    seniorityLevels: { value: SeniorityLevel[]; source: JobIntentSource };
+    compensation: { value: JobIntentCompensation | null; source: JobIntentSource };
+    exclusions: CandidateJobIntentResponse["exclusions"];
+  };
+  locale: string;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Public job board                                                            */
 /* -------------------------------------------------------------------------- */
 
-export interface PublicJobResponse {
+export interface PublicJobResponse extends JobProfileResponse {
   publicSlug: string;
   title: string;
   department: string | null;
@@ -622,11 +767,25 @@ export interface PublicJobResponse {
   experienceLevel: string | null;
   createdAt: string;
   organization: { name: string };
+  /**
+   * How many PEOPLE have applied — the same live number the recruiter sees.
+   * Aggregate only: nothing about WHO applied crosses this boundary.
+   */
+  applicantCount: number;
+  /**
+   * Why this result sits where it does. Present only when the search stated a
+   * soft preference; an unranked list has no ordering to explain.
+   */
+  searchAlignment?: {
+    score: number | null;
+    alignments: IntentAlignmentResponse[];
+  };
 }
 
 export interface PublicJobDetailResponse extends PublicJobResponse {
   description: string | null;
   requirements: { text: string; type: RequirementType; required: boolean }[];
+  languages?: VacancyLanguageResponse[];
 }
 
 /** POST /public/jobs/:slug/apply */
@@ -655,6 +814,11 @@ export interface MyApplicationResponse {
     location: string | null;
     employmentType: string | null;
     organization: { name: string };
+    /**
+     * How many PEOPLE have applied — the same live number the recruiter and
+     * the job board see. Aggregate only; nothing about WHO applied.
+     */
+    applicantCount: number;
   };
 }
 
@@ -702,6 +866,64 @@ export interface MatchEvidenceResponse {
  * Vacancies are addressed by public slug only — the backend never returns an
  * internal vacancy id on this candidate-facing route.
  */
+/** STRONG | GOOD | PARTIAL | LOW — presentation only; LOW is still shown. */
+export type MatchBandResponse = 'STRONG' | 'GOOD' | 'PARTIAL' | 'LOW';
+
+export type AlignmentStateResponse =
+  | 'MATCH'
+  | 'PARTIAL'
+  | 'MISMATCH'
+  | 'UNKNOWN'
+  | 'NOT_COMPARABLE';
+
+/** One preference dimension's verdict, as the backend computed it. */
+export interface IntentAlignmentResponse {
+  dimension: string;
+  state: AlignmentStateResponse;
+  /** Canonical machine code, e.g. SALARY_WITHIN_DESIRED_RANGE. */
+  reason: string;
+  score: number | null;
+  /** Salary only: original and converted figures behind the verdict. */
+  salary?: {
+    originalMin: number | null;
+    originalMax: number | null;
+    originalCurrency: string | null;
+    originalPayPeriod: PayPeriod | null;
+    convertedMin: number | null;
+    convertedMax: number | null;
+    convertedCurrency: string | null;
+    convertedPayPeriod: PayPeriod | null;
+  };
+}
+
+/** One job's pay restated in the candidate's own currency. */
+export interface JobSalaryViewResponse {
+  original: {
+    salaryMin: number | null;
+    salaryMax: number | null;
+    currency: string | null;
+    payPeriod: PayPeriod | null;
+    salaryNegotiable: boolean;
+  };
+  converted: {
+    salaryMin: number | null;
+    salaryMax: number | null;
+    currency: string;
+    payPeriod: PayPeriod;
+  } | null;
+  reason:
+    | 'CONVERTED'
+    | 'SAME_CURRENCY'
+    | 'NO_PREFERENCE'
+    | 'SALARY_UNKNOWN'
+    | 'NOT_COMPARABLE';
+  fx: {
+    snapshotVersion: string | null;
+    fetchedAt: string | null;
+    freshness: 'FRESH' | 'STALE_USABLE' | 'UNAVAILABLE';
+  } | null;
+}
+
 export interface JobMatchResponse {
   vacancy: {
     slug: string;
@@ -710,12 +932,34 @@ export interface JobMatchResponse {
     location: string | null;
     employmentType: string | null;
     status: VacancyStatus;
+    /** ORIGINAL pay, exactly as the employer stated it. */
+    salaryMin?: number | null;
+    salaryMax?: number | null;
+    currency?: string | null;
+    payPeriod?: PayPeriod | null;
+    salaryNegotiable?: boolean;
+    country?: string | null;
+    region?: string | null;
+    city?: string | null;
+    workMode?: WorkMode | null;
+    seniorityLevel?: SeniorityLevel | null;
   };
   match: JobMatchStrengthResponse;
+  /** Presentation band derived from the canonical score. Never a filter. */
+  band?: MatchBandResponse;
   /** 1-based position in the FULL ranked list. Stable for one ranking. */
   rank: number;
   /** 0-100. Orders the list; never a probability of being hired. */
   score: number;
+  /** Evidence-side score. Equals `score` when no intent applied. */
+  capabilityScore?: number | null;
+  /**
+   * Intent-side score, or null when the candidate stated nothing comparable.
+   * Null and 0 are different: null is "no signal", 0 is "contradicts".
+   */
+  intentScore?: number | null;
+  /** Per-dimension preference verdicts with machine-readable reason codes. */
+  alignments?: IntentAlignmentResponse[];
   /** Per-signal breakdown (semantic/required/preferred/skills/roleFamily). */
   signals: Record<string, number>;
   matchedSkills: string[];
@@ -755,6 +999,10 @@ export interface JobMatchesResponse {
   hasMore: boolean;
   /** How many vacancies the candidate was eligible for. */
   totalEligible: number;
+  /** How many the candidate's OWN explicit exclusions removed. */
+  totalExcluded?: number;
+  /** The exchange rates this ranking's salary figures were computed from. */
+  fx?: { snapshotVersion: string | null; fetchedAt: string | null };
   /** Skills, role families and sources the ranking actually used. */
   capability: Record<string, unknown>;
   /**
@@ -824,4 +1072,267 @@ export interface VacancyCandidateRowResponse {
 export interface BulkDeleteVacanciesResponse {
   deletedIds: string[];
   deletedCount: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* External job search (Task 4C.1 backend contract)                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What POST /candidate-account/me/external-jobs/search returns.
+ *
+ * `reasons` and `additionalLocations` are typed `unknown` on purpose: the
+ * backend stores both as JSON columns, so the wire shape is whatever was
+ * written when the snapshot was taken. The adapter validates them rather than
+ * trusting a cast — a snapshot written by an older algorithm version must not
+ * be able to crash a render.
+ */
+export interface ExternalJobSearchResultResponse {
+  externalJobId: string;
+  title: string;
+  company: string;
+  companyWebsiteUrl: string | null;
+  status: string;
+  location: {
+    countryCode: string | null;
+    region: string | null;
+    city: string | null;
+  };
+  additionalLocations: unknown;
+  workMode: string | null;
+  remoteCountriesAllowed: string[] | null;
+  employmentType: string | null;
+  seniorityLevel: string | null;
+  salary: {
+    min: number | null;
+    max: number | null;
+    currency: string | null;
+    payPeriod: string | null;
+  };
+  /** The employer's own publication date, ISO. Never a crawler timestamp. */
+  employerPostedAt: string | null;
+  score: number;
+  band: string;
+  textScore: number | null;
+  intentScore: number | null;
+  reasons: unknown;
+  applyUrl: string | null;
+  /**
+   * Per-candidate state, owned by the backend.
+   *
+   * OPTIONAL on the wire: the search and detail endpoints predate saving, and
+   * an older API simply omits them. Absent is adapted to "not saved, not
+   * tracked" — which is the truth about a build that cannot save anything —
+   * never to a client-side guess that gets rendered as fact.
+   */
+  saved?: boolean;
+  applicationTracking?: ExternalJobTrackingResponse | null;
+  provenance: {
+    primarySource: string | null;
+    applyVia: string | null;
+    sourceCount: number;
+  };
+}
+
+export interface ExternalJobSearchResponse {
+  runId: string;
+  algorithmVersion: string;
+  /** The order the backend actually applied. Echoed, never inferred. */
+  sort: string;
+  /** When the backend produced this response. Relative ages measure from it. */
+  asOf: string;
+  applied: {
+    query: string | null;
+    countries: { value: string[]; source: string };
+    workModes: { value: string[]; source: string };
+    employmentTypes: { value: string[]; source: string };
+    seniorityLevels: { value: string[]; source: string };
+    compensation: { stated: boolean; source: string };
+  };
+  total: number;
+  matched: number;
+  ranked: number;
+  truncated: boolean;
+  page: number;
+  pageSize: number;
+  degraded: boolean;
+  results: ExternalJobSearchResultResponse[];
+  /** Retrieval counters. Read by nothing in the UI; never shown to a reader. */
+  diagnostics?: unknown;
+}
+
+/** GET /candidate-account/me/external-jobs/:id — one job, no personalization. */
+export interface ExternalJobDetailResponse {
+  externalJobId: string;
+  title: string;
+  company: string;
+  companyWebsiteUrl: string | null;
+  status: string;
+  description: string | null;
+  requirementsText: string | null;
+  location: {
+    countryCode: string | null;
+    region: string | null;
+    city: string | null;
+  };
+  additionalLocations: unknown;
+  workMode: string | null;
+  remoteCountriesAllowed: string[] | null;
+  employmentType: string | null;
+  seniorityLevel: string | null;
+  salary: {
+    min: number | null;
+    max: number | null;
+    currency: string | null;
+    payPeriod: string | null;
+  };
+  employerPostedAt: string | null;
+  skills: string[] | null;
+  industries: string[] | null;
+  benefits: string[] | null;
+  languageCodes: string[] | null;
+  applyUrl: string | null;
+  /** See ExternalJobSearchResultResponse — same optionality, same meaning. */
+  saved?: boolean;
+  applicationTracking?: ExternalJobTrackingResponse | null;
+  provenance: {
+    primarySource: string | null;
+    applyVia: string | null;
+    sourceCount: number;
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* External jobs — saving and self-tracked applications                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The candidate's own tracking record.
+ *
+ * `status` is `string` on the wire on purpose: it is an enum the BACKEND owns,
+ * and a build that has not been redeployed must not print a value it cannot
+ * localize. The adapter narrows it and drops anything unrecognised.
+ */
+export interface ExternalJobTrackingResponse {
+  id: string;
+  status: string;
+  appliedAt: string;
+  note?: string | null;
+  updatedAt?: string | null;
+}
+
+/**
+ * The job card both candidate-owned lists embed.
+ *
+ * One shape, because the backend builds both from the same
+ * `ExternalJobCardService` — so the saved list and the tracked list cannot
+ * drift apart, and neither can their adapters.
+ */
+export interface SavedExternalJobCardResponse {
+  externalJobId: string;
+  title: string;
+  company: string;
+  companyWebsiteUrl?: string | null;
+  /** The listing's lifecycle. Distinct from any tracking status. */
+  status: string;
+  location: {
+    countryCode: string | null;
+    region: string | null;
+    city: string | null;
+  } | null;
+  additionalLocations?: unknown;
+  workMode: string | null;
+  remoteCountriesAllowed?: string[] | null;
+  employmentType: string | null;
+  seniorityLevel: string | null;
+  salary: {
+    min: number | null;
+    max: number | null;
+    currency: string | null;
+    payPeriod: string | null;
+  } | null;
+  employerPostedAt: string | null;
+  applyUrl: string | null;
+  provenance?: {
+    primarySource: string | null;
+    applyVia: string | null;
+    sourceCount: number;
+  } | null;
+}
+
+export interface SavedExternalJobResponse extends SavedExternalJobCardResponse {
+  savedAt: string;
+  applicationTracking?: ExternalJobTrackingResponse | null;
+}
+
+/**
+ * One tracked application.
+ *
+ * The tracker's own fields sit at the top level; everything about the LISTING
+ * is nested under `job` — and `job` is nullable, because a tracker outlives
+ * the catalogue row it points at. A candidate who applied to a job that has
+ * since been purged still applied to it, and the record stays.
+ */
+export interface ExternalJobApplicationResponse
+  extends ExternalJobTrackingResponse {
+  externalJobId: string;
+  createdAt?: string | null;
+  job: (SavedExternalJobCardResponse & { saved?: boolean }) | null;
+}
+
+/** What the save/unsave routes answer with. The backend stays authoritative. */
+export interface ExternalJobSaveStateResponse {
+  externalJobId: string;
+  saved: boolean;
+  /** Present on a save, absent on an unsave — there is no time to report. */
+  savedAt?: string;
+}
+
+/**
+ * The envelope the candidate-owned external lists use.
+ *
+ * Deliberately NOT the shared `Paginated<T>` the rest of the API uses: these
+ * routes answer `{page, pageSize, total, asOf, results}` with no `meta` and no
+ * `totalPages`. Modelling it honestly here is what keeps the difference in one
+ * file instead of turning into an always-empty list in a component that
+ * reached for `.data`.
+ *
+ * `asOf` is the backend's own read instant, which is why the frontend does not
+ * invent one: relative ages measure from when the server answered.
+ */
+export interface ExternalPagedResponse<T> {
+  page: number;
+  pageSize: number;
+  total: number;
+  asOf: string;
+  results: T[];
+}
+
+/** The 409 body when a job is already tracked. */
+/**
+ * POST /candidate-account/me/external-jobs/:externalJobId/why-match
+ *
+ * The generated explanation returned by the backend. The adapter still treats
+ * malformed model payloads defensively, but the API contract itself is this
+ * complete envelope.
+ *
+ * `cached` is deliberately typed and deliberately NOT surfaced: whether the
+ * backend answered from Redis is our plumbing, and telling a reader about it
+ * would be noise dressed as transparency.
+ */
+export interface ExternalWhyMatchResponse {
+  jobId: string;
+  version: string;
+  locale: string;
+  summary: string | null;
+  strengths: { title?: string | null; explanation?: string | null }[];
+  gaps: { title?: string | null; explanation?: string | null }[];
+  /** Backend cache metadata. Read, then intentionally dropped. */
+  cached: boolean;
+  generatedAt: string;
+}
+
+export interface ExternalAlreadyTrackedResponse {
+  message: string;
+  trackingId: string | null;
 }

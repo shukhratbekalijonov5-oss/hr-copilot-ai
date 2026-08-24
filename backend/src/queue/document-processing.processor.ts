@@ -31,10 +31,7 @@ import {
   WebIngestionError,
   linkFailureIsRetryable,
 } from '../web-ingestion/web-ingestion.errors';
-import {
-  toAiSections,
-  toJsonSections,
-} from '../web-ingestion/stored-sections';
+import { toAiSections, toJsonSections } from '../web-ingestion/stored-sections';
 import { hostnameOf } from '../web-ingestion/url-policy';
 import {
   DocumentStatus,

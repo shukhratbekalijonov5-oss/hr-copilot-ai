@@ -25,6 +25,9 @@ function createPrismaMock() {
       create: jest.fn(),
       findMany: jest.fn(),
       findFirst: jest.fn(),
+      // An update now reads the stored structured profile first, so a PATCH
+      // can be judged against the row it lands on rather than the fragment.
+      findUniqueOrThrow: jest.fn().mockResolvedValue({}),
       count: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -502,9 +505,27 @@ describe('VacanciesService', () => {
         _count: { documents: 1, evidence: 0 },
       });
       prisma.application.findMany.mockResolvedValue([
-        { id: 'a-new', status: 'NEW', createdAt: new Date('2026-02-01'), candidateId: 'c1', candidate: candidate('c1') },
-        { id: 'a-old', status: 'REJECTED', createdAt: new Date('2025-06-01'), candidateId: 'c1', candidate: candidate('c1') },
-        { id: 'b1', status: 'NEW', createdAt: new Date('2026-01-01'), candidateId: 'c2', candidate: candidate('c2') },
+        {
+          id: 'a-new',
+          status: 'NEW',
+          createdAt: new Date('2026-02-01'),
+          candidateId: 'c1',
+          candidate: candidate('c1'),
+        },
+        {
+          id: 'a-old',
+          status: 'REJECTED',
+          createdAt: new Date('2025-06-01'),
+          candidateId: 'c1',
+          candidate: candidate('c1'),
+        },
+        {
+          id: 'b1',
+          status: 'NEW',
+          createdAt: new Date('2026-01-01'),
+          candidateId: 'c2',
+          candidate: candidate('c2'),
+        },
       ]);
 
       const result = (await service.listVacancyCandidates(ORG_A, HR_A, 'v1', {
