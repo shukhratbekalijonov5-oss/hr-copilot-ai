@@ -35,6 +35,8 @@ const CANDIDATE_ROUTE_PREFIXES = [
   "/jobs",
   "/external-jobs",
   "/job-matches",
+  "/job-preferences",
+  "/plans",
   "/my-applications",
   "/my-interview-chats",
   "/my-profile",
@@ -98,6 +100,9 @@ function matchesAnyPrefix(pathname: string, prefixes: string[]): boolean {
 }
 
 function loginRouteForPath(pathname: string): string {
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return "/login";
+  }
   if (matchesAnyPrefix(pathname, CANDIDATE_ROUTE_PREFIXES)) {
     return "/login/candidate";
   }

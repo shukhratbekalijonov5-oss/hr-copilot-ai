@@ -7,6 +7,7 @@ import "server-only";
  */
 import * as ai from "@/lib/api/ai.service";
 import * as applications from "@/lib/api/applications.service";
+import * as billing from "@/lib/api/billing.service";
 import * as account from "@/lib/api/account.service";
 import * as auth from "@/lib/api/auth.service";
 import * as candidateAccount from "@/lib/api/candidate-account.service";
@@ -155,6 +156,11 @@ export const api = {
   generateExternalCoverLetter: externalJobs.generateExternalCoverLetter,
   generateExternalInterviewPrep: externalJobs.generateExternalInterviewPrep,
   generateExternalMatchBreakdown: externalJobs.generateExternalMatchBreakdown,
+
+  // billing BFF
+  getBillingSummary: billing.getBillingSummary,
+  createCheckout: billing.createCheckout,
+  devSwitchPlan: billing.devSwitchPlan,
 
   getPublicJobs: publicJobs.getPublicJobs,
   getPublicJob: publicJobs.getPublicJob,

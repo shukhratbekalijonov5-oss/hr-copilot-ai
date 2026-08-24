@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { requireSession } from "@/lib/auth/session";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { CandidateHero } from "@/components/candidate/ui";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Avatar } from "@/components/ui/Avatar";
@@ -61,11 +61,12 @@ export default async function DashboardPage() {
   const referenceTime = new Date(generatedAt).getTime();
 
   return (
-    <div className="mx-auto max-w-7xl">
-      <PageHeader
+    <div className="ambient-hero mx-auto max-w-7xl">
+      <CandidateHero
+        eyebrow={d.nav.sectionWorkspace}
         title={d.dashboard.title}
         description={d.dashboard.description}
-        actions={
+        action={
           <Link href="/vacancies/new" className={buttonStyles("primary", "md")}>
             <PlusIcon className="size-4" />
             {d.dashboard.newVacancy}

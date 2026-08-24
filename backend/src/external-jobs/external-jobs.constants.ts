@@ -37,8 +37,12 @@ export interface ExternalProviderSyncJobData {
 }
 
 export interface ExternalJobRevalidateJobData {
-  /** Bounded batch; a sweep is many jobs, not one enormous transaction. */
-  jobIds: string[];
+  /**
+   * Restrict the pass to these jobs. The SCHEDULED hourly run sends none —
+   * the service finds its own work through bounded, indexed batches — but a
+   * targeted revalidation (tests, ops) may name specific rows.
+   */
+  jobIds?: string[];
 }
 
 export interface ExternalJobIndexJobData {
@@ -64,3 +68,28 @@ export const DEFAULT_SYNC_INTERVAL_MS = 6 * 60 * 60_000;
  * Providers override it in their descriptor.
  */
 export const DEFAULT_STALENESS_MS = 14 * 24 * 60 * 60_000;
+
+/**
+ * How often the DB-local lifecycle maintenance pass runs, by default.
+ *
+ * Deliberately NOT tied to the 6-hour provider cadence: this pass makes no
+ * provider HTTP calls at all — it reads authoritative timestamps already in
+ * Postgres and applies the conservative transitions (ACTIVE→STALE on age,
+ * ACTIVE/STALE→EXPIRED on a passed employer deadline). Hourly keeps a passed
+ * deadline from being shown for most of a day while costing only a few
+ * indexed queries.
+ */
+export const DEFAULT_REVALIDATE_INTERVAL_MS = 60 * 60_000;
+
+/** The single stable scheduler id for the lifecycle maintenance pass. */
+export const EXTERNAL_REVALIDATE_SCHEDULER_ID = 'external-revalidate';
+
+/**
+ * Revalidation batch bounds. One run touches at most
+ * batches × batch-size rows and leaves the rest for the next hourly run —
+ * the transitions are monotone and re-derivable, so partial progress is
+ * simply progress. At 1M rows this keeps a run's write volume bounded
+ * instead of turning one hourly job into one enormous transaction.
+ */
+export const REVALIDATE_BATCH_SIZE = 500;
+export const REVALIDATE_MAX_BATCHES = 40;

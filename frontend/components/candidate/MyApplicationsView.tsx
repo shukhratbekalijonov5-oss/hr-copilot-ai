@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { withdrawApplicationAction } from "@/app/(candidate)/actions";
-import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { AlertIcon, BriefcaseIcon } from "@/components/ui/icons";
+import { Button, buttonStyles } from "@/components/ui/Button";
+import {
+  CandidateCard,
+  CandidateEmptyState,
+} from "@/components/candidate/ui";
+import { CandidateStageBadge } from "@/components/candidate/ui/CandidateStageBadge";
+import { ApplicationTimeline } from "@/components/candidate/ui/ApplicationTimeline";
+import { AlertIcon, BriefcaseIcon, MapPinIcon } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
 import type { ApplicationStatus, MyApplication } from "@/lib/types";
 
@@ -68,13 +71,16 @@ export function MyApplicationsView({
 
   if (rows.length === 0) {
     return (
-      <Card>
-        <EmptyState
-          icon={<BriefcaseIcon className="size-5" />}
-          title={d.applications.empty}
-          description={d.applications.emptyHint}
-        />
-      </Card>
+      <CandidateEmptyState
+        icon={<BriefcaseIcon className="size-4.5" />}
+        title={d.applications.empty}
+        description={d.applications.emptyHint}
+        action={
+          <Link href="/jobs" className={buttonStyles("primary", "sm")}>
+            {d.nav.findJobs}
+          </Link>
+        }
+      />
     );
   }
 
@@ -93,32 +99,41 @@ export function MyApplicationsView({
       <ul className="flex flex-col gap-3">
         {rows.map((application) => (
           <li key={application.id}>
-            <Card className="p-4">
+            <CandidateCard interactive className="p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h3 className="text-[15px] font-semibold tracking-tight text-ink">
+                  <h3 className="text-[15.5px] font-semibold leading-snug tracking-[-0.01em] text-ink">
                     <Link
                       href={`/jobs/${application.job.publicSlug}`}
-                      className="hover:text-brand"
+                      className="transition-colors duration-[var(--motion-fast)] hover:text-brand"
                     >
                       {application.job.title}
                     </Link>
                   </h3>
-                  <p className="mt-0.5 text-[13px] text-ink-muted">
-                    {application.job.organizationName}
-                    {application.job.location
-                      ? ` · ${application.job.location}`
-                      : ""}
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-muted">
+                    <span className="truncate">
+                      {application.job.organizationName}
+                    </span>
+                    {application.job.location ? (
+                      <span className="inline-flex min-w-0 items-center gap-1">
+                        <MapPinIcon className="size-3.5 shrink-0" />
+                        <span className="truncate">{application.job.location}</span>
+                      </span>
+                    ) : null}
                   </p>
                 </div>
-                <Badge tone="neutral">
-                  {d.status.candidateStage[application.status]}
-                </Badge>
+                {/* Semantic tone, but the stage is always spelled out. */}
+                <CandidateStageBadge status={application.status} />
               </div>
 
               <p className="mt-2 text-[12.5px] leading-relaxed text-ink-muted">
                 {d.status.candidateStageHint[application.status]}
               </p>
+
+              {/* Where this one application stands, derived from its status. */}
+              <div className="mt-3.5">
+                <ApplicationTimeline status={application.status} />
+              </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 text-[12px] text-ink-subtle">
                 <span>
@@ -154,7 +169,7 @@ export function MyApplicationsView({
                   </Button>
                 ) : null}
               </div>
-            </Card>
+            </CandidateCard>
           </li>
         ))}
       </ul>

@@ -95,7 +95,28 @@ const uz: Dictionary = {
     },
   },
 
+  theme: {
+    switchToDark: "Tungi mavzuga oʻtish",
+    switchToLight: "Kunduzgi mavzuga oʻtish",
+  },
+
+  palette: {
+    title: "Tez oʻtish",
+    open: "Tez oʻtishni ochish",
+    placeholder: "Sahifaga oʻtish...",
+    empty: "Mos sahifa yoʻq.",
+    hint: "Enter — ochish · Strelkalar — tanlash · Esc — yopish",
+  },
+
   nav: {
+    sectionHiring: "Ishga olish",
+    sectionAiTools: "AI vositalari",
+    upgradeHint: "Barcha ochiq lavozimlar boʻyicha AI moslashtirishni oching.",
+    sectionHome: "Bosh sahifa",
+    sectionCareer: "Karyera",
+    sectionProfile: "Profil",
+    sectionAccount: "Hisob",
+    home: "Boshqaruv paneli",
     sectionWorkspace: "Ish maydoni",
     sectionJobSearch: "Ish qidirish",
     sectionFindJobs: "Ish topish",
@@ -139,6 +160,9 @@ const uz: Dictionary = {
   },
 
   notifications: {
+      groupToday: "Bugun",
+      groupWeek: "Shu hafta",
+      groupEarlier: "Avvalroq",
     title: "Bildirishnomalar",
     bellLabel: "Bildirishnomalarni ochish",
     bellUnreadLabel: "Bildirishnomalarni ochish, {count} ta oʻqilmagan",
@@ -157,6 +181,8 @@ const uz: Dictionary = {
     },
     errors: {
       load: "Bildirishnomalarni yuklab boʻlmadi.",
+      unavailable:
+        "Bildirishnomalar vaqtincha mavjud emas. Birozdan soʻng qayta urinib koʻring.",
       markRead: "Bu bildirishnomani oʻqilgan qilib boʻlmadi.",
       markAll: "Bildirishnomalarni oʻqilgan qilib boʻlmadi.",
     },
@@ -744,14 +770,10 @@ const uz: Dictionary = {
   settings: {
     title: "Sozlamalar",
     description: "Profilingiz, tashkilot va kimda ruxsat borligi.",
-    tabProfile: "Profil",
-    tabOrganization: "Tashkilot",
-    tabTeam: "Jamoa",
-    tabIntegrations: "Integratsiyalar",
-    tabSecurity: "Xavfsizlik",
-    tabLanguage: "Til",
     yourProfile: "Sizning profilingiz",
     yourProfileHint: "Ish maydonidagi boshqalar sizni qanday koʻradi.",
+    accountEmailNote:
+      "Hisob va obuna boʻyicha muhim xabarlar hisobingiz e-pochta manziliga yuboriladi.",
     fullName: "Toʻliq ism",
     email: "Email",
     organization: "Tashkilot",
@@ -795,6 +817,86 @@ const uz: Dictionary = {
     organizationUrl: "Tashkilot URL manzili",
     organizationUrlPlaceholder: "https://northwind.example",
     organizationUrlHint: "Ixtiyoriy. Ish maydonida ko‘rsatiladi; o‘chirish uchun bo‘sh qoldiring.",
+  },
+
+  home: {
+    entries: {
+      internalHint: "HR Copilotdagi har bir ochiq lavozimni dalillaringiz bilan solishtiring.",
+      externalHint: "Ish beruvchilarning oʻz karyera saytlaridagi lavozimlarni qidiring.",
+    },
+    banner: {
+      title: "Dalil qancha koʻp boʻlsa, moslik shuncha aniq",
+      description:
+        "AI moslashtirish rezyume, havolalar va profilingizni oʻqiydi. Material qancha koʻp boʻlsa, tartiblash shuncha aniq boʻladi.",
+      action: "Profilni yaxshilash",
+    },
+    title: "Ish qidiruvingiz",
+    greeting: "Xush kelibsiz, {name}",
+    subtitle:
+      "Arizalaringiz va AI mosliklari asoslanadigan hamma narsa bir joyda.",
+    findMatchingJobs: "Mos vakansiyalarni topish",
+    updateResume: "Rezyumeni yangilash",
+    readiness: {
+      title: "Profil tayyorligi",
+      summary: "{total} tadan {done} tasi tayyor",
+      complete: "Tayyor",
+      allDone: "Profilingiz moslashtirishga tayyor.",
+      resume: "Rezyume qoʻshing",
+      resumeHint: "Rezyume — AI moslashtirish oʻqiydigan asosiy dalil.",
+      resumeDone: "Rezyume yuklandi",
+      links: "Portfolio havolasini qoʻshing",
+      linksHint: "GitHub, shaxsiy sayt yoki har qanday ochiq ish.",
+      linksDone: "Portfolio havolasi qoʻshildi",
+      preferences: "Ish talablarini belgilang",
+      preferencesHint: "Nima izlayotganingizni ayting — mosliklar aniqroq boʻladi.",
+      preferencesDone: "Ish talablari belgilangan",
+      profile: "Profilni toʻldiring",
+      profileHint: "Sarlavha va bir nechta koʻnikma ham yordam beradi.",
+      profileDone: "Profil maʼlumotlari qoʻshildi",
+      add: "Qoʻshish",
+    },
+    stats: {
+      activeApplications: "Faol arizalar",
+      activeApplicationsHint: "Hali ish beruvchida koʻrib chiqilmoqda.",
+      savedJobs: "Saqlangan vakansiyalar",
+      savedJobsHint: "Sizning qisqa roʻyxatingiz.",
+      evidence: "Dalil manbalari",
+      evidenceHint: "AI moslashtirish oʻqiydigan fayl va havolalar.",
+      strongMatches: "Kuchli mosliklar",
+      strongMatchesHint: "Dalillaringiz yaxshi qamragan lavozimlar.",
+    },
+    pipeline: {
+      title: "Ariza jarayoni",
+      description: "Arizalaringiz hozir qaysi bosqichda ekani.",
+      applied: "Yuborilgan",
+      review: "Koʻrib chiqilmoqda",
+      interview: "Suhbat",
+      decision: "Qaror",
+      empty: "Hali ariza yoʻq",
+      emptyHint: "Siz ariza bergan vakansiyalar bosqichi bilan shu yerda chiqadi.",
+      viewAll: "Barcha arizalarni koʻrish",
+    },
+    matches: {
+      title: "Eng yaxshi AI mosliklari",
+      description: "Profilingizdagi dalillar asosida tartiblangan.",
+      viewAll: "Barcha mosliklarni koʻrish",
+      view: "Moslikni koʻrish",
+      sourceInternal: "HR Copilot",
+      sourceExternal: "Tashqi",
+      empty: "Hali moslik yoʻq",
+      emptyHint:
+        "Rezyume yoki portfolio havolasini qoʻshing, soʻng AI moslashtirishni ishga tushiring.",
+      unavailable: "Mosliklarni yuklab boʻlmadi",
+      unavailableHint: "AI vakansiya moslashtirishni ochib qayta urinib koʻring.",
+      lockedHint:
+        "AI moslashtirish har bir ochiq lavozimni sizning dalillaringiz bilan solishtiradi.",
+      run: "AI vakansiya moslashtirishni ochish",
+      needsEvidence: "Avval dalil qoʻshing",
+    },
+    recent: {
+      title: "Soʻnggi arizalar",
+      viewAll: "Hammasi",
+    },
   },
 
   personal: {
@@ -2347,6 +2449,74 @@ const uz: Dictionary = {
     },
   },
 
+  recruiterPlans: {
+    title: "Rekruterlar uchun rejalar",
+    description: "Rekruterlar uchun AI nomzod qidiruv rejalari tez orada.",
+    comingSoon: "Tez orada",
+    previewNotice:
+      "Bu sahifa rekruterlar uchun HR Copilot qayoqqa borayotganini koʻrsatadi. Hozircha hech narsa sotib olib boʻlmaydi va ish maydoningizda faol rekruter rejasi yoʻq.",
+    currentlyIncluded: "Hozir mavjud",
+    planned: "Rejalashtirilgan",
+    pricingComingSoon: "Narxlar keyinroq",
+    free: "$0",
+    perMonth: "oyiga",
+    tiers: {
+      FREE: {
+        name: "Bepul",
+        tagline: "Jamoangiz bugun HR Copilotda ishlatayotgan hamma narsa.",
+        features: [
+          "Vakansiyalar yaratish va boshqarish",
+          "Arizalarni qabul qilish va koʻrib chiqish",
+          "Nomzod dalillari va AI qidiruv",
+          "Suhbat chatlari va nomzodlarni taqqoslash",
+        ],
+      },
+      PRO: {
+        name: "Pro",
+        tagline: "Rejalashtirilgan: ariza berganlardan tashqarida ham nomzod topish.",
+        features: [
+          "Tashqi AI nomzod qidiruvi",
+          "Vakansiyaga asoslangan nomzod qidiruvi",
+          "Bitta vakansiya boʻyicha AI nomzod tartiblash",
+          "Manbani hisobga oluvchi qidiruv",
+          "Kengaytirilgan moslik izohlari",
+        ],
+      },
+      MAX: {
+        name: "Max",
+        tagline: "Rejalashtirilgan: bir nechta tashqi manba boʻyicha bir vaqtda qidiruv.",
+        features: [
+          "Pro uchun rejalashtirilgan hamma narsa",
+          "Koʻp manbali AI qidiruv",
+          "Manbalararo nomzod topish",
+          "Kengaytirilgan nomzod taqqoslash",
+          "Qidiruv tahlillari",
+          "Ustuvor AI jarayonlari",
+        ],
+      },
+    },
+    sourcing: {
+      title: "AI nomzod qidiruvi — tez orada",
+      description:
+        "Rejalashtirilgan jarayon: vakansiyalaringizdan birini tanlaysiz, HR Copilot esa tashqi manbalardan mos profillarni qidirib, oʻsha vakansiya boʻyicha tartiblaydi.",
+      steps: [
+        "Vakansiyangizni tanlang",
+        "HR Copilot AI",
+        "Rejalashtirilgan tashqi manbalarni qidirish",
+        "Mos nomzodlarni tartiblash",
+        "Dalillarni koʻrib chiqish",
+      ],
+      sourcesTitle: "Rejalashtirilgan manbalar",
+      sourcesNote:
+        "Bu manbalar boʻyicha hali qidirib boʻlmaydi. Ular mavjud funksiyani emas, koʻzlangan yoʻnalishni tasvirlaydi.",
+    },
+    roadmap: {
+      title: "Rekruterlar uchun yana koʻproq AI vositalari tayyorlanmoqda.",
+      description:
+        "Kelgusi versiyalar AI yordamidagi qidiruv va vakansiyaga asoslangan nomzod topishni kengaytiradi.",
+    },
+  },
+
   plans: {
     title: "Tariflar",
     description:
@@ -2358,8 +2528,130 @@ const uz: Dictionary = {
     priceMonthly: "oyiga ${amount}",
     currentPlan: "Joriy tarif",
     currentPlanIs: "Siz {plan} tarifidasiz.",
+    notReported: "Server joriy tarifni xabar qilmagan.",
     noCheckoutNote:
       "To‘lov hozircha mavjud emas, shuning uchun bu sahifadan xarid qilib bo‘lmaydi. Sahifa har bir tarif nimani o‘z ichiga olishini ko‘rsatadi.",
+    planOptions: "Tarif variantlari",
+    planOptionsDescription:
+      "Pullik oshirish checkout sahifasini ochadi. Joriy tarif faqat backend yangi holatni xabar qilgandan keyin o‘zgaradi.",
+    capabilities: "Imkoniyatlar",
+    features: "Funksiyalar",
+    noPaidCapabilities: "Pullik AI imkoniyatlari yo‘q.",
+    capabilityNames: {
+      INTERNAL_AI_SEARCH: "Ichki AI ish qidiruvi",
+      EXTERNAL_AI_SEARCH: "Tashqi AI ish qidiruvi",
+    },
+    actions: {
+      upgradeTo: "{plan} tarifiga o‘tish",
+      downgradeTo: "{plan} tarifiga pasaytirish",
+      choosePlan: "{plan}ni tanlash",
+      paymentSetupComingSoon: "To‘lov sozlamalari tez orada qo‘shiladi.",
+      checkoutHint: "Checkoutga o‘tishdan oldin tasdiqlaysiz.",
+      downgradeUnavailable: "Tarifni pasaytirish bu yerda hali mavjud emas.",
+      freePlanNoCheckout: "Bepul tarif checkout talab qilmaydi.",
+    },
+    demoCheckout: {
+      title: "Toʻlov",
+      demoBadge: "Demo toʻlov",
+      openDemo: "Demo toʻlov — {plan}",
+      devOnlyNote:
+        "Faqat ishlab chiqish uchun. Mavjud xavfsiz reja almashtirishdan foydalanadi — kartadan pul yechilmaydi va toʻlov yaratilmaydi.",
+      brand: "HR Copilot AI",
+      orderSummary: "Buyurtma xulosasi",
+      selectedPlan: "Tanlangan reja",
+      billedMonthly: "Har oy hisoblanadi",
+      subtotal: "Oraliq summa",
+      totalDueToday: "Bugun toʻlanadigan summa",
+      paymentDetails: "Toʻlov maʼlumotlari",
+      cardholder: "Karta egasining ismi",
+      cardholderPlaceholder: "Alex Morgan",
+      cardNumber: "Karta raqami",
+      expiry: "Amal qilish muddati (OO/YY)",
+      cvc: "CVC",
+      saveCard: "Kartani keyingi safar uchun saqlash",
+      pay: "${amount} toʻlash",
+      close: "Toʻlov oynasini yopish",
+      demoNote:
+        "Bu demo toʻlov. Karta maʼlumotlari yuborilmaydi, saqlanmaydi va yozib olinmaydi — ular faqat shu brauzerda qoladi va oyna yopilganda oʻchiriladi.",
+      realCheckoutNote:
+        "Bu muhitda haqiqiy toʻlov provayderi ishlatiladi. Toʻlovni uning sahifasida davom ettiring.",
+      continueToProvider: "Toʻlov sahifasiga oʻtish",
+      successTitle: "Toʻlov yakunlandi",
+      successBody: "{plan} rejasi faol. Reja holati serverdan qayta olindi.",
+      done: "Tayyor",
+      errors: {
+        required: "Majburiy maydon.",
+        invalidCardNumber: "13–19 raqamli karta raqamini kiriting.",
+        invalidExpiry: "OO/YY shaklida kiriting.",
+        invalidCvc: "3 yoki 4 raqam kiriting.",
+        formInvalid: "Belgilangan maydonlarni tekshiring.",
+      },
+    },
+    checkout: {
+      confirmTitle: "{plan} uchun checkout boshlansinmi?",
+      chargedAsKrw: "Oyiga ${usd} — Toss orqali ₩{krw} yechib olinadi.",
+      confirmDescription:
+        "{plan} narxi {price}. Keyingi bosqichda to‘lov provayderiga o‘tasiz. Backend to‘lovni tasdiqlamaguncha tarifingiz o‘zgarmaydi.",
+      continue: "To‘lovga o‘tish",
+      errors: {
+        invalidTransition: "Bu tarif o‘zgarishi hozircha mavjud emas.",
+        unauthenticated: "Davom etish uchun qayta kiring.",
+        forbidden: "Bu hisob checkoutni boshlay olmaydi.",
+        routeUnavailable: "Bu muhitda checkout mavjud emas.",
+        conflict: "Checkout allaqachon boshlangan. Birozdan keyin qayta urinib ko‘ring.",
+        paymentUnavailable:
+          "To‘lov xizmati vaqtincha mavjud emas. Birozdan keyin qayta urinib ko‘ring.",
+        checkoutUnavailable:
+          "Hozir checkout mavjud emas. Birozdan keyin qayta urinib ko‘ring.",
+      },
+    },
+    billing: {
+      title: "Billing xulosasi",
+      subscriptionStatus: "Obuna holati",
+      effectiveUntil: "Amal qilish muddati",
+      backendCapabilities: "Backend bergan imkoniyatlar",
+      unknownStatus: "Holat: {status}",
+      subscriptionStatuses: {
+        PENDING: "Kutilmoqda",
+        ACTIVE: "Faol",
+        PAST_DUE: "To‘lov kechikkan",
+        CANCEL_AT_PERIOD_END: "Davr oxirida bekor qilinadi",
+        CANCELLED: "Bekor qilingan",
+        EXPIRED: "Muddati tugagan",
+      },
+      errors: {
+        billingUnavailable:
+          "Billing ma’lumoti vaqtincha mavjud emas. Birozdan keyin qayta urinib ko‘ring.",
+        unauthenticated: "Billingni ko‘rish uchun qayta kiring.",
+        forbidden: "Bu hisob billingni ko‘ra olmaydi.",
+      },
+    },
+    devSwitch: {
+      title: "Developer Plan Switch",
+      description:
+        "Faqat dev/test uchun. Switch NestJS BFFga yuboradi, keyin billing va auth qayta o‘qilgandan so‘ng sahifa o‘zgaradi.",
+      devOnly: "Faqat development",
+      switchTo: "{plan}ga o‘tkazish",
+      confirmTitle: "{plan}ga o‘tkazilsinmi?",
+      confirmDescription:
+        "Sahifa backend javobini kutadi va keyin vakolatli billing hamda imkoniyat holatini qayta o‘qiydi.",
+      confirm: "Tarifni o‘zgartirish",
+      switching: "Tarif o‘zgartirilmoqda...",
+      planUpdated: "Tarif backend holatiga ko‘ra yangilandi.",
+      alreadyOnThisPlan: "Siz allaqachon shu tarifdasiz.",
+      errors: {
+        invalidTransition: "Bu tarifga o‘tish mavjud emas.",
+        unauthenticated: "Tarifni o‘zgartirish uchun qayta kiring.",
+        forbidden: "Bu hisob tarifni o‘zgartira olmaydi.",
+        routeUnavailable: "Developer Plan Switch bu yerda mavjud emas.",
+        conflict: "Tarif o‘zgarishi joriy billing holati bilan zid.",
+        paymentUnavailable:
+          "To‘lov xizmati vaqtincha mavjud emas. Birozdan keyin qayta urinib ko‘ring.",
+        refreshFailed:
+          "O‘zgarish yakunlandi, lekin billing holatini yangilab bo‘lmadi. Qayta urinib ko‘ring.",
+        switchUnavailable: "Hozir tarifni o‘zgartirib bo‘lmaydi.",
+      },
+    },
     locked: {
       INTERNAL_AI_SEARCH: {
         title: "Ichki AI ish qidiruvi",

@@ -6,6 +6,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { PlanCapabilityGuard } from './plan-capability.guard';
 import { CandidateEntitlementsService } from './candidate-entitlements.service';
+import { DbPlanSource } from './db-plan.source';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { CandidatePlan } from '../generated/prisma/enums';
 
@@ -34,9 +35,11 @@ function guardWith(options: {
     .mockResolvedValue(
       options.plan === null ? null : { plan: options.plan ?? 'FREE' },
     );
-  const entitlements = new CandidateEntitlementsService({
-    candidateAccount: { findUnique },
-  } as unknown as PrismaService);
+  const entitlements = new CandidateEntitlementsService(
+    new DbPlanSource({
+      candidateAccount: { findUnique },
+    } as unknown as PrismaService),
+  );
 
   const context = {
     getType: () => 'http',

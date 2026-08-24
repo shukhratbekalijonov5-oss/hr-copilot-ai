@@ -9,13 +9,27 @@ import type {
 import { useId } from "react";
 import { cn } from "@/lib/utils";
 
+/*
+ * The control surface.
+ *
+ * Focus is a low-opacity accent ring plus a solid accent border, rather than
+ * the global outline: on a dense form the ring reads as "this field is live"
+ * without the heavy black box an outline draws. An invalid field keeps a
+ * plain accent-red border and lets the message underneath do the explaining —
+ * a full red fill turns one typo into an alarm.
+ */
 const CONTROL =
-  "w-full rounded-lg border bg-surface px-3 text-sm text-ink placeholder:text-ink-subtle transition-colors disabled:cursor-not-allowed disabled:opacity-60";
+  "w-full rounded-[10px] border bg-surface px-3 text-sm text-ink placeholder:text-ink-subtle " +
+  "transition-[border-color,box-shadow] duration-[var(--motion-fast)] ease-[var(--ease-out)] " +
+  "focus:outline-none focus:ring-[3px] focus:ring-brand/15 " +
+  "disabled:cursor-not-allowed disabled:opacity-60";
 
 function controlClasses(invalid: boolean, className?: string) {
   return cn(
     CONTROL,
-    invalid ? "border-critical" : "border-line hover:border-line-strong",
+    invalid
+      ? "border-critical focus:border-critical focus:ring-critical/15"
+      : "border-line hover:border-line-strong focus:border-brand",
     className,
   );
 }

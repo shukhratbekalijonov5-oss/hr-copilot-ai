@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   CANDIDATE_PLANS,
   PLAN_PRICES,
+  capabilitiesForPlan,
   allows,
+  canStartCheckout,
   isCandidatePlan,
+  isCheckoutPlan,
   isPlanCapability,
+  planActionFor,
   planIncludes,
   priceFor,
   requiredPlanFor,
@@ -179,5 +183,68 @@ describe("guards and lookups", () => {
     expect(priceFor("MAX").monthlyUsd).toBe(12);
     // Ordered by price, so the cards read cheapest-first without a sort.
     expect(PLAN_PRICES.map((entry) => entry.plan)).toEqual([...CANDIDATE_PLANS]);
+  });
+});
+
+describe("plan cards and actions", () => {
+  it("keeps FREE current plan", () => {
+    const resolved = resolveEntitlements({ plan: "FREE" });
+    expect(resolved.plan).toBe("FREE");
+    expect(resolved.canUseInternalAiJobs).toBe(false);
+    expect(resolved.canUseExternalAiJobs).toBe(false);
+  });
+
+  it("keeps PRO current plan and does not infer external access", () => {
+    const resolved = resolveEntitlements({ plan: "PRO" });
+    expect(resolved.plan).toBe("PRO");
+    expect(resolved.canUseInternalAiJobs).toBe(true);
+    expect(resolved.canUseExternalAiJobs).toBe(false);
+  });
+
+  it("keeps MAX current plan and both AI capabilities", () => {
+    const resolved = resolveEntitlements({ plan: "MAX" });
+    expect(resolved.plan).toBe("MAX");
+    expect(resolved.canUseInternalAiJobs).toBe(true);
+    expect(resolved.canUseExternalAiJobs).toBe(true);
+  });
+
+  it("capabilities remain authoritative over displayed plan", () => {
+    const resolved = resolveEntitlements({
+      plan: "MAX",
+      capabilities: ["INTERNAL_AI_SEARCH"],
+    });
+    expect(resolved.plan).toBe("MAX");
+    expect(resolved.canUseInternalAiJobs).toBe(true);
+    expect(resolved.canUseExternalAiJobs).toBe(false);
+  });
+
+  it("describes current, upgrade and downgrade actions", () => {
+    expect(planActionFor("FREE", "FREE")).toBe("current");
+    expect(planActionFor("FREE", "PRO")).toBe("upgrade");
+    expect(planActionFor("PRO", "MAX")).toBe("upgrade");
+    expect(planActionFor("MAX", "PRO")).toBe("downgrade");
+    expect(planActionFor("MAX", "FREE")).toBe("downgrade");
+    expect(planActionFor(null, "MAX")).toBe("choose");
+  });
+
+  it("starts checkout only for paid upward transitions", () => {
+    expect(isCheckoutPlan("PRO")).toBe(true);
+    expect(isCheckoutPlan("MAX")).toBe(true);
+    expect(isCheckoutPlan("FREE")).toBe(false);
+    expect(canStartCheckout("FREE", "PRO")).toBe(true);
+    expect(canStartCheckout("FREE", "MAX")).toBe(true);
+    expect(canStartCheckout("PRO", "MAX")).toBe(true);
+    expect(canStartCheckout("PRO", "FREE")).toBe(false);
+    expect(canStartCheckout("MAX", "PRO")).toBe(false);
+    expect(canStartCheckout("MAX", "MAX")).toBe(false);
+  });
+
+  it("lists capabilities for plan cards from the central table", () => {
+    expect(capabilitiesForPlan("FREE")).toEqual([]);
+    expect(capabilitiesForPlan("PRO")).toEqual(["INTERNAL_AI_SEARCH"]);
+    expect(capabilitiesForPlan("MAX")).toEqual([
+      "INTERNAL_AI_SEARCH",
+      "EXTERNAL_AI_SEARCH",
+    ]);
   });
 });

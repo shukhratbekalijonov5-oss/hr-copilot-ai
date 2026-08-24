@@ -179,7 +179,7 @@ describe("plan checks live in one place", () => {
     "app/(candidate)/external-jobs/saved/page.tsx",
     "app/(candidate)/external-jobs/applications/page.tsx",
     "app/(candidate)/job-matches/page.tsx",
-    "app/(candidate)/plans/page.tsx",
+    "components/plan/CandidatePlansView.tsx",
   ];
 
   it.each(SURFACES)("%s compares no plan to a literal", (file) => {
@@ -218,7 +218,9 @@ describe("navigation keeps the product legible", () => {
     ]);
     // Normal job search is NOT in that group: it is not AI and it is not
     // gated, and filing it there would imply both.
-    expect(groups[0].items.map((item) => item.href)).toEqual(["/jobs"]);
+    expect(ai?.items.map((item) => item.href)).not.toContain("/jobs");
+    const career = groups.find((group) => group.labelKey === "sectionCareer");
+    expect(career?.items.map((item) => item.href)).toContain("/jobs");
   });
 
   it("marks each AI entry with the capability it needs, and /jobs with none", () => {

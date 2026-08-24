@@ -1,0 +1,9 @@
+# Local development profile. NOT used in production.
+notification:
+  internal-token: ${NOTIFICATION_INTERNAL_TOKEN:dev-internal-token}
+  backend-base-url: ${BACKEND_BASE_URL:http://localhost:3001/api}
+  backend-token: ${BACKEND_INTERNAL_TOKEN:dev-internal-token}
+  payment-base-url: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+  payment-token: ${PAYMENT_INTERNAL_TOKEN:dev-internal-token}
+  # Local Mailpit (docker-compose.dev.yml) receives real SMTP transactions.
+  email-provider: ${EMAIL_PROVIDER:SMTP}

@@ -1,183 +1,129 @@
 import { NotFoundException } from '@nestjs/common';
-import { NotificationsService } from './notifications.service';
-import { DomainEventsService } from '../common/events/domain-events.service';
-import {
-  NotificationAudience,
-  NotificationType,
-} from '../generated/prisma/enums';
+import { NotificationsService, toView } from './notifications.service';
+import type {
+  JavaNotificationRow,
+  NotificationServiceClient,
+} from './notification-service.client';
 
-const ME = 'user-me';
-const OTHER = 'user-other';
-const ORG = 'org-a';
+/**
+ * The BFF layer over the Java notification authority: caller-scoped
+ * delegation, byte-compatible view mapping, and honest error passthrough
+ * (404 stays 404; outages stay coded 503s from the client). The recipient
+ * wall itself is enforced by the Java side and covered by e2e.
+ */
 
-const row = (over: Record<string, unknown> = {}) => ({
+const ROW: JavaNotificationRow = {
   id: 'n1',
-  audience: 'HR',
   type: 'NEW_MESSAGE',
-  recipientUserId: ME,
-  organizationId: ORG,
+  audience: 'HR',
+  organizationId: 'org-a',
+  isRead: false,
+  readAt: null,
+  createdAt: '2026-08-25T10:00:00Z',
   vacancyId: 'v1',
+  vacancyTitle: 'Backend Engineer',
   candidateId: 'c1',
+  candidateName: 'John Kim',
+  actorName: 'John Kim',
   applicationId: null,
   conversationId: 'conv-1',
   messageId: 'm1',
-  actorUserId: OTHER,
-  vacancyTitleSnapshot: 'Backend Engineer',
-  candidateNameSnapshot: 'John Kim',
-  actorNameSnapshot: 'John Kim',
   messagePreview: 'Hello',
-  metadata: null,
-  isRead: false,
-  readAt: null,
-  createdAt: new Date('2026-08-21T10:00:00Z'),
-  ...over,
-});
+};
 
-function createPrismaMock() {
-  const mock = {
-    notification: {
-      create: jest.fn(({ data }: { data: Record<string, unknown> }) =>
-        Promise.resolve(row(data)),
-      ),
-      findFirst: jest.fn(),
-      findMany: jest.fn().mockResolvedValue([]),
-      count: jest.fn().mockResolvedValue(0),
-      update: jest.fn(),
-      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-    },
-    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
-  };
-  return mock;
+function clientFake(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    list: jest.fn().mockResolvedValue({ data: [ROW], total: 1 }),
+    unreadCount: jest.fn().mockResolvedValue(3),
+    markRead: jest.fn().mockResolvedValue({
+      ...ROW,
+      isRead: true,
+      readAt: '2026-08-25T11:00:00Z',
+    }),
+    markAllRead: jest.fn().mockResolvedValue({ updated: 2 }),
+    ...overrides,
+  } as unknown as NotificationServiceClient & Record<string, jest.Mock>;
 }
 
-describe('NotificationsService', () => {
-  let prisma: ReturnType<typeof createPrismaMock>;
-  let events: { publish: jest.Mock };
-  let service: NotificationsService;
+describe('list', () => {
+  it('forwards the CALLER identity + workspace and answers the paginated view contract', async () => {
+    const client = clientFake();
+    const service = new NotificationsService(client);
 
-  beforeEach(() => {
-    prisma = createPrismaMock();
-    events = { publish: jest.fn() };
-    service = new NotificationsService(
-      prisma as never,
-      events as unknown as DomainEventsService,
-    );
-  });
-
-  describe('create', () => {
-    it('persists FIRST, then publishes the realtime signal with the API view', async () => {
-      const view = await service.create({
-        audience: NotificationAudience.HR,
-        type: NotificationType.NEW_MESSAGE,
-        recipientUserId: ME,
-        organizationId: ORG,
-        vacancyId: 'v1',
-        vacancyTitleSnapshot: 'Backend Engineer',
-      });
-
-      expect(prisma.notification.create).toHaveBeenCalled();
-      expect(events.publish).toHaveBeenCalledWith('notification.created', {
-        recipientUserId: ME,
-        notification: view,
-      });
-      // Structured view, not a rendered sentence.
-      expect(view.vacancy).toEqual({
-        id: 'v1',
-        title: 'Backend Engineer',
-        deleted: false,
-      });
+    const result = await service.list('me', 'org-a', {
+      page: 2,
+      limit: 10,
+      skip: 10,
+      unreadOnly: true,
     });
 
-    it('marks the vacancy as deleted on VACANCY_DELETED views', async () => {
-      const view = await service.create({
-        audience: NotificationAudience.CANDIDATE,
-        type: NotificationType.VACANCY_DELETED,
-        recipientUserId: ME,
-        vacancyId: 'v-gone',
-        vacancyTitleSnapshot: 'Backend Engineer',
-      });
-      expect(view.vacancy).toEqual({
-        id: 'v-gone',
-        title: 'Backend Engineer',
-        deleted: true,
-      });
+    expect(client.list).toHaveBeenCalledWith({
+      userId: 'me',
+      organizationId: 'org-a',
+      page: 2,
+      limit: 10,
+      unreadOnly: true,
+      type: undefined,
+    });
+    expect(result.meta).toEqual({
+      total: 1,
+      page: 2,
+      limit: 10,
+      totalPages: 1,
+    });
+    expect(result.data[0]).toEqual({
+      id: 'n1',
+      type: 'NEW_MESSAGE',
+      audience: 'HR',
+      isRead: false,
+      readAt: null,
+      createdAt: '2026-08-25T10:00:00Z',
+      vacancy: { id: 'v1', title: 'Backend Engineer', deleted: false },
+      candidate: { id: 'c1', name: 'John Kim' },
+      actor: { name: 'John Kim' },
+      applicationId: null,
+      conversationId: 'conv-1',
+      messageId: 'm1',
+      messagePreview: 'Hello',
     });
   });
+});
 
-  describe('recipient scoping — the cross-user wall', () => {
-    it('list is anchored on the caller and their active organization', async () => {
-      await service.list(ME, ORG, { page: 1, limit: 20, skip: 0 });
-
-      const where = prisma.notification.findMany.mock.calls[0][0].where;
-      expect(where.recipientUserId).toBe(ME);
-      expect(where.OR).toEqual([
-        { organizationId: null },
-        { organizationId: ORG },
-      ]);
+describe('toView', () => {
+  it('marks the vacancy deleted for VACANCY_DELETED and drops half-empty relations', () => {
+    const view = toView({
+      ...ROW,
+      type: 'VACANCY_DELETED',
+      candidateName: null,
+      actorName: null,
     });
-
-    it('a candidate (no org) sees only organization-less rows', async () => {
-      await service.list(ME, null, { page: 1, limit: 20, skip: 0 });
-
-      const where = prisma.notification.findMany.mock.calls[0][0].where;
-      expect(where.OR).toEqual([{ organizationId: null }]);
+    expect(view.vacancy).toEqual({
+      id: 'v1',
+      title: 'Backend Engineer',
+      deleted: true,
     });
+    expect(view.candidate).toBeNull();
+    expect(view.actor).toBeNull();
+  });
+});
 
-    it("markRead on someone else's id is an undisclosing 404", async () => {
-      prisma.notification.findFirst.mockResolvedValue(null);
-
-      await expect(
-        service.markRead(ME, ORG, 'n-foreign'),
-      ).rejects.toBeInstanceOf(NotFoundException);
-      expect(prisma.notification.update).not.toHaveBeenCalled();
-      // The lookup itself was recipient-constrained.
-      expect(
-        prisma.notification.findFirst.mock.calls[0][0].where,
-      ).toMatchObject({ recipientUserId: ME });
-    });
-
-    it('markAllRead touches only the caller unread rows', async () => {
-      await service.markAllRead(ME, ORG);
-
-      const call = prisma.notification.updateMany.mock.calls[0][0];
-      expect(call.where).toMatchObject({ recipientUserId: ME, isRead: false });
-      expect(call.data).toMatchObject({ isRead: true });
-      expect(call.data.readAt).toBeInstanceOf(Date);
-    });
+describe('marks and counts', () => {
+  it('unread count and mark-all delegate with the caller identity', async () => {
+    const client = clientFake();
+    const service = new NotificationsService(client);
+    expect(await service.unreadCount('me', null)).toEqual({ unread: 3 });
+    expect(await service.markAllRead('me', 'org-a')).toEqual({ updated: 2 });
+    expect(client.unreadCount).toHaveBeenCalledWith('me', null);
+    expect(client.markAllRead).toHaveBeenCalledWith('me', 'org-a');
   });
 
-  describe('read state', () => {
-    it('marks unread → read with a timestamp', async () => {
-      prisma.notification.findFirst.mockResolvedValue(row());
-      prisma.notification.update.mockResolvedValue(
-        row({ isRead: true, readAt: new Date() }),
-      );
-
-      const view = await service.markRead(ME, ORG, 'n1');
-
-      expect(view.isRead).toBe(true);
-      expect(prisma.notification.update.mock.calls[0][0].data.isRead).toBe(
-        true,
-      );
+  it("someone else's id stays a 404 — the upstream wall's answer passes through", async () => {
+    const client = clientFake({
+      markRead: jest.fn().mockRejectedValue(new NotFoundException()),
     });
-
-    it('marking an already-read row is idempotent (no second write)', async () => {
-      prisma.notification.findFirst.mockResolvedValue(
-        row({ isRead: true, readAt: new Date() }),
-      );
-
-      await service.markRead(ME, ORG, 'n1');
-
-      expect(prisma.notification.update).not.toHaveBeenCalled();
-    });
-
-    it('unreadCount counts only unread rows in scope', async () => {
-      prisma.notification.count.mockResolvedValue(4);
-      const result = await service.unreadCount(ME, ORG);
-      expect(result).toEqual({ unread: 4 });
-      expect(prisma.notification.count.mock.calls[0][0].where.isRead).toBe(
-        false,
-      );
-    });
+    const service = new NotificationsService(client);
+    await expect(
+      service.markRead('me', null, 'not-mine'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

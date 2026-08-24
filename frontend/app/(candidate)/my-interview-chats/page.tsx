@@ -4,7 +4,7 @@ import { requirePersonalWorkspace } from "@/lib/workspace/server";
 import { getTranslations } from "@/lib/i18n/server";
 import { CandidateAccountRequired } from "@/components/candidate/CandidateAccountRequired";
 import { InterviewChatWorkspace } from "@/components/chat/InterviewChatWorkspace";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { CandidatePageHeader } from "@/components/candidate/ui";
 
 export async function generateMetadata(): Promise<Metadata> {
   const d = await getTranslations();
@@ -23,7 +23,8 @@ export default async function CandidateInterviewChatsPage(
   if (!session.hasCandidateAccount) {
     return (
       <div className="mx-auto max-w-4xl">
-        <PageHeader
+        <CandidatePageHeader
+          eyebrow={d.nav.sectionProfile}
           title={d.chat.title}
           description={d.chat.candidateDescription}
         />
@@ -40,7 +41,8 @@ export default async function CandidateInterviewChatsPage(
 
   return (
     <div className="mx-auto max-w-7xl">
-      <PageHeader
+      <CandidatePageHeader
+          eyebrow={d.nav.sectionProfile}
         title={d.chat.title}
         description={d.chat.candidateDescription}
       />

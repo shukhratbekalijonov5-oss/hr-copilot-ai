@@ -6,7 +6,7 @@ import { getTranslations } from "@/lib/i18n/server";
 import { buttonStyles } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { CandidatePageHeader } from "@/components/candidate/ui";
 import { UserIcon } from "@/components/ui/icons";
 import { ExternalJobsWorkspace } from "@/components/external/ExternalJobsWorkspace";
 import { AiJobSearchTabs } from "@/components/candidate/AiJobSearchTabs";
@@ -68,7 +68,8 @@ export default async function ExternalJobsPage(
   if (!session.hasCandidateAccount) {
     return (
       <div className="mx-auto max-w-5xl">
-        <PageHeader
+        <CandidatePageHeader
+          eyebrow={d.nav.sectionAiJobSearch}
           title={d.externalJobs.title}
           description={d.externalJobs.description}
         />
@@ -141,7 +142,8 @@ export default async function ExternalJobsPage(
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader
+      <CandidatePageHeader
+          eyebrow={d.nav.sectionAiJobSearch}
         title={d.externalJobs.title}
         description={d.externalJobs.description}
       />

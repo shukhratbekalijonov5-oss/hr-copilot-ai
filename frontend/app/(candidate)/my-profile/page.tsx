@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { buttonStyles } from "@/components/ui/Button";
 import { getTranslations } from "@/lib/i18n/server";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { CandidatePageHeader } from "@/components/candidate/ui";
 import { CandidateProfileWorkspace } from "@/components/candidate/CandidateProfileWorkspace";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -43,7 +43,8 @@ export default async function MyProfilePage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader
+      <CandidatePageHeader
+          eyebrow={d.nav.sectionProfile}
         title={d.candidateProfile.title}
         description={d.candidateProfile.description}
       />

@@ -1239,6 +1239,29 @@ model Notification {
   @@map("notifications")
 }
 
+/// The notification OUTBOX: the reliability seam between committed business
+/// state and the Java Notification Service. A listener writes one row per
+/// (logical notification, recipient) — ideally inside the business
+/// transaction — and the publisher ships rows to Kafka afterwards with
+/// backoff. The row id IS the event id the Java side dedupes on, so
+/// redelivery and publisher crashes are safe by construction. Rows are the
+/// recovery log: a Kafka outage delays notifications, it never loses them
+/// and never fails the user action that caused them.
+model NotificationOutboxEvent {
+  id              String    @id @default(uuid())
+  eventType       String
+  recipientUserId String
+  payload         Json
+  createdAt       DateTime  @default(now())
+  publishedAt     DateTime?
+  attemptCount    Int       @default(0)
+  nextAttemptAt   DateTime?
+  lastError       String?
+
+  @@index([publishedAt, createdAt])
+  @@map("notification_outbox_events")
+}
+
 model ProcessingJob {
   id             String              @id @default(uuid())
   organizationId String
@@ -1695,6 +1718,10 @@ model ExternalJob {
   @@index([normalizedTitle])
   /// Revalidation sweeps ask "what have I not verified lately".
   @@index([status, lastVerifiedAt])
+  /// The hourly lifecycle pass finds pass-deadline jobs through this. Only a
+  /// minority of rows carry an employer deadline, and without the index the
+  /// EXPIRED scan degrades to walking every ACTIVE row once an hour.
+  @@index([status, expiresAt])
   /// The search-universe revision: count + max(searchableUpdatedAt) over the
   /// current universe, answered from this index instead of a scan.
   @@index([status, searchableUpdatedAt])

@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { EXTERNAL_JOBS_QUEUE } from './external-jobs.constants';
 import { ExternalIngestionService } from './external-ingestion.service';
 import { ExternalSyncService } from './external-sync.service';
+import { ExternalRevalidateService } from './external-revalidate.service';
 import { ExternalSyncScheduler } from './external-sync.scheduler';
 import { ExternalJobsProcessor } from './external-jobs.processor';
 import {
@@ -106,6 +107,7 @@ import { AiModule } from '../ai/ai.module';
     ExternalIndexService,
     ExternalProviderRegistry,
     ExternalSyncService,
+    ExternalRevalidateService,
     ExternalSyncScheduler,
     ExternalJobsProcessor,
     {

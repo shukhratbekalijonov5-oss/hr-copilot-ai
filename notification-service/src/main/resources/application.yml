@@ -1,0 +1,76 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: notification-service
+  datasource:
+    url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:5432/hr_copilot_notifications}
+    username: ${NOTIFICATION_DB_USER:postgres}
+    password: ${NOTIFICATION_DB_PASSWORD:postgres}
+  jpa:
+    # Flyway owns the schema. Hibernate only checks it agrees.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        delivery.timeout.ms: 8000
+        request.timeout.ms: 4000
+        max.block.ms: 4000
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH_ENABLED:false}
+      mail.smtp.starttls.enable: ${SMTP_TLS_ENABLED:false}
+      mail.smtp.connectiontimeout: 4000
+      mail.smtp.timeout: 8000
+      mail.smtp.writetimeout: 8000
+
+notification:
+  # Inbound service credential for /internal/**. UNSET answers 401 everywhere.
+  internal-token: ${NOTIFICATION_INTERNAL_TOKEN:}
+  # The backend's internal API (its global /api prefix included) — the
+  # CURRENT-recipient lookup at email send time.
+  backend-base-url: ${BACKEND_BASE_URL:}
+  backend-token: ${BACKEND_INTERNAL_TOKEN:}
+  # The Payment Service internal API — the expiring-subscriptions read.
+  payment-base-url: ${PAYMENT_SERVICE_URL:}
+  payment-token: ${PAYMENT_INTERNAL_TOKEN:}
+  # SMTP is the real provider; LOG is a local fallback, refused in prod.
+  email-provider: ${EMAIL_PROVIDER:SMTP}
+  from-email: ${SMTP_FROM_EMAIL:no-reply@hrcopilot.local}
+  from-name: ${SMTP_FROM_NAME:HR Copilot AI}
+  email-poll-ms: ${NOTIFICATION_EMAIL_POLL_MS:2000}
+  email-batch-size: ${NOTIFICATION_EMAIL_BATCH_SIZE:10}
+  outbox-poll-ms: ${NOTIFICATION_OUTBOX_POLL_MS:500}
+  outbox-batch-size: ${NOTIFICATION_OUTBOX_BATCH_SIZE:50}
+  publish-enabled: ${NOTIFICATION_OUTBOX_PUBLISH_ENABLED:true}
+  expiry-enabled: ${NOTIFICATION_EXPIRY_SCHEDULER_ENABLED:true}
+  expiry-poll-ms: ${NOTIFICATION_EXPIRY_POLL_MS:900000}
+  expiry-window-days: ${NOTIFICATION_EXPIRY_WINDOW_DAYS:3}
+  lookup-timeout-ms: ${NOTIFICATION_LOOKUP_TIMEOUT_MS:3000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true

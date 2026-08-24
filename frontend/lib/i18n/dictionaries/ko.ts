@@ -69,7 +69,28 @@ const ko: Dictionary = {
     passages: { other: "일치 구절 {count}개" },
   },
 
+  theme: {
+    switchToDark: "다크 테마로 전환",
+    switchToLight: "라이트 테마로 전환",
+  },
+
+  palette: {
+    title: "빠른 이동",
+    open: "빠른 이동 열기",
+    placeholder: "페이지로 이동...",
+    empty: "일치하는 페이지가 없습니다.",
+    hint: "Enter 열기 · 방향키 이동 · Esc 닫기",
+  },
+
   nav: {
+    sectionHiring: "채용",
+    sectionAiTools: "AI 도구",
+    upgradeHint: "모든 공개 공고에 대한 AI 매칭을 사용해 보세요.",
+    sectionHome: "홈",
+    sectionCareer: "커리어",
+    sectionProfile: "프로필",
+    sectionAccount: "계정",
+    home: "대시보드",
     sectionWorkspace: "워크스페이스",
     sectionJobSearch: "구직",
     sectionFindJobs: "채용 공고 찾기",
@@ -113,6 +134,9 @@ const ko: Dictionary = {
   },
 
   notifications: {
+      groupToday: "오늘",
+      groupWeek: "이번 주",
+      groupEarlier: "이전",
     title: "알림",
     bellLabel: "알림 열기",
     bellUnreadLabel: "알림 열기, 읽지 않음 {count}개",
@@ -131,6 +155,7 @@ const ko: Dictionary = {
     },
     errors: {
       load: "알림을 불러오지 못했습니다.",
+      unavailable: "알림을 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요.",
       markRead: "이 알림을 읽음 처리하지 못했습니다.",
       markAll: "알림을 읽음 처리하지 못했습니다.",
     },
@@ -689,14 +714,9 @@ const ko: Dictionary = {
   settings: {
     title: "설정",
     description: "프로필, 조직, 접근 권한을 관리합니다.",
-    tabProfile: "프로필",
-    tabOrganization: "조직",
-    tabTeam: "팀",
-    tabIntegrations: "연동",
-    tabSecurity: "보안",
-    tabLanguage: "언어",
     yourProfile: "내 프로필",
     yourProfileHint: "워크스페이스의 다른 구성원에게 보이는 정보입니다.",
+    accountEmailNote: "중요한 계정 및 구독 관련 이메일은 계정 이메일 주소로 발송됩니다.",
     fullName: "이름",
     email: "이메일",
     organization: "조직",
@@ -737,6 +757,83 @@ const ko: Dictionary = {
     organizationUrl: "조직 URL",
     organizationUrlPlaceholder: "https://northwind.example",
     organizationUrlHint: "선택 사항입니다. 워크스페이스에 표시되며, 비워 두면 삭제됩니다.",
+  },
+
+  home: {
+    entries: {
+      internalHint: "HR Copilot의 모든 공개 공고를 회원님의 근거와 대조해 순위를 매깁니다.",
+      externalHint: "기업 자체 채용 사이트에 올라온 공고를 검색합니다.",
+    },
+    banner: {
+      title: "근거가 좋을수록 매칭도 좋아집니다",
+      description:
+        "AI 매칭은 이력서, 링크, 프로필을 읽습니다. 읽을 수 있는 자료가 많을수록 순위가 정확해집니다.",
+      action: "프로필 보완하기",
+    },
+    title: "나의 구직 현황",
+    greeting: "다시 오신 것을 환영합니다, {name}님",
+    subtitle: "지원 내역과 AI 매칭의 근거가 되는 모든 정보를 한곳에서 확인하세요.",
+    findMatchingJobs: "맞춤 채용 공고 찾기",
+    updateResume: "이력서 업데이트",
+    readiness: {
+      title: "프로필 준비 상태",
+      summary: "{total}개 중 {done}개 완료",
+      complete: "완료",
+      allDone: "프로필이 매칭 준비를 마쳤습니다.",
+      resume: "이력서 추가",
+      resumeHint: "이력서는 AI 매칭이 읽는 핵심 근거입니다.",
+      resumeDone: "이력서 업로드됨",
+      links: "포트폴리오 링크 추가",
+      linksHint: "GitHub, 개인 웹사이트 또는 공개된 작업물.",
+      linksDone: "포트폴리오 링크 추가됨",
+      preferences: "희망 조건 설정",
+      preferencesHint: "원하는 조건을 알려주면 더 잘 맞는 공고를 찾습니다.",
+      preferencesDone: "희망 조건 설정됨",
+      profile: "프로필 완성",
+      profileHint: "헤드라인과 기술 몇 가지만 있어도 도움이 됩니다.",
+      profileDone: "프로필 정보 추가됨",
+      add: "추가",
+    },
+    stats: {
+      activeApplications: "진행 중인 지원",
+      activeApplicationsHint: "아직 기업에서 검토 중입니다.",
+      savedJobs: "저장한 공고",
+      savedJobsHint: "관심 목록입니다.",
+      evidence: "근거 자료",
+      evidenceHint: "AI 매칭이 읽는 파일과 링크입니다.",
+      strongMatches: "높은 적합도",
+      strongMatchesHint: "근거가 잘 뒷받침하는 공고입니다.",
+    },
+    pipeline: {
+      title: "지원 현황",
+      description: "현재 지원이 어느 단계에 있는지 보여줍니다.",
+      applied: "지원 완료",
+      review: "검토 중",
+      interview: "면접",
+      decision: "결과",
+      empty: "아직 지원 내역이 없습니다",
+      emptyHint: "지원한 공고가 단계와 함께 여기에 표시됩니다.",
+      viewAll: "모든 지원 내역 보기",
+    },
+    matches: {
+      title: "상위 AI 매칭",
+      description: "프로필에 등록된 근거를 바탕으로 순위를 매겼습니다.",
+      viewAll: "모든 매칭 보기",
+      view: "매칭 보기",
+      sourceInternal: "HR Copilot",
+      sourceExternal: "외부",
+      empty: "아직 매칭 결과가 없습니다",
+      emptyHint: "이력서나 포트폴리오 링크를 추가한 뒤 AI 매칭을 실행하세요.",
+      unavailable: "매칭을 불러오지 못했습니다",
+      unavailableHint: "AI 채용 매칭에서 다시 시도해 보세요.",
+      lockedHint: "AI 매칭은 모든 공개 공고를 회원님의 근거와 대조해 순위를 매깁니다.",
+      run: "AI 채용 매칭 열기",
+      needsEvidence: "먼저 근거를 추가하세요",
+    },
+    recent: {
+      title: "최근 지원",
+      viewAll: "전체 보기",
+    },
   },
 
   personal: {
@@ -2242,6 +2339,74 @@ const ko: Dictionary = {
     },
   },
 
+  recruiterPlans: {
+    title: "채용 담당자 요금제",
+    description: "채용 담당자를 위한 AI 소싱 요금제가 곧 제공됩니다.",
+    comingSoon: "출시 예정",
+    previewNotice:
+      "이 페이지는 채용 담당자용 HR Copilot의 향후 방향을 미리 보여줍니다. 아직 구매할 수 없으며, 워크스페이스에 활성화된 채용 담당자 요금제는 없습니다.",
+    currentlyIncluded: "현재 제공",
+    planned: "예정",
+    pricingComingSoon: "가격 추후 공개",
+    free: "$0",
+    perMonth: "월",
+    tiers: {
+      FREE: {
+        name: "무료",
+        tagline: "지금 팀에서 사용 중인 HR Copilot의 모든 기능입니다.",
+        features: [
+          "채용 공고 생성 및 관리",
+          "지원서 접수 및 검토",
+          "지원자 근거 자료 및 AI 검색",
+          "면접 채팅 및 지원자 비교",
+        ],
+      },
+      PRO: {
+        name: "프로",
+        tagline: "예정: 지원한 사람 외에서도 후보자를 찾습니다.",
+        features: [
+          "외부 AI 후보자 검색",
+          "공고 기반 후보자 소싱",
+          "선택한 공고 기준 AI 후보자 순위",
+          "출처 인식 후보자 발굴",
+          "고급 후보자 매칭 설명",
+        ],
+      },
+      MAX: {
+        name: "맥스",
+        tagline: "예정: 여러 외부 출처를 한 번에 소싱합니다.",
+        features: [
+          "프로에 예정된 모든 기능",
+          "다중 출처 AI 소싱",
+          "출처 간 후보자 발굴",
+          "고급 후보자 비교",
+          "소싱 인사이트",
+          "우선 AI 워크플로",
+        ],
+      },
+    },
+    sourcing: {
+      title: "AI 후보자 소싱 — 출시 예정",
+      description:
+        "예정된 흐름: 공고를 하나 선택하면 HR Copilot이 외부 출처에서 관련 프로필을 찾아 해당 공고 기준으로 순위를 매깁니다.",
+      steps: [
+        "공고 선택",
+        "HR Copilot AI",
+        "예정된 외부 출처 검색",
+        "관련 후보자 순위 산정",
+        "근거 검토",
+      ],
+      sourcesTitle: "예정된 출처",
+      sourcesNote:
+        "아직 어떤 출처도 검색할 수 없습니다. 계획된 방향을 설명할 뿐이며 기존 기능이 아닙니다.",
+    },
+    roadmap: {
+      title: "더 많은 채용 담당자용 AI 도구가 준비 중입니다.",
+      description:
+        "향후 릴리스에서 AI 기반 소싱과 공고 기반 후보자 발굴이 확장됩니다.",
+    },
+  },
+
   plans: {
     title: "요금제",
     description:
@@ -2253,8 +2418,130 @@ const ko: Dictionary = {
     priceMonthly: "월 ${amount}",
     currentPlan: "현재 요금제",
     currentPlanIs: "현재 {plan} 요금제를 이용 중입니다.",
+    notReported: "서버가 현재 요금제를 보고하지 않았습니다.",
     noCheckoutNote:
       "결제 기능은 아직 제공되지 않으므로 이 페이지에서 구매할 수 없습니다. 각 요금제에 무엇이 포함되는지 확인하는 용도입니다.",
+    planOptions: "요금제 옵션",
+    planOptionsDescription:
+      "유료 업그레이드는 체크아웃을 엽니다. 현재 요금제는 백엔드가 새 상태를 보고한 뒤에만 바뀝니다.",
+    capabilities: "권한",
+    features: "기능",
+    noPaidCapabilities: "유료 AI 권한이 없습니다.",
+    capabilityNames: {
+      INTERNAL_AI_SEARCH: "내부 AI 채용 검색",
+      EXTERNAL_AI_SEARCH: "외부 AI 채용 검색",
+    },
+    actions: {
+      upgradeTo: "{plan}로 업그레이드",
+      downgradeTo: "{plan}로 다운그레이드",
+      choosePlan: "{plan} 선택",
+      paymentSetupComingSoon: "결제 설정은 곧 제공됩니다.",
+      checkoutHint: "체크아웃으로 이동하기 전에 확인합니다.",
+      downgradeUnavailable: "다운그레이드는 아직 여기서 제공되지 않습니다.",
+      freePlanNoCheckout: "무료 요금제는 체크아웃이 필요 없습니다.",
+    },
+    demoCheckout: {
+      title: "결제",
+      demoBadge: "데모 결제",
+      openDemo: "데모 결제 — {plan}",
+      devOnlyNote:
+        "개발 전용입니다. 기존의 안전한 플랜 전환을 사용하며 카드가 청구되거나 결제가 생성되지 않습니다.",
+      brand: "HR Copilot AI",
+      orderSummary: "주문 요약",
+      selectedPlan: "선택한 플랜",
+      billedMonthly: "월간 청구",
+      subtotal: "소계",
+      totalDueToday: "오늘 결제 금액",
+      paymentDetails: "결제 정보",
+      cardholder: "카드 소유자 이름",
+      cardholderPlaceholder: "Alex Morgan",
+      cardNumber: "카드 번호",
+      expiry: "유효기간 (MM/YY)",
+      cvc: "CVC",
+      saveCard: "다음에도 이 카드 사용",
+      pay: "${amount} 결제",
+      close: "결제 창 닫기",
+      demoNote:
+        "데모 결제입니다. 카드 정보는 전송·저장·기록되지 않으며 이 브라우저에만 있다가 창을 닫으면 삭제됩니다.",
+      realCheckoutNote:
+        "이 환경에서는 실제 결제 서비스를 사용합니다. 결제 페이지에서 계속 진행하세요.",
+      continueToProvider: "결제 페이지로 이동",
+      successTitle: "결제 완료",
+      successBody: "{plan} 플랜이 활성화되었습니다. 서버에서 플랜 정보를 다시 불러왔습니다.",
+      done: "완료",
+      errors: {
+        required: "필수 항목입니다.",
+        invalidCardNumber: "13~19자리 카드 번호를 입력하세요.",
+        invalidExpiry: "MM/YY 형식으로 입력하세요.",
+        invalidCvc: "3자리 또는 4자리를 입력하세요.",
+        formInvalid: "표시된 항목을 확인하세요.",
+      },
+    },
+    checkout: {
+      confirmTitle: "{plan} 체크아웃을 시작할까요?",
+      chargedAsKrw: "월 ${usd} — 토스 결제로 ₩{krw}이 청구됩니다.",
+      confirmDescription:
+        "{plan} 요금제는 {price}입니다. 다음 단계에서 결제 제공업체로 이동합니다. 백엔드가 결제를 확인하기 전까지 요금제는 바뀌지 않습니다.",
+      continue: "결제 계속",
+      errors: {
+        invalidTransition: "이 요금제 변경은 아직 제공되지 않습니다.",
+        unauthenticated: "계속하려면 다시 로그인해 주세요.",
+        forbidden: "이 계정은 체크아웃을 시작할 수 없습니다.",
+        routeUnavailable: "이 환경에서는 체크아웃을 사용할 수 없습니다.",
+        conflict: "이미 진행 중인 체크아웃이 있습니다. 잠시 후 다시 시도해 주세요.",
+        paymentUnavailable:
+          "결제 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        checkoutUnavailable:
+          "지금은 체크아웃을 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+      },
+    },
+    billing: {
+      title: "청구 요약",
+      subscriptionStatus: "구독 상태",
+      effectiveUntil: "유효 기간",
+      backendCapabilities: "백엔드 제공 권한",
+      unknownStatus: "상태: {status}",
+      subscriptionStatuses: {
+        PENDING: "대기 중",
+        ACTIVE: "활성",
+        PAST_DUE: "결제 지연",
+        CANCEL_AT_PERIOD_END: "기간 종료 시 취소",
+        CANCELLED: "취소됨",
+        EXPIRED: "만료됨",
+      },
+      errors: {
+        billingUnavailable:
+          "청구 정보를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        unauthenticated: "청구 정보를 보려면 다시 로그인해 주세요.",
+        forbidden: "이 계정은 청구 정보를 볼 수 없습니다.",
+      },
+    },
+    devSwitch: {
+      title: "개발자 요금제 전환",
+      description:
+        "개발/테스트 전용입니다. NestJS BFF에 요청한 뒤 청구와 인증 상태를 다시 읽은 후에만 페이지가 바뀝니다.",
+      devOnly: "개발 전용",
+      switchTo: "{plan}로 전환",
+      confirmTitle: "{plan}로 전환할까요?",
+      confirmDescription:
+        "백엔드 응답을 기다린 뒤 권한 있는 청구 및 기능 상태를 다시 불러옵니다.",
+      confirm: "요금제 전환",
+      switching: "요금제를 전환하는 중...",
+      planUpdated: "백엔드 상태로 요금제가 업데이트되었습니다.",
+      alreadyOnThisPlan: "이미 이 요금제입니다.",
+      errors: {
+        invalidTransition: "이 요금제 전환은 사용할 수 없습니다.",
+        unauthenticated: "요금제를 전환하려면 다시 로그인해 주세요.",
+        forbidden: "이 계정은 요금제를 전환할 수 없습니다.",
+        routeUnavailable: "여기서는 개발자 요금제 전환을 사용할 수 없습니다.",
+        conflict: "현재 청구 상태와 요금제 전환이 충돌합니다.",
+        paymentUnavailable:
+          "결제 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        refreshFailed:
+          "전환은 완료되었지만 청구 상태를 새로고침하지 못했습니다. 다시 시도해 주세요.",
+        switchUnavailable: "지금은 요금제 전환을 사용할 수 없습니다.",
+      },
+    },
     locked: {
       INTERNAL_AI_SEARCH: {
         title: "내부 AI 채용 검색",

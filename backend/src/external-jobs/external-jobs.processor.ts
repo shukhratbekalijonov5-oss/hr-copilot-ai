@@ -4,10 +4,13 @@ import type { Job } from 'bullmq';
 import {
   EXTERNAL_JOBS_QUEUE,
   EXTERNAL_JOB_INDEX_JOB,
+  EXTERNAL_JOB_REVALIDATE_JOB,
   EXTERNAL_PROVIDER_SYNC_JOB,
+  type ExternalJobRevalidateJobData,
   type ExternalProviderSyncJobData,
 } from './external-jobs.constants';
 import { ExternalSyncService } from './external-sync.service';
+import { ExternalRevalidateService } from './external-revalidate.service';
 import { ExternalIndexService } from './search/external-index.service';
 import type { ExternalProvider } from '../generated/prisma/enums';
 
@@ -45,6 +48,7 @@ export class ExternalJobsProcessor extends WorkerHost {
 
   constructor(
     private readonly sync: ExternalSyncService,
+    private readonly revalidate: ExternalRevalidateService,
     private readonly index: ExternalIndexService,
   ) {
     super();
@@ -54,6 +58,20 @@ export class ExternalJobsProcessor extends WorkerHost {
     switch (job.name) {
       case EXTERNAL_PROVIDER_SYNC_JOB:
         return this.runSync(job.data as ExternalProviderSyncJobData);
+      case EXTERNAL_JOB_REVALIDATE_JOB: {
+        /*
+         * DB-local lifecycle maintenance: age unobserved ACTIVE jobs to
+         * STALE and pass-deadline jobs to EXPIRED. No provider HTTP happens
+         * here — the service's only dependency is the database — so this
+         * job can never be the source of a provider burst, and a retry of
+         * it is always safe (the transitions are monotone re-checks).
+         */
+        const data = (job.data ?? {}) as ExternalJobRevalidateJobData;
+        const outcome = await this.revalidate.revalidate({
+          jobIds: data.jobIds,
+        });
+        return { handled: true, ...outcome };
+      }
       case EXTERNAL_JOB_INDEX_JOB:
         /*
          * Deliberately separate from the sync job. Ingestion must succeed when
@@ -63,8 +81,6 @@ export class ExternalJobsProcessor extends WorkerHost {
          */
         return this.index.indexPending();
       default:
-        // Revalidation is declared in the constants and not yet implemented.
-        // Saying so is better than silently succeeding.
         this.logger.warn(`Unhandled external job type: ${job.name}`);
         return { handled: false };
     }

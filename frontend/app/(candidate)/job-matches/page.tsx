@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations } from "@/lib/i18n/server";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { CandidatePageHeader } from "@/components/candidate/ui";
 import { AiJobSearchTabs } from "@/components/candidate/AiJobSearchTabs";
 import { JobUniverseNote } from "@/components/candidate/JobUniverseNote";
 import { JobMatchWorkspace } from "@/components/candidate/JobMatchWorkspace";
@@ -53,8 +53,10 @@ export default async function JobMatchesPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <PageHeader title={d.jobMatch.title} description={d.jobMatch.description} />
+    <div className="ambient-hero mx-auto max-w-4xl">
+      <CandidatePageHeader
+          eyebrow={d.nav.sectionAiJobSearch}
+          title={d.jobMatch.title} description={d.jobMatch.description} />
       <AiJobSearchTabs current="internal" entitlements={workspace.entitlements} />
       <JobUniverseNote universe="internal" />
       <JobMatchWorkspace />

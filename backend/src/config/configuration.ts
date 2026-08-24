@@ -25,6 +25,17 @@ export interface AppConfiguration {
     /** Absolute refresh-session lifetime in days (rotation never extends it). */
     refreshTtlDays: number;
     bcryptRounds: number;
+    /** Password-login failure lockout policy (see LoginAttemptsService). */
+    lockout: {
+      firstThreshold: number;
+      firstLockSeconds: number;
+      secondThreshold: number;
+      secondLockSeconds: number;
+      maxLockSeconds: number;
+      failureWindowSeconds: number;
+      ipWideThreshold: number;
+      identityWideThreshold: number;
+    };
   };
   database: {
     url: string;
@@ -123,10 +134,35 @@ export interface AppConfiguration {
     /** Whether repeating sweeps are registered at boot. Default false. */
     scheduleEnabled: boolean;
     syncIntervalMs: number;
+    /** DB-local lifecycle maintenance cadence. Independent of provider sweeps. */
+    revalidateIntervalMs: number;
     requestTimeoutMs: number;
     maxAttempts: number;
   };
 
+  notifications: {
+    /** Java Notification Service internal API base URL (BFF reads/marks). */
+    serviceUrl: string;
+    serviceToken: string;
+    timeoutMs: number;
+    /** Kafka brokers for the notification outbox + realtime bridge. */
+    kafkaBrokers: string;
+    kafkaConsumerGroup: string;
+    outboxPollMs: number;
+    /** Inbound credential for GET /internal/notification-users/{id}. */
+    userLookupToken: string;
+  };
+  entitlements: {
+    source: string;
+    paymentServiceUrl: string;
+    paymentServiceToken: string;
+    timeoutMs: number;
+    cacheTtlSeconds: number;
+    /** Comma-separated Kafka brokers. Empty = entitlement events consumer off. */
+    kafkaBrokers: string;
+    /** Stable consumer group; changing it replays the topic's retained events. */
+    kafkaConsumerGroup: string;
+  };
   exchangeRates: {
     /** Provider credential. Never logged, never returned by any endpoint. */
     apiKey: string;
@@ -162,6 +198,28 @@ export default (): AppConfiguration => ({
     tokenTtl: process.env.TOKEN_TTL ?? '15m',
     refreshTtlDays: toInt(process.env.REFRESH_TOKEN_TTL_DAYS, 30),
     bcryptRounds: toInt(process.env.BCRYPT_ROUNDS, 12),
+    lockout: {
+      firstThreshold: toInt(process.env.LOGIN_LOCKOUT_FIRST_THRESHOLD, 5),
+      firstLockSeconds: toInt(
+        process.env.LOGIN_LOCKOUT_FIRST_LOCK_SECONDS,
+        900,
+      ),
+      secondThreshold: toInt(process.env.LOGIN_LOCKOUT_SECOND_THRESHOLD, 3),
+      secondLockSeconds: toInt(
+        process.env.LOGIN_LOCKOUT_SECOND_LOCK_SECONDS,
+        1_800,
+      ),
+      maxLockSeconds: toInt(process.env.LOGIN_LOCKOUT_MAX_LOCK_SECONDS, 3_600),
+      failureWindowSeconds: toInt(
+        process.env.LOGIN_LOCKOUT_FAILURE_WINDOW_SECONDS,
+        1_800,
+      ),
+      ipWideThreshold: toInt(process.env.LOGIN_LOCKOUT_IP_WIDE_THRESHOLD, 30),
+      identityWideThreshold: toInt(
+        process.env.LOGIN_LOCKOUT_IDENTITY_WIDE_THRESHOLD,
+        20,
+      ),
+    },
   },
   database: {
     url: process.env.DATABASE_URL ?? '',
@@ -214,8 +272,50 @@ export default (): AppConfiguration => ({
       process.env.EXTERNAL_SYNC_INTERVAL_MS,
       6 * 60 * 60_000,
     ),
+    /*
+     * Bounds enforced here because a scheduler consumes whatever it is given:
+     * a typo'd 3600 (seconds, not ms) would otherwise poll the database
+     * every 3.6 seconds forever, and 0 would be a hot loop. The pass is
+     * DB-local — it never calls providers — so the floor is about the
+     * database, not about third parties.
+     */
+    revalidateIntervalMs: Math.min(
+      24 * 60 * 60_000,
+      Math.max(
+        5 * 60_000,
+        toInt(process.env.EXTERNAL_REVALIDATE_INTERVAL_MS, 60 * 60_000),
+      ),
+    ),
     requestTimeoutMs: toInt(process.env.EXTERNAL_REQUEST_TIMEOUT_MS, 20_000),
     maxAttempts: toInt(process.env.EXTERNAL_MAX_ATTEMPTS, 3),
+  },
+  notifications: {
+    serviceUrl: process.env.NOTIFICATION_SERVICE_URL ?? '',
+    serviceToken: process.env.NOTIFICATION_SERVICE_INTERNAL_TOKEN ?? '',
+    timeoutMs: toInt(process.env.NOTIFICATION_SERVICE_TIMEOUT_MS, 2_500),
+    /** Falls back to the entitlement brokers — one local broker serves both. */
+    kafkaBrokers:
+      process.env.NOTIFICATIONS_KAFKA_BROKERS ??
+      process.env.ENTITLEMENTS_KAFKA_BROKERS ??
+      '',
+    kafkaConsumerGroup:
+      process.env.NOTIFICATIONS_KAFKA_CONSUMER_GROUP ??
+      'hr-copilot-backend.notification-bridge',
+    outboxPollMs: toInt(process.env.NOTIFICATIONS_OUTBOX_POLL_MS, 500),
+    userLookupToken: process.env.NOTIFICATION_USER_LOOKUP_TOKEN ?? '',
+  },
+  entitlements: {
+    /** 'db' (transitional column) or 'payment-service' (billing authority). */
+    source: process.env.ENTITLEMENTS_SOURCE ?? 'db',
+    paymentServiceUrl: process.env.PAYMENT_SERVICE_URL ?? '',
+    paymentServiceToken: process.env.PAYMENT_SERVICE_INTERNAL_TOKEN ?? '',
+    timeoutMs: toInt(process.env.PAYMENT_SERVICE_TIMEOUT_MS, 2_500),
+    /** Clamped to at most 300s by the source — stale authorization stays short. */
+    cacheTtlSeconds: toInt(process.env.ENTITLEMENTS_CACHE_TTL_SECONDS, 120),
+    kafkaBrokers: process.env.ENTITLEMENTS_KAFKA_BROKERS ?? '',
+    kafkaConsumerGroup:
+      process.env.ENTITLEMENTS_KAFKA_CONSUMER_GROUP ??
+      'hr-copilot-backend.entitlements',
   },
   exchangeRates: {
     apiKey: process.env.EXCHANGE_RATE_API_KEY ?? '',

@@ -1,10 +1,10 @@
 import type { ComponentType } from "react";
 import {
   ActivityIcon,
+  BookmarkIcon,
   BriefcaseIcon,
   CompareIcon,
   DashboardIcon,
-  FileIcon,
   FilterIcon,
   GlobeIcon,
   MessageIcon,
@@ -59,35 +59,46 @@ export interface NavItem {
 }
 
 const ALL_ROLES: Role[] = ["OWNER", "HR_ADMIN", "RECRUITER", "INTERVIEWER"];
-const ADMINS: Role[] = ["OWNER", "HR_ADMIN"];
 const HIRING: Role[] = ["OWNER", "HR_ADMIN", "RECRUITER"];
 
 /** Recruiting side. */
+/*
+ * Recruiting side, in three areas.
+ *
+ * Same routes and same order as before — this is a heading pass, not an
+ * information-architecture change. WORKSPACE is where a session starts,
+ * HIRING is the day's work against real people and roles, and AI TOOLS is
+ * the grounded-answer half of the product. Separating the last one matters
+ * for the same reason it does on the job-seeker side: a recruiter should be
+ * able to see which surfaces are reading evidence with a model.
+ */
 export const ORGANIZATION_NAV: NavItem[] = [
-  { href: "/dashboard", labelKey: "dashboard", icon: DashboardIcon, roles: ALL_ROLES },
-  { href: "/vacancies", labelKey: "vacancies", icon: BriefcaseIcon, roles: HIRING },
-  { href: "/candidates", labelKey: "candidates", icon: UsersIcon, roles: ALL_ROLES },
-  { href: "/interview-chats", labelKey: "interviewChats", icon: MessageIcon, roles: ALL_ROLES },
-  { href: "/search", labelKey: "aiSearch", icon: SparkIcon, roles: ALL_ROLES },
-  { href: "/compare", labelKey: "compare", icon: CompareIcon, roles: HIRING },
-  { href: "/processing", labelKey: "processing", icon: ActivityIcon, roles: HIRING },
+  { href: "/dashboard", labelKey: "dashboard", icon: DashboardIcon, roles: ALL_ROLES, groupKey: "sectionWorkspace" },
+
+  { href: "/vacancies", labelKey: "vacancies", icon: BriefcaseIcon, roles: HIRING, groupKey: "sectionHiring" },
+  { href: "/candidates", labelKey: "candidates", icon: UsersIcon, roles: ALL_ROLES, groupKey: "sectionHiring" },
+  { href: "/interview-chats", labelKey: "interviewChats", icon: MessageIcon, roles: ALL_ROLES, groupKey: "sectionHiring" },
+
+  { href: "/search", labelKey: "aiSearch", icon: SparkIcon, roles: ALL_ROLES, groupKey: "sectionAiTools" },
+  { href: "/compare", labelKey: "compare", icon: CompareIcon, roles: HIRING, groupKey: "sectionAiTools" },
+  { href: "/processing", labelKey: "processing", icon: ActivityIcon, roles: HIRING, groupKey: "sectionAiTools" },
 ];
 
 export const ORGANIZATION_SECONDARY_NAV: NavItem[] = [
-  { href: "/settings", labelKey: "settings", icon: SettingsIcon, roles: ADMINS },
+  { href: "/plans", labelKey: "plans", icon: SparkIcon, roles: ALL_ROLES },
+  { href: "/settings", labelKey: "settings", icon: SettingsIcon, roles: ALL_ROLES },
 ];
 
 /**
- * Job-seeking side, in three groups.
+ * Job-seeking side, in four areas.
  *
- * ## Why AI job search is its own section
+ * ## Areas, not a list of screens
  *
- * Ordinary search and AI search answer the same question by different means,
- * and only one of them costs money. Filing them side by side in one flat list
- * made "AI Job Match" look like a sibling of "Saved jobs" — a screen, rather
- * than the paid half of the product. The heading is what lets a reader see
- * that Internal and External are two universes inside ONE feature, and that
- * the feature is where the plans differ.
+ * HOME is where a session starts. CAREER is the active job hunt — searching,
+ * the two paid AI searches, the shortlist and the applications it produced.
+ * PROFILE is the material all of that runs on. ACCOUNT is everything about
+ * the subscription rather than the job hunt. A reader who wants "the thing I
+ * saved" should not have to remember whether it filed under search or records.
  *
  * ## The two AI entries are never merged
  *
@@ -98,7 +109,15 @@ export const ORGANIZATION_SECONDARY_NAV: NavItem[] = [
  * two different promises, so there are two entries and two result lists.
  */
 export const PERSONAL_NAV: NavItem[] = [
-  { href: "/jobs", labelKey: "findJobs", icon: SearchIcon, groupKey: "sectionFindJobs" },
+  { href: "/home", labelKey: "home", icon: DashboardIcon, groupKey: "sectionHome" },
+
+  // Ordinary search first, and on its own heading: it is the one job search
+  // every plan includes. Filing it beside the two paid searches would imply
+  // it is gated too, which is exactly the confusion the headings exist to
+  // prevent — so CAREER holds the free search and the reader's own records.
+  { href: "/jobs", labelKey: "findJobs", icon: SearchIcon, groupKey: "sectionCareer" },
+  { href: "/saved-jobs", labelKey: "savedJobs", icon: BookmarkIcon, groupKey: "sectionCareer" },
+  { href: "/my-applications", labelKey: "myApplications", icon: BriefcaseIcon, groupKey: "sectionCareer" },
 
   {
     href: "/job-matches",
@@ -115,15 +134,16 @@ export const PERSONAL_NAV: NavItem[] = [
     capability: "EXTERNAL_AI_SEARCH",
   },
 
-  { href: "/job-preferences", labelKey: "jobPreferences", icon: FilterIcon, groupKey: "sectionYourSearch" },
-  { href: "/my-applications", labelKey: "myApplications", icon: BriefcaseIcon, groupKey: "sectionYourSearch" },
-  { href: "/my-interview-chats", labelKey: "interviewChats", icon: MessageIcon, groupKey: "sectionYourSearch" },
-  { href: "/saved-jobs", labelKey: "savedJobs", icon: FileIcon, groupKey: "sectionYourSearch" },
-  { href: "/my-profile", labelKey: "myProfile", icon: UserIcon, groupKey: "sectionYourSearch" },
-  { href: "/plans", labelKey: "plans", icon: SparkIcon, groupKey: "sectionYourSearch" },
+  { href: "/my-profile", labelKey: "myProfile", icon: UserIcon, groupKey: "sectionProfile" },
+  { href: "/job-preferences", labelKey: "jobPreferences", icon: FilterIcon, groupKey: "sectionProfile" },
+  { href: "/my-interview-chats", labelKey: "interviewChats", icon: MessageIcon, groupKey: "sectionProfile" },
+
+  { href: "/plans", labelKey: "plans", icon: SparkIcon, groupKey: "sectionAccount" },
 ];
 
-export const PERSONAL_SECONDARY_NAV: NavItem[] = [];
+export const PERSONAL_SECONDARY_NAV: NavItem[] = [
+  { href: "/settings", labelKey: "settings", icon: SettingsIcon },
+];
 
 export function navigationFor(workspace: Workspace): {
   primary: NavItem[];
@@ -144,11 +164,13 @@ export function navigationFor(workspace: Workspace): {
 
 /** Route prefixes that belong to the personal (job-seeker) workspace. */
 export const PERSONAL_ROUTE_PREFIXES = [
+  "/home",
   "/jobs",
   "/external-jobs",
   "/job-matches",
   "/job-preferences",
   "/plans",
+  "/settings",
   "/my-applications",
   "/my-interview-chats",
   "/my-profile",

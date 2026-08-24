@@ -31,6 +31,7 @@
 
 export const CANDIDATE_PLANS = ["FREE", "PRO", "MAX"] as const;
 export type CandidatePlan = (typeof CANDIDATE_PLANS)[number];
+export type Plan = CandidatePlan;
 
 /**
  * The gated surfaces, named after what a person does rather than after the
@@ -106,7 +107,7 @@ export interface EntitlementSource {
    * plan: a hand-granted capability, a legacy account or a promotion is
    * something only the backend knows, and re-deriving from the plan name here
    * would quietly overrule it.
-   */
+  */
   capabilities?: readonly string[] | null;
 }
 
@@ -186,6 +187,37 @@ export function withCapabilityDenied(
   };
 }
 
+export type PlanActionKind = "current" | "upgrade" | "downgrade" | "choose";
+export type CheckoutPlan = Extract<CandidatePlan, "PRO" | "MAX">;
+
+/** The paid plans a checkout can be started for, in display order. */
+export const CHECKOUT_PLANS = ["PRO", "MAX"] as const satisfies readonly CheckoutPlan[];
+
+export function planActionFor(
+  current: CandidatePlan | null,
+  target: CandidatePlan,
+): PlanActionKind {
+  if (!current) return "choose";
+  if (current === target) return "current";
+  return PLAN_RANK[target] > PLAN_RANK[current] ? "upgrade" : "downgrade";
+}
+
+export function isCheckoutPlan(plan: CandidatePlan): plan is CheckoutPlan {
+  return plan === "PRO" || plan === "MAX";
+}
+
+export function canStartCheckout(
+  current: CandidatePlan | null,
+  target: CandidatePlan,
+): target is CheckoutPlan {
+  const action = planActionFor(current, target);
+  return isCheckoutPlan(target) && (action === "upgrade" || action === "choose");
+}
+
+export function capabilitiesForPlan(plan: CandidatePlan): PlanCapability[] {
+  return PLAN_CAPABILITIES.filter((capability) => planIncludes(plan, capability));
+}
+
 /* -------------------------------------------------------------------------- */
 /* Pricing                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -212,3 +244,14 @@ export const PLAN_PRICES: readonly PlanPrice[] = [
 export function priceFor(plan: CandidatePlan): PlanPrice {
   return PLAN_PRICES.find((entry) => entry.plan === plan) ?? PLAN_PRICES[0];
 }
+
+/**
+ * Fixed KRW amounts charged by the Toss card checkout, DISPLAY ONLY —
+ * pre-formatted strings, mirroring the server-authoritative amounts in the
+ * payment service (Plan.monthlyPriceKrw). Fixed pricing, never live FX; the
+ * browser never sends an amount or currency anywhere.
+ */
+export const KRW_CHECKOUT_CHARGE: Record<CheckoutPlan, string> = {
+  PRO: "9,900",
+  MAX: "16,900",
+};

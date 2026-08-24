@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MembershipService } from '../common/membership/membership.service';
 import { AccountTypeService } from '../common/identity/account-type.service';
 import { AuthSessionService } from './auth-session.service';
+import { LoginAttemptsService } from './login-attempts.service';
 import { StorageService } from '../storage/storage.service';
 import { signAvatarUrl } from '../account/avatar-url';
 import {
@@ -18,12 +19,14 @@ import {
   authConflict,
   authForbidden,
   authUnauthorized,
+  loginTemporarilyLocked,
 } from './auth-errors';
 import { AccountType, Locale, Role } from '../generated/prisma/enums';
 import type {
   AuthenticatedUser,
   JwtPayload,
 } from '../common/interfaces/authenticated-user.interface';
+import { notificationOutboxRow } from '../notifications/notification-outbox.service';
 import type { RegisterCandidateDto } from './dto/register-candidate.dto';
 import type { RegisterOrganizationDto } from './dto/register-organization.dto';
 import type { LoginDto } from './dto/login.dto';
@@ -62,6 +65,12 @@ interface ActiveMembership {
 export interface SessionContext {
   userAgent?: string | null;
   deviceName?: string | null;
+  /**
+   * Caller address as resolved by Express (`req.ip`) — the socket address
+   * unless a trust-proxy is explicitly configured. Used only for login
+   * failure scoping; never trusted from arbitrary forwarded headers.
+   */
+  ip?: string | null;
 }
 
 @Injectable()
@@ -71,6 +80,7 @@ export class AuthService {
     private readonly memberships: MembershipService,
     private readonly accountTypes: AccountTypeService,
     private readonly sessions: AuthSessionService,
+    private readonly loginAttempts: LoginAttemptsService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     // StorageModule is @Global, so this needs no module import. Only used to
@@ -105,6 +115,16 @@ export class AuthService {
         },
       });
       await tx.candidateAccount.create({ data: { userId: created.id } });
+      // ACCOUNT_CREATED rides the SAME transaction: the welcome email event
+      // exists exactly when the account does — once, and never for a
+      // rolled-back registration. Delivery is asynchronous (outbox → Kafka →
+      // Java → SMTP), so signup never waits on a mail server.
+      await tx.notificationOutboxEvent.create({
+        data: notificationOutboxRow('ACCOUNT_CREATED', created.id, {
+          audience: 'CANDIDATE',
+          accountType: AccountType.CANDIDATE,
+        }),
+      });
       return created;
     });
 
@@ -152,6 +172,13 @@ export class AuthService {
           role: Role.OWNER,
         },
       });
+      // Same exactly-once welcome-event rule as candidate registration.
+      await tx.notificationOutboxEvent.create({
+        data: notificationOutboxRow('ACCOUNT_CREATED', created.id, {
+          audience: 'HR',
+          accountType: AccountType.ORGANIZATION,
+        }),
+      });
       return { user: created, membership: member };
     });
 
@@ -192,8 +219,18 @@ export class AuthService {
     dto: LoginDto,
     context: SessionContext = {},
   ): Promise<AuthSessionResponse> {
+    const email = normaliseEmail(dto.email);
+
+    // Lock check comes FIRST: a locked caller costs neither a user lookup
+    // nor a bcrypt comparison. The 429 carries only a retry delay — never
+    // which counter tripped or whether the account exists.
+    const lock = await this.loginAttempts.checkBeforeAttempt(email, context.ip);
+    if (lock.locked) {
+      throw loginTemporarilyLocked(lock.retryAfterSeconds);
+    }
+
     const user = await this.prisma.user.findUnique({
-      where: { email: normaliseEmail(dto.email) },
+      where: { email },
       include: {
         // Default active organization: the oldest membership. Deterministic,
         // and a no-membership user simply logs in without organization context.
@@ -207,8 +244,16 @@ export class AuthService {
     const matches = await bcrypt.compare(dto.password, hash);
 
     if (!user || !matches) {
+      // Unknown identities are counted exactly like wrong passwords — a
+      // lockout-behavior difference would otherwise become an existence
+      // oracle.
+      await this.loginAttempts.recordFailure(email, context.ip);
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    // The password verified: clear identity failure state regardless of the
+    // account-type door check below (wrong door is not brute force).
+    await this.loginAttempts.recordSuccess(email, context.ip);
 
     // Wrong sign-in door (Candidate vs Organization). Checked only AFTER the
     // password verified: holders of bad credentials keep getting the flat 401

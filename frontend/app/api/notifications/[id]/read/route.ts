@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { notificationFailure } from "@/lib/notifications/route-errors";
 import { getSessionToken } from "@/lib/api/session";
 
 export async function PATCH(
@@ -18,10 +19,7 @@ export async function PATCH(
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const status = error instanceof ApiError ? error.status || 500 : 500;
-    return NextResponse.json(
-      { message: error instanceof Error ? error.message : "Could not mark notification read." },
-      { status },
-    );
+    const failure = notificationFailure(error, "Could not mark notification read.");
+    return NextResponse.json(failure.body, { status: failure.status });
   }
 }

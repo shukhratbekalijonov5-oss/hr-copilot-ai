@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
+import { notificationFailure } from "@/lib/notifications/route-errors";
 import { getSessionToken } from "@/lib/api/session";
 
 export async function GET(): Promise<NextResponse> {
@@ -14,10 +15,7 @@ export async function GET(): Promise<NextResponse> {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    const status = error instanceof ApiError ? error.status || 500 : 500;
-    return NextResponse.json(
-      { message: error instanceof Error ? error.message : "Could not load notifications." },
-      { status },
-    );
+    const failure = notificationFailure(error, "Could not load notifications.");
+    return NextResponse.json(failure.body, { status: failure.status });
   }
 }

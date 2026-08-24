@@ -1,0 +1,14 @@
+
+payment:
+  internal-token: test-internal-token
+  provider: MOCK
+  mock-webhook-secret: test-webhook-secret
+  # Individual tests that exercise Kafka enable this themselves.
+  publish-enabled: false
+  outbox-poll-ms: 200
+
+spring:
+  kafka:
+    producer:
+      properties:
+        max.block.ms: 2000

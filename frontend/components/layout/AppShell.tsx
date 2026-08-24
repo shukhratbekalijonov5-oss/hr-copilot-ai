@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { CommandPalette } from "@/components/layout/CommandPalette";
 import type { SessionUser } from "@/lib/types";
 import type { WorkspaceContext } from "@/lib/workspace/types";
 
@@ -35,13 +36,17 @@ export function AppShell({
   return (
     <div className="flex min-h-dvh">
       <aside className="fixed inset-y-0 left-0 hidden w-60 lg:block">
-        <Sidebar workspace={workspace.active} entitlements={workspace.entitlements} />
+        <Sidebar
+          workspace={workspace.active}
+          entitlements={workspace.entitlements}
+          account={workspace.active.kind === "personal" ? user : null}
+        />
       </aside>
 
       {sidebarOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
-            className="absolute inset-0 bg-black/40"
+            className="animate-fade-in absolute inset-0 bg-black/40"
             onClick={() => setSidebarOpen(false)}
             aria-hidden="true"
           />
@@ -49,6 +54,7 @@ export function AppShell({
             <Sidebar
               workspace={workspace.active}
               entitlements={workspace.entitlements}
+              account={workspace.active.kind === "personal" ? user : null}
               onNavigate={() => setSidebarOpen(false)}
               onClose={() => setSidebarOpen(false)}
             />
@@ -63,8 +69,12 @@ export function AppShell({
           initialUnreadCount={initialUnreadCount}
           onOpenSidebar={() => setSidebarOpen(true)}
         />
-        <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6">{children}</main>
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
+
+      {/* One palette for the whole app; it derives its commands from the
+          active workspace, so each side offers only its own routes. */}
+      <CommandPalette workspace={workspace.active} />
     </div>
   );
 }

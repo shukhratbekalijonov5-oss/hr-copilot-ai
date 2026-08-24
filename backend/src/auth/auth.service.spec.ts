@@ -9,7 +9,9 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import { CandidateEntitlementsService } from '../entitlements/candidate-entitlements.service';
+import { DbPlanSource } from '../entitlements/db-plan.source';
 import { AuthSessionService } from './auth-session.service';
+import { LoginAttemptsService } from './login-attempts.service';
 import { MembershipService } from '../common/membership/membership.service';
 import { AccountTypeService } from '../common/identity/account-type.service';
 import { AccountType, Locale, Role } from '../generated/prisma/enums';
@@ -85,15 +87,25 @@ const actor = (
   ...overrides,
 });
 
+const createLoginAttemptsMock = () => ({
+  checkBeforeAttempt: jest
+    .fn()
+    .mockResolvedValue({ locked: false, retryAfterSeconds: 0 }),
+  recordFailure: jest.fn().mockResolvedValue(undefined),
+  recordSuccess: jest.fn().mockResolvedValue(undefined),
+});
+
 describe('AuthService', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
   let sessions: ReturnType<typeof createSessionsMock>;
+  let loginAttempts: ReturnType<typeof createLoginAttemptsMock>;
   let jwtService: JwtService;
   let service: AuthService;
 
   beforeEach(() => {
     prisma = createPrismaMock();
     sessions = createSessionsMock();
+    loginAttempts = createLoginAttemptsMock();
     jwtService = new JwtService({
       secret: CONFIG['auth.secretToken'] as string,
     });
@@ -102,10 +114,13 @@ describe('AuthService', () => {
       new MembershipService(prisma as unknown as PrismaService),
       new AccountTypeService(prisma as unknown as PrismaService),
       sessions as unknown as AuthSessionService,
+      loginAttempts as unknown as LoginAttemptsService,
       jwtService,
       createConfigMock(),
       createStorageMock(),
-      new CandidateEntitlementsService(prisma as unknown as PrismaService),
+      new CandidateEntitlementsService(
+        new DbPlanSource(prisma as unknown as PrismaService),
+      ),
     );
   });
 
@@ -134,15 +149,23 @@ describe('AuthService', () => {
       role: Role.OWNER,
     });
     const createCandidateAccount = jest.fn();
+    const createOutboxEvent = jest.fn();
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
       fn({
         user: { create: createUser },
         organization: { create: createOrg },
         organizationMember: { create: createMembership },
         candidateAccount: { create: createCandidateAccount },
+        notificationOutboxEvent: { create: createOutboxEvent },
       }),
     );
-    return { createUser, createOrg, createMembership, createCandidateAccount };
+    return {
+      createUser,
+      createOrg,
+      createMembership,
+      createCandidateAccount,
+      createOutboxEvent,
+    };
   }
 
   /** Transaction stub for the candidate registration path. */
@@ -159,15 +182,23 @@ describe('AuthService', () => {
       .mockResolvedValue({ id: 'acct-1', userId: 'user-9' });
     const createOrg = jest.fn();
     const createMembership = jest.fn();
+    const createOutboxEvent = jest.fn();
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
       fn({
         user: { create: createUser },
         organization: { create: createOrg },
         organizationMember: { create: createMembership },
         candidateAccount: { create: createCandidateAccount },
+        notificationOutboxEvent: { create: createOutboxEvent },
       }),
     );
-    return { createUser, createOrg, createMembership, createCandidateAccount };
+    return {
+      createUser,
+      createOrg,
+      createMembership,
+      createCandidateAccount,
+      createOutboxEvent,
+    };
   }
 
   describe('registerOrganization', () => {
@@ -552,6 +583,104 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'nobody@example.test', password: 'whatever' }),
       ).rejects.toThrow('Invalid credentials');
+    });
+
+    describe('lockout wiring', () => {
+      it('a locked identity gets 429 + retryAfterSeconds BEFORE any lookup or hash work', async () => {
+        loginAttempts.checkBeforeAttempt.mockResolvedValue({
+          locked: true,
+          retryAfterSeconds: 842,
+        });
+
+        await expect(
+          service.login(
+            { email: 'Dana@Northwind-Labs.test', password: 'whatever' },
+            { ip: '203.0.113.7' },
+          ),
+        ).rejects.toMatchObject({
+          response: {
+            statusCode: 429,
+            code: 'LOGIN_TEMPORARILY_LOCKED',
+            retryAfterSeconds: 842,
+          },
+        });
+        // No expensive work happened behind the lock.
+        expect(prisma.user.findUnique).not.toHaveBeenCalled();
+        // The identity was normalized before scoping.
+        expect(loginAttempts.checkBeforeAttempt).toHaveBeenCalledWith(
+          'dana@northwind-labs.test',
+          '203.0.113.7',
+        );
+      });
+
+      it('a wrong password records a failure with the normalized identity and IP', async () => {
+        prisma.user.findUnique.mockResolvedValue(await storedUser([]));
+
+        await expect(
+          service.login(
+            { email: 'dana@northwind-labs.test', password: 'wrong' },
+            { ip: '203.0.113.7' },
+          ),
+        ).rejects.toBeInstanceOf(UnauthorizedException);
+        expect(loginAttempts.recordFailure).toHaveBeenCalledWith(
+          'dana@northwind-labs.test',
+          '203.0.113.7',
+        );
+        expect(loginAttempts.recordSuccess).not.toHaveBeenCalled();
+      });
+
+      it('an unknown email records a failure exactly like a wrong password (no oracle)', async () => {
+        prisma.user.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.login(
+            { email: 'nobody@example.test', password: 'whatever' },
+            { ip: '203.0.113.7' },
+          ),
+        ).rejects.toThrow('Invalid credentials');
+        expect(loginAttempts.recordFailure).toHaveBeenCalledWith(
+          'nobody@example.test',
+          '203.0.113.7',
+        );
+      });
+
+      it('a successful login resets the failure state', async () => {
+        prisma.user.findUnique.mockResolvedValue(await storedUser([]));
+
+        await service.login(
+          {
+            email: 'dana@northwind-labs.test',
+            password: 'CorrectHorseBattery1',
+          },
+          { ip: '203.0.113.7' },
+        );
+        expect(loginAttempts.recordSuccess).toHaveBeenCalledWith(
+          'dana@northwind-labs.test',
+          '203.0.113.7',
+        );
+        expect(loginAttempts.recordFailure).not.toHaveBeenCalled();
+      });
+
+      it('a wrong-door login (verified password) still counts as success, not failure', async () => {
+        prisma.user.findUnique.mockResolvedValue(
+          await storedUser([], AccountType.ORGANIZATION),
+        );
+
+        await expect(
+          service.login(
+            {
+              email: 'dana@northwind-labs.test',
+              password: 'CorrectHorseBattery1',
+              accountType: AccountType.CANDIDATE,
+            },
+            { ip: '203.0.113.7' },
+          ),
+        ).rejects.toMatchObject({
+          response: { code: 'AUTH_ACCOUNT_TYPE_MISMATCH' },
+        });
+        expect(loginAttempts.recordSuccess).toHaveBeenCalled();
+        expect(loginAttempts.recordFailure).not.toHaveBeenCalled();
+      });
     });
   });
 

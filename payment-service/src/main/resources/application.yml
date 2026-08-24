@@ -1,0 +1,64 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: payment-service
+  datasource:
+    url: ${PAYMENT_DB_URL:jdbc:postgresql://localhost:5432/hr_copilot_payments}
+    username: ${PAYMENT_DB_USER:postgres}
+    password: ${PAYMENT_DB_PASSWORD:postgres}
+  jpa:
+    # Flyway owns the schema. Hibernate only checks it agrees.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        # The publisher waits synchronously; do not let the client retry
+        # forever underneath it.
+        delivery.timeout.ms: 8000
+        request.timeout.ms: 4000
+        max.block.ms: 4000
+
+payment:
+  # Shared service-to-service credential. UNSET means every /internal route
+  # answers 401 — a deployment that forgot to configure it exposes nothing.
+  internal-token: ${PAYMENT_INTERNAL_TOKEN:}
+  provider: ${PAYMENT_PROVIDER:MOCK}
+  # HMAC secret for sandbox webhooks. UNSET means no webhook verifies.
+  mock-webhook-secret: ${PAYMENT_MOCK_WEBHOOK_SECRET:}
+  outbox-poll-ms: ${PAYMENT_OUTBOX_POLL_MS:2000}
+  outbox-batch-size: ${PAYMENT_OUTBOX_BATCH_SIZE:50}
+  publish-enabled: ${PAYMENT_OUTBOX_PUBLISH_ENABLED:true}
+  toss:
+    base-url: ${TOSS_PAYMENTS_BASE_URL:https://api.tosspayments.com}
+    client-key: ${TOSS_PAYMENTS_CLIENT_KEY:}
+    secret-key: ${TOSS_PAYMENTS_SECRET_KEY:}
+    success-url: ${TOSS_PAYMENTS_SUCCESS_URL:}
+    fail-url: ${TOSS_PAYMENTS_FAIL_URL:}
+    # Where the BROWSER is redirected after the callback endpoints finish —
+    # the frontend result pages. Fixed configuration; never request-derived.
+    browser-success-url: ${TOSS_PAYMENTS_BROWSER_SUCCESS_URL:}
+    browser-fail-url: ${TOSS_PAYMENTS_BROWSER_FAIL_URL:}
+    method: ${TOSS_PAYMENTS_METHOD:FOREIGN_EASY_PAY}
+    foreign-easy-pay-provider: ${TOSS_PAYMENTS_FOREIGN_EASY_PAY_PROVIDER:PAYPAL}
+    connect-timeout-ms: ${TOSS_PAYMENTS_CONNECT_TIMEOUT_MS:2000}
+    request-timeout-ms: ${TOSS_PAYMENTS_REQUEST_TIMEOUT_MS:5000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true

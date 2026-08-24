@@ -10,6 +10,7 @@ const ORGANIZATION_ROUTE_PREFIXES = [
   "/compare",
   "/processing",
   "/settings",
+  "/plans",
   "/workspaces",
 ] as const;
 
@@ -17,7 +18,7 @@ export function defaultRouteForAccountType(
   accountType: AccountType,
   hasActiveOrganization = false,
 ): string {
-  if (accountType === "CANDIDATE") return "/jobs";
+  if (accountType === "CANDIDATE") return "/home";
   return hasActiveOrganization ? "/dashboard" : "/workspaces";
 }
 

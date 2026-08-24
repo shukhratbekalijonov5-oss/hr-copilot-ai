@@ -122,7 +122,28 @@ const en = {
     } as Plural,
   },
 
+  theme: {
+    switchToDark: "Switch to dark theme",
+    switchToLight: "Switch to light theme",
+  },
+
+  palette: {
+    title: "Quick navigation",
+    open: "Open quick navigation",
+    placeholder: "Jump to a page...",
+    empty: "No matching page.",
+    hint: "Enter to open · Arrow keys to move · Esc to close",
+  },
+
   nav: {
+    sectionHiring: "Hiring",
+    sectionAiTools: "AI tools",
+    upgradeHint: "Unlock AI job matching across every open role.",
+    sectionHome: "Home",
+    sectionCareer: "Career",
+    sectionProfile: "Profile",
+    sectionAccount: "Account",
+    home: "Dashboard",
     sectionWorkspace: "Workspace",
     sectionJobSearch: "Job search",
     sectionFindJobs: "Find jobs",
@@ -166,6 +187,9 @@ const en = {
   },
 
   notifications: {
+      groupToday: "Today",
+      groupWeek: "This week",
+      groupEarlier: "Earlier",
     title: "Notifications",
     bellLabel: "Open notifications",
     bellUnreadLabel: "Open notifications, {count} unread",
@@ -184,6 +208,7 @@ const en = {
     },
     errors: {
       load: "Could not load notifications.",
+      unavailable: "Notifications are temporarily unavailable. Try again shortly.",
       markRead: "Could not mark this notification as read.",
       markAll: "Could not mark notifications as read.",
     },
@@ -771,14 +796,9 @@ const en = {
   settings: {
     title: "Settings",
     description: "Your profile, the organization, and who has access.",
-    tabProfile: "Profile",
-    tabOrganization: "Organization",
-    tabTeam: "Team",
-    tabIntegrations: "Integrations",
-    tabSecurity: "Security",
-    tabLanguage: "Language",
     yourProfile: "Your profile",
     yourProfileHint: "How you appear to the rest of the workspace.",
+    accountEmailNote: "Important account and subscription emails are sent to your account email.",
     fullName: "Full name",
     email: "Email",
     organization: "Organization",
@@ -822,6 +842,86 @@ const en = {
     organizationUrl: "Organization URL",
     organizationUrlPlaceholder: "https://northwind.example",
     organizationUrlHint: "Optional. Shown on your workspace; leave blank to remove it.",
+  },
+
+  home: {
+    entries: {
+      internalHint: "Rank every open role on HR Copilot against your evidence.",
+      externalHint: "Search roles published on employers' own career sites.",
+    },
+    banner: {
+      title: "Better evidence, better matches",
+      description:
+        "AI matching reads your resume, links and profile. The more it can read, the more precise every ranking becomes.",
+      action: "Improve your profile",
+    },
+    title: "Your job search",
+    greeting: "Welcome back, {name}",
+    subtitle:
+      "Everything your applications and AI matches are built from, in one place.",
+    findMatchingJobs: "Find matching jobs",
+    updateResume: "Update resume",
+    readiness: {
+      title: "Profile readiness",
+      summary: "{done} of {total} complete",
+      complete: "Complete",
+      allDone: "Your profile is ready to be matched.",
+      resume: "Add a resume",
+      resumeHint: "Your resume is the main evidence AI matching reads.",
+      resumeDone: "Resume uploaded",
+      links: "Add a portfolio link",
+      linksHint: "GitHub, a personal site or any public work.",
+      linksDone: "Portfolio link added",
+      preferences: "Set job preferences",
+      preferencesHint: "Say what you are looking for so matches fit.",
+      preferencesDone: "Job preferences set",
+      profile: "Complete your profile",
+      profileHint: "A headline and a few skills help recruiters place you.",
+      profileDone: "Profile details added",
+      add: "Add",
+    },
+    stats: {
+      activeApplications: "Active applications",
+      activeApplicationsHint: "Still open with an employer.",
+      savedJobs: "Saved jobs",
+      savedJobsHint: "Your shortlist.",
+      evidence: "Evidence sources",
+      evidenceHint: "Files and links AI matching reads.",
+      strongMatches: "Strong matches",
+      strongMatchesHint: "Roles your evidence covers well.",
+    },
+    pipeline: {
+      title: "Application pipeline",
+      description: "Where your applications stand right now.",
+      applied: "Applied",
+      review: "In review",
+      interview: "Interview",
+      decision: "Decision",
+      empty: "No applications yet",
+      emptyHint: "Jobs you apply to appear here with their stage.",
+      viewAll: "View all applications",
+    },
+    matches: {
+      title: "Top AI matches",
+      description: "Ranked from the evidence on your profile.",
+      viewAll: "View all matches",
+      view: "View match",
+      sourceInternal: "HR Copilot",
+      sourceExternal: "External",
+      empty: "No matches yet",
+      emptyHint:
+        "Add a resume or a portfolio link, then run AI job matching.",
+      unavailable: "Matches could not be loaded",
+      unavailableHint: "Open AI Job Match to try again.",
+      lockedHint:
+        "AI job matching ranks every open role against your own evidence.",
+      run: "Open AI Job Match",
+      needsEvidence: "Add evidence first",
+    },
+    recent: {
+      title: "Recent applications",
+      viewAll: "View all",
+    },
   },
 
   personal: {
@@ -2420,6 +2520,74 @@ const en = {
     },
   },
 
+  recruiterPlans: {
+    title: "Plans for recruiters",
+    description: "Recruiter AI sourcing plans are coming soon.",
+    comingSoon: "Coming soon",
+    previewNotice:
+      "This page is a preview of where HR Copilot for recruiters is heading. Nothing here can be purchased yet, and no recruiter plan is active on your workspace.",
+    currentlyIncluded: "Available today",
+    planned: "Planned",
+    pricingComingSoon: "Pricing coming soon",
+    free: "$0",
+    perMonth: "per month",
+    tiers: {
+      FREE: {
+        name: "Free",
+        tagline: "Everything your team uses in HR Copilot today.",
+        features: [
+          "Create and manage vacancies",
+          "Receive and review applications",
+          "Candidate evidence and AI search",
+          "Interview chats and candidate comparison",
+        ],
+      },
+      PRO: {
+        name: "Pro",
+        tagline: "Planned: find candidates beyond the people who applied.",
+        features: [
+          "External AI candidate search",
+          "Vacancy-grounded candidate sourcing",
+          "AI candidate ranking against one vacancy",
+          "Source-aware candidate discovery",
+          "Advanced candidate match explanations",
+        ],
+      },
+      MAX: {
+        name: "Max",
+        tagline: "Planned: sourcing across several external sources at once.",
+        features: [
+          "Everything planned for Pro",
+          "Multi-source AI sourcing",
+          "Cross-source candidate discovery",
+          "Advanced candidate comparison",
+          "Sourcing insights",
+          "Priority AI workflows",
+        ],
+      },
+    },
+    sourcing: {
+      title: "AI candidate sourcing — coming soon",
+      description:
+        "The planned flow: pick one of your vacancies, and HR Copilot searches external sources for relevant profiles and ranks them against that vacancy.",
+      steps: [
+        "Select your vacancy",
+        "HR Copilot AI",
+        "Search planned external sources",
+        "Rank relevant candidates",
+        "Review evidence",
+      ],
+      sourcesTitle: "Planned sources",
+      sourcesNote:
+        "No source here can be searched yet. They describe the intended direction, not an existing feature.",
+    },
+    roadmap: {
+      title: "More recruiter AI tools are coming.",
+      description:
+        "Future releases will expand AI-assisted sourcing and vacancy-based candidate discovery.",
+    },
+  },
+
   plans: {
     title: "Plans",
     description:
@@ -2431,8 +2599,129 @@ const en = {
     priceMonthly: "${amount}/month",
     currentPlan: "Current plan",
     currentPlanIs: "You are on {plan}.",
+    notReported: "Current plan not reported by the server.",
     noCheckoutNote:
       "Payment is not available yet, so nothing can be purchased from this page. It is here so you can see what each plan includes.",
+    planOptions: "Plan options",
+    planOptionsDescription:
+      "Paid upgrades open checkout. Your current plan changes only after the backend reports the new state.",
+    capabilities: "Capabilities",
+    features: "Features",
+    noPaidCapabilities: "No paid AI capabilities.",
+    capabilityNames: {
+      INTERNAL_AI_SEARCH: "Internal AI Job Search",
+      EXTERNAL_AI_SEARCH: "External AI Job Search",
+    },
+    actions: {
+      upgradeTo: "Upgrade to {plan}",
+      downgradeTo: "Downgrade to {plan}",
+      choosePlan: "Choose {plan}",
+      paymentSetupComingSoon: "Payment setup coming soon.",
+      checkoutHint: "You will confirm before leaving for checkout.",
+      downgradeUnavailable: "Downgrades are not available here yet.",
+      freePlanNoCheckout: "The free plan does not need checkout.",
+    },
+    demoCheckout: {
+      title: "Checkout",
+      demoBadge: "Demo checkout",
+      openDemo: "Demo payment — {plan}",
+      devOnlyNote:
+        "Dev only. Uses the existing safe plan switch — no card is charged and no payment is created.",
+      brand: "HR Copilot AI",
+      orderSummary: "Order summary",
+      selectedPlan: "Selected plan",
+      billedMonthly: "Billed monthly",
+      subtotal: "Subtotal",
+      totalDueToday: "Total due today",
+      paymentDetails: "Payment details",
+      cardholder: "Cardholder name",
+      cardholderPlaceholder: "Alex Morgan",
+      cardNumber: "Card number",
+      expiry: "Expiry (MM/YY)",
+      cvc: "CVC",
+      saveCard: "Save card for next time",
+      pay: "Pay ${amount}",
+      close: "Close checkout",
+      demoNote:
+        "Demo checkout. Card details are never sent, stored or logged — they stay in this browser and are cleared when the dialog closes.",
+      realCheckoutNote:
+        "This environment uses the real payment provider. Continue to pay securely on their page.",
+      continueToProvider: "Continue to payment provider",
+      successTitle: "Payment complete",
+      successBody: "{plan} is active. Your plan was refreshed from the server.",
+      done: "Done",
+      errors: {
+        required: "Required.",
+        invalidCardNumber: "Enter a card number of 13 to 19 digits.",
+        invalidExpiry: "Use MM/YY.",
+        invalidCvc: "Enter 3 or 4 digits.",
+        formInvalid: "Check the highlighted fields.",
+      },
+    },
+    checkout: {
+      confirmTitle: "Start checkout for {plan}?",
+      chargedAsKrw: "${usd}/month — charged as ₩{krw} via Toss.",
+      confirmDescription:
+        "{plan} is {price}. You will go to the payment provider next. Your plan will not change until the backend confirms payment.",
+      continue: "Continue to payment",
+      errors: {
+        invalidTransition: "That plan change is not available yet.",
+        unauthenticated: "Sign in again to continue.",
+      forbidden: "This account cannot start checkout.",
+        routeUnavailable: "Checkout is not available in this environment.",
+        conflict: "A checkout is already in progress. Try again in a moment.",
+        paymentUnavailable:
+          "Payment service is temporarily unavailable. Try again shortly.",
+        checkoutUnavailable: "Checkout is unavailable right now. Try again shortly.",
+      },
+    },
+    billing: {
+      title: "Billing summary",
+      subscriptionStatus: "Subscription status",
+      effectiveUntil: "Effective until",
+      backendCapabilities: "Backend-provided capabilities",
+      unknownStatus: "Status: {status}",
+      subscriptionStatuses: {
+        PENDING: "Pending",
+        ACTIVE: "Active",
+        PAST_DUE: "Past due",
+        CANCEL_AT_PERIOD_END: "Cancels at period end",
+        CANCELLED: "Cancelled",
+        EXPIRED: "Expired",
+      },
+      errors: {
+        billingUnavailable:
+          "Billing information is temporarily unavailable. Try again shortly.",
+        unauthenticated: "Sign in again to view billing.",
+        forbidden: "This account cannot view billing.",
+      },
+    },
+    devSwitch: {
+      title: "Developer Plan Switch",
+      description:
+        "Dev/test only. The switch posts to the NestJS BFF, then refreshes billing and auth before this page changes.",
+      devOnly: "Development only",
+      switchTo: "Switch to {plan}",
+      confirmTitle: "Switch to {plan}?",
+      confirmDescription:
+        "The page will wait for the backend response and then refetch the authoritative billing and capability state.",
+      confirm: "Switch plan",
+      switching: "Switching plan...",
+      planUpdated: "Plan updated from backend state.",
+      alreadyOnThisPlan: "Already on this plan.",
+      errors: {
+        invalidTransition: "That plan switch is not available.",
+        unauthenticated: "Sign in again to switch plans.",
+        forbidden: "This account cannot switch plans.",
+        routeUnavailable: "Developer plan switch is not available here.",
+        conflict: "The plan switch conflicts with current billing state.",
+        paymentUnavailable:
+          "Payment service is temporarily unavailable. Try again shortly.",
+        refreshFailed:
+          "The switch finished, but the page could not refresh billing state. Try again.",
+        switchUnavailable: "Plan switching is unavailable right now.",
+      },
+    },
     locked: {
       INTERNAL_AI_SEARCH: {
         title: "Internal AI Job Search",

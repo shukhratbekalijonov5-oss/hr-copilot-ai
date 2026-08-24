@@ -1,7 +1,9 @@
 "use client";
 
 import { Badge, Chip } from "@/components/ui/Badge";
-import { Card } from "@/components/ui/Card";
+import { CandidateCard } from "@/components/candidate/ui";
+import { MatchScoreRing } from "@/components/candidate/ui/MatchScore";
+import { bandFor } from "@/lib/candidate/dashboard";
 import { buttonStyles } from "@/components/ui/Button";
 import {
   BriefcaseIcon,
@@ -63,7 +65,7 @@ export function ExternalJobCard({
    */
   personal: ExternalPersonalStateApi;
 }) {
-  const { d, f, p, n, date } = useI18n();
+  const { d, f, p, date } = useI18n();
 
   const locations = externalLocationSummary(job, d);
   const remote = externalRemoteScope(job, d);
@@ -79,7 +81,7 @@ export function ExternalJobCard({
   const seniority = externalSeniorityLabel(job.seniorityLevel, d);
 
   return (
-    <Card className="flex h-full flex-col gap-3 p-4">
+    <CandidateCard interactive className="flex h-full flex-col gap-3 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           {statusNotice ? (
@@ -116,17 +118,19 @@ export function ExternalJobCard({
           interpret an integer.
         */}
         <div className="flex shrink-0 items-start gap-2">
-          <div className="text-right">
-            <p
-              className="text-[19px] font-semibold leading-none tabular-nums text-ink"
-              aria-label={f(d.externalJobs.scoreValue, { score: job.score })}
-            >
-              {n(job.score)}
-            </p>
+          <div className="flex flex-col items-end gap-1">
+            {/*
+              The same 44px ring the internal matches use, so one score means
+              one thing across both universes. The band underneath is still
+              the part that carries meaning without interpreting an integer.
+            */}
+            <MatchScoreRing
+              percent={Math.round(job.score)}
+              band={bandFor(job.band ?? "")}
+              label={f(d.externalJobs.scoreValue, { score: job.score })}
+            />
             {band ? (
-              <p className="mt-1 text-[11px] leading-tight text-ink-muted">
-                {band}
-              </p>
+              <p className="text-[11px] leading-tight text-ink-muted">{band}</p>
             ) : null}
           </div>
           {/*
@@ -276,6 +280,6 @@ export function ExternalJobCard({
           ) : null}
         </p>
       ) : null}
-    </Card>
+    </CandidateCard>
   );
 }

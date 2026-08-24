@@ -4,77 +4,141 @@
 /* Design tokens                                                       */
 /* ------------------------------------------------------------------ */
 
+/*
+ * ONE definition per theme.
+ *
+ * Light lives on `:root`; dark lives on `.theme-dark`. There is deliberately
+ * no `prefers-color-scheme` block duplicating the dark palette — the boot
+ * script in `app/layout.tsx` resolves the system preference before first
+ * paint and always writes an explicit class, so the media query would be a
+ * second copy of forty values that could silently drift from this one.
+ * Without JavaScript the product renders in light, which is a complete
+ * design rather than a broken one.
+ */
 :root {
-  --canvas: #f6f7f9;
+  /* Blush. A warm, very pale pink page under white surfaces — the warmth is
+     what separates this from every cool-grey admin console, and it is kept
+     under 3% saturation so it reads as "considered", never as "candy". */
+  --page: #fff8fb;
+  --canvas: #fff8fb;
   --surface: #ffffff;
-  --surface-muted: #f2f4f7;
-  --line: #e3e7ed;
-  --line-strong: #cdd4de;
+  --surface-raised: #fffbfd;
+  --elevated: #fffbfd;
+  --surface-muted: #faf7fb;
 
-  --ink: #101828;
-  --ink-muted: #5a6478;
-  --ink-subtle: #8b93a4;
+  --border: #f0e3ea;
+  --line: #f0e3ea;
+  --line-strong: #e9dde6;
+
+  --text: #17151d;
+  --ink: #17151d;
+  --text-muted: #6f6877;
+  --ink-muted: #6f6877;
+  --ink-subtle: #968e9c;
   --ink-inverted: #ffffff;
 
-  --brand: #3f4ce0;
-  --brand-hover: #3540c4;
-  --brand-soft: #edeeff;
-  --brand-ink: #2f39b0;
+  --primary: #6757f5;
+  --primary-hover: #5747e2;
+  --brand: #6757f5;
+  --brand-hover: #5747e2;
+  --accent-soft: #f2eeff;
+  --brand-soft: #f2eeff;
+  --brand-ink: #4a3ac9;
 
-  --positive: #067647;
-  --positive-soft: #e7f6ee;
-  --warning: #a15c07;
-  --warning-soft: #fdf3e2;
-  --critical: #b42318;
-  --critical-soft: #fdecea;
-  --info: #175cd3;
-  --info-soft: #e8f0fd;
-  --neutral-soft: #f0f2f5;
+  --success: #047857;
+  --positive: #047857;
+  --positive-soft: #e6f6f0;
+  --warning: #b45309;
+  --warning-soft: #fdf4e3;
+  --danger: #be123c;
+  --critical: #be123c;
+  --critical-soft: #fdeaee;
+  --info: #1d4ed8;
+  --info-soft: #e9effd;
+  --neutral-soft: #f7f1f6;
 
-  --ring: #97a0ff;
-  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.05);
-  --shadow-pop: 0 12px 32px -8px rgb(16 24 40 / 0.18);
-}
+  /* The background grid: pink-violet hairlines, barely there. */
+  --grid-color: rgb(103 87 245 / 0.045);
+  --grid-size: 32px;
+  /* Ambient wash behind hero and AI surfaces. */
+  --ai-glow: rgb(103 87 245 / 0.10);
+  --ai-glow-warm: rgb(236 130 175 / 0.10);
 
-.theme-dark,
-:root:not(.theme-light) {
+  --ai-tint: #f8f5ff;
+  --ai-line: #e6ddfb;
+  --ai-ink: #5a45d6;
+
+  --ring: #a99cfa;
+  --shadow-card: 0 1px 2px rgb(69 39 58 / 0.04);
+  --shadow-raised: 0 1px 2px rgb(69 39 58 / 0.04), 0 6px 20px -10px rgb(69 39 58 / 0.12);
+  --shadow-pop: 0 16px 40px -12px rgb(69 39 58 / 0.16), 0 2px 8px -4px rgb(69 39 58 / 0.08);
+  --shadow-glow: 0 0 0 1px rgb(103 87 245 / 0.10), 0 8px 28px -10px rgb(103 87 245 / 0.28);
+
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 250ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not(.theme-light) {
-    --canvas: #0b0d12;
-    --surface: #12151c;
-    --surface-muted: #181c25;
-    --line: #242a35;
-    --line-strong: #333a48;
+.theme-dark {
+  /* Deep navy, never black. Blue-black surfaces let an indigo accent glow
+     without turning neon — on true black the same accent reads as a screen
+     defect rather than as light. */
+  --page: #06101f;
+  --canvas: #06101f;
+  --surface: #0b1728;
+  --surface-raised: #10213a;
+  --elevated: #081426;
+  --surface-muted: #10213a;
 
-    --ink: #e7eaf0;
-    --ink-muted: #98a1b2;
-    --ink-subtle: #6f7889;
-    --ink-inverted: #0b0d12;
+  --border: #1c3150;
+  --line: #1c3150;
+  --line-strong: #2a4368;
 
-    --brand: #7b84ff;
-    --brand-hover: #949bff;
-    --brand-soft: #1c1f36;
-    --brand-ink: #aeb4ff;
+  --text: #f5f7fb;
+  --ink: #f5f7fb;
+  --text-muted: #a8b4c7;
+  --ink-muted: #a8b4c7;
+  --ink-subtle: #718096;
+  --ink-inverted: #06101f;
 
-    --positive: #4ade9b;
-    --positive-soft: #10241c;
-    --warning: #f0b34e;
-    --warning-soft: #261e10;
-    --critical: #f97066;
-    --critical-soft: #2a1414;
-    --info: #6ba5f7;
-    --info-soft: #101c2e;
-    --neutral-soft: #1b1f28;
+  --primary: #6c63ff;
+  --primary-hover: #7c73ff;
+  --brand: #6c63ff;
+  --brand-hover: #7c73ff;
+  --accent-soft: #16204a;
+  --brand-soft: #16204a;
+  --brand-ink: #b3adff;
 
-    --ring: #5b64c9;
-    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
-    --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.6);
+  --success: #34d399;
+  --positive: #34d399;
+  --positive-soft: #0b2a26;
+  --warning: #fbbf5a;
+  --warning-soft: #2a2113;
+  --danger: #fb7185;
+  --critical: #fb7185;
+  --critical-soft: #2c1622;
+  --info: #7aa7f8;
+  --info-soft: #10203a;
+  --neutral-soft: #122034;
 
-    color-scheme: dark;
-  }
+  --grid-color: rgb(124 115 255 / 0.07);
+  --ai-glow: rgb(108 99 255 / 0.20);
+  --ai-glow-warm: rgb(56 130 246 / 0.16);
+
+  --ai-tint: #101c33;
+  --ai-line: #2b3a63;
+  --ai-ink: #a99dff;
+
+  --ring: #7c73ff;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 20px -10px rgb(0 0 0 / 0.6);
+  --shadow-pop: 0 20px 48px -16px rgb(0 0 0 / 0.7), 0 2px 8px -4px rgb(0 0 0 / 0.5);
+  --shadow-glow: 0 0 0 1px rgb(124 115 255 / 0.22), 0 10px 34px -12px rgb(108 99 255 / 0.5);
+
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -103,6 +167,13 @@
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --color-neutral-soft: var(--neutral-soft);
+  --color-elevated: var(--elevated);
+  --color-surface-raised: var(--surface-raised);
+
+  --color-ai-tint: var(--ai-tint);
+  --color-ai-line: var(--ai-line);
+  --color-ai-ink: var(--ai-ink);
+  --color-ai-glow: var(--ai-glow);
 
   --color-ring: var(--ring);
 
@@ -111,6 +182,8 @@
 
   --shadow-card: var(--shadow-card);
   --shadow-pop: var(--shadow-pop);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-glow: var(--shadow-glow);
 }
 
 /* ------------------------------------------------------------------ */
@@ -126,16 +199,76 @@
     -webkit-text-size-adjust: 100%;
   }
 
+  /*
+   * The page grid.
+   *
+   * Two repeating linear-gradients on a fixed pseudo-element: one set of
+   * vertical hairlines, one horizontal, at 32px. It lives on `body::before`
+   * rather than on `body` itself so it never scrolls with content and never
+   * enters layout, and it is masked to fade out toward the bottom so long
+   * reading pages end on a plain surface instead of a graph.
+   *
+   * `--grid-color` is under 5% opacity in both themes: enough to give the
+   * page character in a screenshot, not enough to compete with a sentence.
+   */
   body {
     background-color: var(--canvas);
     color: var(--ink);
     font-family: var(--font-sans);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    /* Theme switching fades rather than snaps. */
+    transition:
+      background-color var(--motion-slow) var(--ease-out),
+      color var(--motion-slow) var(--ease-out);
   }
 
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, var(--grid-color) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+    background-size: var(--grid-size) var(--grid-size);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 92%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 92%);
+  }
+
+  /*
+   * One faint luminous wash anchored top-left, so the grid is not the only
+   * thing happening in the background. In dark mode this is the blue-violet
+   * ambience the theme is built around; in light it is a blush bloom.
+   */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: -10rem auto auto -10rem;
+    width: 46rem;
+    height: 34rem;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(50% 50% at 40% 30%, var(--ai-glow) 0%, transparent 70%),
+      radial-gradient(45% 45% at 70% 55%, var(--ai-glow-warm) 0%, transparent 72%);
+  }
+
+  /* Content sits above both layers. */
+  body > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /*
+   * A soft ring rather than a hard 2px outline: same visibility, far less
+   * jarring on a dense form. The offset keeps it clear of the control's own
+   * border so the two never merge into one thick line.
+   */
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+    border-radius: 0.5rem;
   }
 
   ::selection {
@@ -145,6 +278,185 @@
 }
 
 @layer utilities {
+  /*
+   * One hover treatment for every candidate card, so a whole page of them
+   * reacts identically. Border + lift only: no scale, no colour shift, and
+   * nothing that moves surrounding content.
+   */
+  .card-interactive {
+    transition:
+      border-color var(--motion-fast) var(--ease-out),
+      box-shadow var(--motion-fast) var(--ease-out),
+      background-color var(--motion-fast) var(--ease-out);
+  }
+
+  .card-interactive:hover {
+    border-color: var(--line-strong);
+    box-shadow: var(--shadow-raised);
+    transform: translateY(-1px);
+  }
+
+  /*
+   * The ambient wash behind a signature page.
+   *
+   * One radial, anchored off the top edge, at 7% opacity — enough that the
+   * page stops reading as a white document, faint enough that a screenshot
+   * still looks like enterprise software rather than a landing page. It sits
+   * in a pseudo-element so it never participates in layout and never has to
+   * be threaded through a component's markup.
+   */
+  .ambient-hero {
+    position: relative;
+  }
+
+  .ambient-hero::before {
+    content: "";
+    position: absolute;
+    inset: -9rem -20% auto -20%;
+    height: 30rem;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(52% 60% at 42% 0%, var(--ai-glow) 0%, transparent 68%),
+      radial-gradient(45% 55% at 78% 12%, var(--ai-glow-warm) 0%, transparent 70%);
+  }
+
+  .ambient-hero > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /*
+   * The AI edge: a 1px accent line along the top of a generated surface.
+   * A gradient that fades out at both ends, so it reads as a highlight rather
+   * than a coloured border — the cheapest way to make "a model wrote this"
+   * visible without tinting a whole box purple.
+   */
+  .ai-edge {
+    position: relative;
+  }
+
+  .ai-edge::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--ai-ink) 22%,
+      var(--ai-ink) 78%,
+      transparent 100%
+    );
+    opacity: 0.5;
+  }
+
+  /*
+   * The primary button's inner highlight: a hairline of white along the top
+   * edge, which is what separates a considered button from a flat fill. Two
+   * inset shadows rather than a gradient, so the fill colour stays a token.
+   */
+  .btn-raised {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      0 1px 2px rgb(20 24 40 / 0.10);
+  }
+
+  /*
+   * Dark mode gives the primary CTA a very short indigo→violet ramp and a
+   * coloured bloom. In light mode the flat accent already reads as solid, and
+   * a gradient there only makes the button look like a 2014 web app.
+   */
+  .theme-dark .btn-raised {
+    background-image: linear-gradient(180deg, #7c73ff 0%, #6c63ff 100%);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.14),
+      0 4px 18px -6px rgb(108 99 255 / 0.55);
+  }
+
+  .theme-dark .btn-raised:hover {
+    background-image: linear-gradient(180deg, #8b83ff 0%, #7168ff 100%);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      0 6px 22px -6px rgb(124 115 255 / 0.7);
+  }
+
+  .btn-raised:hover {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.22),
+      0 2px 10px -2px var(--ai-glow);
+  }
+
+  /*
+   * The AI halo: a hairline accent ring plus a soft coloured bloom. Reserved
+   * for the surfaces the brief names — hero, AI CTA, the strongest match —
+   * and never applied to a text-heavy list, where a glow behind paragraphs
+   * only makes them harder to read. It is markedly stronger in dark mode
+   * because that is where a glow actually reads as light.
+   */
+  .ai-halo {
+    box-shadow: var(--shadow-glow);
+  }
+
+  /*
+   * Mouse-follow spotlight, for a handful of important cards only.
+   *
+   * The gradient is painted into a pseudo-element that is transparent until
+   * hover, so a card costs nothing until it is pointed at. Position comes
+   * from two custom properties written by `useSpotlight`; when JS has not
+   * run, or the pointer never entered, the defaults centre it harmlessly.
+   *
+   * Deliberately NOT applied to table rows or list items: a spotlight that
+   * follows the cursor down a dense list is a distraction, not a delight.
+   */
+  .spotlight {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .spotlight::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+      16rem 16rem at var(--spot-x, 50%) var(--spot-y, 50%),
+      var(--ai-glow) 0%,
+      transparent 68%
+    );
+    transition: opacity var(--motion-base) var(--ease-out);
+  }
+
+  .spotlight:hover::after {
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spotlight::after {
+      display: none;
+    }
+  }
+
+  /* A soft accent surface for the sidebar upgrade card and AI banners. */
+  .accent-panel {
+    background:
+      radial-gradient(120% 140% at 0% 0%, var(--ai-glow) 0%, transparent 62%),
+      var(--surface-raised);
+  }
+
+  /* Modal/drawer entrance. Short, and disabled under reduced motion below. */
+  .animate-pop-in {
+    animation: pop-in var(--motion-base) var(--ease-out);
+  }
+
+  .animate-fade-in {
+    animation: fade-in var(--motion-base) var(--ease-out);
+  }
+
   .skeleton {
     background-image: linear-gradient(
       90deg,
@@ -159,6 +471,26 @@
   .scrollbar-slim {
     scrollbar-width: thin;
     scrollbar-color: var(--line-strong) transparent;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 

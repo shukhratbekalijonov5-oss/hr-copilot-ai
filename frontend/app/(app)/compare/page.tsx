@@ -70,7 +70,7 @@ export default async function ComparePage(props: PageProps<"/compare">) {
   }
 
   return (
-    <div className="mx-auto max-w-7xl">
+    <div className="ambient-hero mx-auto max-w-7xl">
       <PageHeader title={d.compare.title} description={d.compare.description} />
       <CompareWorkspace
         // A vacancy switch is a remount, so no state from the previous

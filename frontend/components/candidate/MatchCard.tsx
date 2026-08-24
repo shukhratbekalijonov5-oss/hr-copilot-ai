@@ -6,7 +6,12 @@ import { useId, useState } from "react";
 import { MatchEvidenceList } from "@/components/candidate/MatchEvidenceList";
 import { SaveJobButton } from "@/components/jobs/SaveJobButton";
 import { Badge, Chip, type BadgeTone } from "@/components/ui/Badge";
-import { Card } from "@/components/ui/Card";
+import { AiInsightPanel, CandidateCard } from "@/components/candidate/ui";
+import {
+  MatchBandChip,
+  MatchScoreRing,
+} from "@/components/candidate/ui/MatchScore";
+import { bandFor } from "@/lib/candidate/dashboard";
 import { ApplicationStatusBadge } from "@/components/ui/StatusBadge";
 import {
   BriefcaseIcon,
@@ -16,6 +21,7 @@ import {
 } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
+import { useSpotlight } from "@/lib/ui/use-spotlight";
 import {
   formatMoneyRange,
   matchExplanation,
@@ -49,6 +55,7 @@ export function MatchCard({
   pending: boolean;
 }) {
   const { d } = useI18n();
+  const onPointerMove = useSpotlight();
   const { vacancy } = match;
   // Deterministic, computed from facts the backend already sent. No model is
   // involved and nothing here recalculates a score or converts money.
@@ -62,7 +69,17 @@ export function MatchCard({
     : null;
 
   return (
-    <Card className="flex flex-col gap-4 p-4 sm:p-5">
+    <CandidateCard
+      interactive
+      onPointerMove={onPointerMove}
+      className={cn(
+        "spotlight flex flex-col gap-4 p-4 sm:p-5",
+        // Only STRONG is marked. If every band tinted its border the border
+        // would stop being a signal and become decoration. The halo is what
+        // carries this in dark mode, where an inset rail alone disappears.
+        match.band === "STRONG" && "ai-halo border-brand/30",
+      )}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -109,12 +126,12 @@ export function MatchCard({
       </div>
 
       {match.explanation ? (
-        <p className="rounded-lg border border-line bg-surface-muted/40 px-3 py-2.5 text-[13.5px] leading-relaxed text-ink">
+        <AiInsightPanel title={d.jobMatch.whyMatches}>
           {match.explanation}
-        </p>
+        </AiInsightPanel>
       ) : (
-        <p className="flex items-start gap-2 rounded-lg bg-surface-muted/60 px-3 py-2 text-[12.5px] leading-relaxed text-ink-muted">
-          <SparkIcon className="mt-px size-4 shrink-0" />
+        <p className="flex items-start gap-2 rounded-lg border border-ai-line bg-ai-tint px-3 py-2 text-[12.5px] leading-relaxed text-ink-muted">
+          <SparkIcon className="mt-px size-4 shrink-0 text-ai-ink" />
           {/*
             "Still being written" and "unavailable" look identical on a card
             and mean opposite things. The requirement breakdown below is
@@ -155,7 +172,7 @@ export function MatchCard({
       <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
         <Link
           href={`/jobs/${vacancy.slug}`}
-          className="inline-flex w-full items-center justify-center rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-surface-muted sm:w-auto"
+          className="inline-flex w-full items-center justify-center rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink transition-colors duration-[var(--motion-fast)] hover:border-line-strong hover:bg-surface-muted sm:w-auto"
         >
           {d.jobMatch.viewJob}
         </Link>
@@ -174,22 +191,15 @@ export function MatchCard({
           // confirmation) lives on the job page — one implementation.
           <Link
             href={`/jobs/${vacancy.slug}`}
-            className="inline-flex w-full items-center justify-center rounded-lg bg-brand px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-brand-strong sm:w-auto"
+            className="inline-flex w-full items-center justify-center rounded-lg bg-brand px-3 py-1.5 text-[13px] font-medium text-white transition-colors duration-[var(--motion-fast)] hover:bg-brand-hover sm:w-auto"
           >
             {d.jobs.apply}
           </Link>
         ) : null}
       </div>
-    </Card>
+    </CandidateCard>
   );
 }
-
-const BAND_TONES: Record<MatchBand, BadgeTone> = {
-  STRONG: "positive",
-  GOOD: "positive",
-  PARTIAL: "warning",
-  LOW: "neutral",
-};
 
 /**
  * The band beside the score.
@@ -200,12 +210,7 @@ const BAND_TONES: Record<MatchBand, BadgeTone> = {
 export function MatchBandBadge({ band }: { band: MatchBand }) {
   const { d } = useI18n();
   return (
-    <Badge
-      tone={BAND_TONES[band]}
-      className="px-2 py-1 text-[12px] font-semibold"
-    >
-      {d.jobMatch.band[band]}
-    </Badge>
+    <MatchBandChip band={bandFor(band)}>{d.jobMatch.band[band]}</MatchBandChip>
   );
 }
 
@@ -217,13 +222,22 @@ export function MatchBandBadge({ band }: { band: MatchBand }) {
  */
 function MatchScore({ match }: { match: JobMatch }) {
   const { d, f } = useI18n();
+  const percent = Math.round(match.score);
+
   return (
-    <div className="flex flex-col items-start gap-0.5 sm:items-end">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+    <div className="flex flex-col items-start gap-1 sm:items-end">
+      {/*
+        The ring restates the number the label already gives, so it is marked
+        as an image with the same sentence rather than read twice. Its colour
+        follows the band, which is printed beside the title in words.
+      */}
+      <MatchScoreRing
+        percent={percent}
+        band={bandFor(match.band)}
+        label={`${d.jobMatch.scoreLabel}: ${f(d.jobMatch.scoreValue, { score: match.score })}`}
+      />
+      <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-subtle">
         {d.jobMatch.scoreLabel}
-      </span>
-      <span className="text-[19px] font-semibold leading-none tracking-tight text-ink">
-        {f(d.jobMatch.scoreValue, { score: match.score })}
       </span>
     </div>
   );

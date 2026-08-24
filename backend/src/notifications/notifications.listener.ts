@@ -4,7 +4,7 @@ import {
   DomainEventsService,
   type DomainEventMap,
 } from '../common/events/domain-events.service';
-import { NotificationsService } from './notifications.service';
+import { NotificationOutboxService } from './notification-outbox.service';
 import { toMessagePreview } from './notification-view';
 import {
   ApplicationStatus,
@@ -14,7 +14,13 @@ import {
 } from '../generated/prisma/enums';
 
 /**
- * Turns committed business events into persisted notifications.
+ * Turns committed business events into notification EVENTS.
+ *
+ * Persistence moved to the Java Notification Service: each handler resolves
+ * the recipient exactly as before, then appends one outbox row per
+ * (notification, recipient) — the outbox → Kafka → Java pipeline persists
+ * the row and echoes it back for realtime. Recipient rules, transition
+ * gating and snapshot capture are UNCHANGED.
  *
  * The single place recipient resolution happens, and it only ever reads
  * TRUSTED relationships from the database — vacancy.createdById for HR,
@@ -41,7 +47,7 @@ export class NotificationsListener implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: DomainEventsService,
-    private readonly notifications: NotificationsService,
+    private readonly outbox: NotificationOutboxService,
   ) {}
 
   onModuleInit(): void {
@@ -71,17 +77,19 @@ export class NotificationsListener implements OnModuleInit {
     // The vacancy was deleted between commit and handling — nothing to say.
     if (!vacancy || !candidate) return;
 
-    await this.notifications.create({
-      audience: NotificationAudience.HR,
-      type: NotificationType.NEW_APPLICATION,
-      recipientUserId: vacancy.createdById,
-      organizationId: event.organizationId,
-      vacancyId: event.vacancyId,
-      vacancyTitleSnapshot: vacancy.title,
-      candidateId: event.candidateId,
-      candidateNameSnapshot: candidate.fullName,
-      applicationId: event.applicationId,
-    });
+    await this.outbox.append(
+      NotificationType.NEW_APPLICATION,
+      vacancy.createdById,
+      {
+        audience: NotificationAudience.HR,
+        organizationId: event.organizationId,
+        vacancyId: event.vacancyId,
+        vacancyTitle: vacancy.title,
+        candidateId: event.candidateId,
+        candidateName: candidate.fullName,
+        applicationId: event.applicationId,
+      },
+    );
   }
 
   /**
@@ -109,17 +117,15 @@ export class NotificationsListener implements OnModuleInit {
     if (event.message.senderParty === ConversationParty.CANDIDATE) {
       const recipient = conversation.vacancy.createdById;
       if (recipient === event.senderUserId) return; // impossible, but never self-notify
-      await this.notifications.create({
+      await this.outbox.append(NotificationType.NEW_MESSAGE, recipient, {
         audience: NotificationAudience.HR,
-        type: NotificationType.NEW_MESSAGE,
-        recipientUserId: recipient,
         organizationId: conversation.organizationId,
         vacancyId: conversation.vacancy.id,
-        vacancyTitleSnapshot: conversation.vacancy.title,
+        vacancyTitle: conversation.vacancy.title,
         candidateId: conversation.candidate.id,
-        candidateNameSnapshot: conversation.candidate.fullName,
+        candidateName: conversation.candidate.fullName,
         actorUserId: event.senderUserId,
-        actorNameSnapshot: event.message.senderName,
+        actorName: event.message.senderName,
         conversationId: event.conversationId,
         messageId: event.message.id,
         messagePreview: preview,
@@ -129,17 +135,15 @@ export class NotificationsListener implements OnModuleInit {
 
     const recipient = conversation.candidateAccount.userId;
     if (recipient === event.senderUserId) return;
-    await this.notifications.create({
-      audience: NotificationAudience.CANDIDATE,
-      type: NotificationType.NEW_MESSAGE,
+    await this.outbox.append(NotificationType.NEW_MESSAGE, recipient, {
       // Personal data: no organizationId, like everything candidate-owned.
-      recipientUserId: recipient,
+      audience: NotificationAudience.CANDIDATE,
       vacancyId: conversation.vacancy.id,
-      vacancyTitleSnapshot: conversation.vacancy.title,
+      vacancyTitle: conversation.vacancy.title,
       candidateId: conversation.candidate.id,
-      candidateNameSnapshot: conversation.candidate.fullName,
+      candidateName: conversation.candidate.fullName,
       actorUserId: event.senderUserId,
-      actorNameSnapshot: event.message.senderName,
+      actorName: event.message.senderName,
       conversationId: event.conversationId,
       messageId: event.message.id,
       messagePreview: preview,
@@ -173,19 +177,21 @@ export class NotificationsListener implements OnModuleInit {
     ]);
     if (!account || !vacancy) return;
 
-    await this.notifications.create({
-      audience: NotificationAudience.CANDIDATE,
-      type: NotificationType.INTERVIEW_INVITATION,
-      recipientUserId: account.userId,
-      vacancyId: event.vacancyId,
-      vacancyTitleSnapshot: vacancy.title,
-      candidateId: event.candidateId,
-      candidateNameSnapshot: candidate?.fullName ?? null,
-      actorUserId: event.actorUserId,
-      actorNameSnapshot: actor?.fullName ?? null,
-      applicationId: event.applicationId,
-      conversationId: event.conversationId,
-    });
+    await this.outbox.append(
+      NotificationType.INTERVIEW_INVITATION,
+      account.userId,
+      {
+        audience: NotificationAudience.CANDIDATE,
+        vacancyId: event.vacancyId,
+        vacancyTitle: vacancy.title,
+        candidateId: event.candidateId,
+        candidateName: candidate?.fullName ?? null,
+        actorUserId: event.actorUserId,
+        actorName: actor?.fullName ?? null,
+        applicationId: event.applicationId,
+        conversationId: event.conversationId,
+      },
+    );
   }
 
   /** Candidate ← their application was rejected (genuine transition only). */
@@ -207,15 +213,17 @@ export class NotificationsListener implements OnModuleInit {
     ]);
     if (!account || !vacancy) return;
 
-    await this.notifications.create({
-      audience: NotificationAudience.CANDIDATE,
-      type: NotificationType.APPLICATION_REJECTED,
-      recipientUserId: account.userId,
-      vacancyId: event.vacancyId,
-      vacancyTitleSnapshot: vacancy.title,
-      candidateId: event.candidateId,
-      applicationId: event.applicationId,
-    });
+    await this.outbox.append(
+      NotificationType.APPLICATION_REJECTED,
+      account.userId,
+      {
+        audience: NotificationAudience.CANDIDATE,
+        vacancyId: event.vacancyId,
+        vacancyTitle: vacancy.title,
+        candidateId: event.candidateId,
+        applicationId: event.applicationId,
+      },
+    );
   }
 
   /**
@@ -233,14 +241,16 @@ export class NotificationsListener implements OnModuleInit {
       // (candidate) identity — impossible under account exclusivity, but the
       // self-noise rule costs nothing to keep uniform.
       if (recipient.userId === event.actorUserId) continue;
-      await this.notifications.create({
-        audience: NotificationAudience.CANDIDATE,
-        type: NotificationType.VACANCY_DELETED,
-        recipientUserId: recipient.userId,
-        vacancyId: event.vacancyId,
-        vacancyTitleSnapshot: event.vacancyTitle,
-        candidateId: recipient.candidateId,
-      });
+      await this.outbox.append(
+        NotificationType.VACANCY_DELETED,
+        recipient.userId,
+        {
+          audience: NotificationAudience.CANDIDATE,
+          vacancyId: event.vacancyId,
+          vacancyTitle: event.vacancyTitle,
+          candidateId: recipient.candidateId,
+        },
+      );
     }
     if (event.recipients.length > 0) {
       this.logger.log(

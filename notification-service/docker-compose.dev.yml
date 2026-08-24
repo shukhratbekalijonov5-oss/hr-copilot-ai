@@ -1,0 +1,18 @@
+# Optional local backing services for the Notification Service ONLY.
+# Kafka comes from payment-service/docker-compose.dev.yml (shared broker);
+# PostgreSQL from the main dev stack. This file adds Mailpit: a real SMTP
+# server with a web inbox — the local proof that email delivery is a real
+# SMTP transaction, not a log line.
+#
+#   docker compose -f notification-service/docker-compose.dev.yml up -d
+#   SMTP UI: http://localhost:8025   SMTP: localhost:1025
+name: hrcopilot-notification
+
+services:
+  mailpit:
+    image: axllent/mailpit:v1.24
+    container_name: hrcopilot-notification-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped

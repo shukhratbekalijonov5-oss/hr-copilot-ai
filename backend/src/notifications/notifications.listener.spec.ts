@@ -63,20 +63,27 @@ const message = (party: ConversationParty, sender: string, name: string) => ({
 describe('NotificationsListener', () => {
   let prisma: ReturnType<typeof createPrismaMock>;
   let events: DomainEventsService;
-  let notifications: { create: jest.Mock; exists: jest.Mock };
+  let outbox: { append: jest.Mock };
+
+  /** append(type, recipient, context) → flat view for objectContaining. */
+  const appended = () =>
+    outbox.append.mock.calls.map(
+      ([type, recipientUserId, context]: [
+        string,
+        string,
+        Record<string, unknown>,
+      ]) => ({ type, recipientUserId, ...context }),
+    );
 
   beforeEach(() => {
     prisma = createPrismaMock();
     // The REAL bus: publishers and the listener meet exactly as in prod.
     events = new DomainEventsService();
-    notifications = {
-      create: jest.fn().mockResolvedValue({ id: 'n1' }),
-      exists: jest.fn().mockResolvedValue(false),
-    };
+    outbox = { append: jest.fn().mockResolvedValue(undefined) };
     new NotificationsListener(
       prisma as never,
       events,
-      notifications as never,
+      outbox as never,
     ).onModuleInit();
   });
 
@@ -94,17 +101,16 @@ describe('NotificationsListener', () => {
       events.publish('application.created', applied());
       await flush();
 
-      expect(notifications.create).toHaveBeenCalledWith(
+      expect(appended()).toEqual([
         expect.objectContaining({
           type: 'NEW_APPLICATION',
           audience: 'HR',
           recipientUserId: ALICE,
           organizationId: ORG,
-          vacancyTitleSnapshot: 'Backend Engineer',
-          candidateNameSnapshot: 'John Kim',
+          vacancyTitle: 'Backend Engineer',
+          candidateName: 'John Kim',
         }),
-      );
-      expect(notifications.create).toHaveBeenCalledTimes(1); // never the org
+      ]); // exactly one — never the whole org
     });
   });
 
@@ -116,19 +122,18 @@ describe('NotificationsListener', () => {
       );
       await flush();
 
-      expect(notifications.create).toHaveBeenCalledTimes(1);
-      expect(notifications.create).toHaveBeenCalledWith(
+      expect(appended()).toEqual([
         expect.objectContaining({
           type: 'NEW_MESSAGE',
           audience: 'HR',
           recipientUserId: ALICE,
-          candidateNameSnapshot: 'John Kim',
-          vacancyTitleSnapshot: 'Backend Engineer',
+          candidateName: 'John Kim',
+          vacancyTitle: 'Backend Engineer',
           messagePreview: 'Hello, I have a question about the interview.',
           conversationId: 'conv-1',
           messageId: 'm1',
         }),
-      );
+      ]);
     });
 
     it('HR → candidate notifies the candidate account owner with HR name', async () => {
@@ -138,19 +143,17 @@ describe('NotificationsListener', () => {
       );
       await flush();
 
-      expect(notifications.create).toHaveBeenCalledWith(
+      expect(appended()).toEqual([
         expect.objectContaining({
           type: 'NEW_MESSAGE',
           audience: 'CANDIDATE',
           recipientUserId: JOHN_USER,
-          actorNameSnapshot: 'Alice Park',
-          vacancyTitleSnapshot: 'Backend Engineer',
+          actorName: 'Alice Park',
+          vacancyTitle: 'Backend Engineer',
         }),
-      );
+      ]);
       // Candidate rows are personal — no organization scoping.
-      expect(
-        notifications.create.mock.calls[0][0].organizationId,
-      ).toBeUndefined();
+      expect(appended()[0].organizationId).toBeUndefined();
     });
 
     it('a conversation deleted mid-flight notifies nobody', async () => {
@@ -160,7 +163,7 @@ describe('NotificationsListener', () => {
         message(ConversationParty.CANDIDATE, JOHN_USER, 'John Kim'),
       );
       await flush();
-      expect(notifications.create).not.toHaveBeenCalled();
+      expect(outbox.append).not.toHaveBeenCalled();
     });
   });
 
@@ -183,22 +186,22 @@ describe('NotificationsListener', () => {
       events.publish('interview.invited', invited(ApplicationStatus.NEW));
       await flush();
 
-      expect(notifications.create).toHaveBeenCalledWith(
+      expect(appended()).toEqual([
         expect.objectContaining({
           type: 'INTERVIEW_INVITATION',
           audience: 'CANDIDATE',
           recipientUserId: JOHN_USER,
-          actorNameSnapshot: 'Alice Park',
-          vacancyTitleSnapshot: 'Backend Engineer',
+          actorName: 'Alice Park',
+          vacancyTitle: 'Backend Engineer',
           conversationId: 'conv-1',
         }),
-      );
+      ]);
     });
 
     it('a re-invite (INTERVIEW → INTERVIEW) is silent', async () => {
       events.publish('interview.invited', invited(ApplicationStatus.INTERVIEW));
       await flush();
-      expect(notifications.create).not.toHaveBeenCalled();
+      expect(outbox.append).not.toHaveBeenCalled();
     });
   });
 
@@ -220,14 +223,14 @@ describe('NotificationsListener', () => {
       );
       await flush();
 
-      expect(notifications.create).toHaveBeenCalledWith(
+      expect(appended()).toEqual([
         expect.objectContaining({
           type: 'APPLICATION_REJECTED',
           audience: 'CANDIDATE',
           recipientUserId: JOHN_USER,
-          vacancyTitleSnapshot: 'Backend Engineer',
+          vacancyTitle: 'Backend Engineer',
         }),
-      );
+      ]);
     });
 
     it('REJECTED → REJECTED is silent (no duplicate)', async () => {
@@ -236,7 +239,7 @@ describe('NotificationsListener', () => {
         rejected(ApplicationStatus.REJECTED),
       );
       await flush();
-      expect(notifications.create).not.toHaveBeenCalled();
+      expect(outbox.append).not.toHaveBeenCalled();
     });
   });
 
@@ -254,16 +257,16 @@ describe('NotificationsListener', () => {
       });
       await flush();
 
-      expect(notifications.create).toHaveBeenCalledTimes(2);
+      expect(outbox.append).toHaveBeenCalledTimes(2);
       for (const userId of ['user-a', 'user-b']) {
-        expect(notifications.create).toHaveBeenCalledWith(
+        expect(appended()).toContainEqual(
           expect.objectContaining({
             type: 'VACANCY_DELETED',
             audience: 'CANDIDATE',
             recipientUserId: userId,
             vacancyId: 'v-gone',
             // The row is gone — the snapshot is the only surviving title.
-            vacancyTitleSnapshot: 'Backend Engineer',
+            vacancyTitle: 'Backend Engineer',
           }),
         );
       }

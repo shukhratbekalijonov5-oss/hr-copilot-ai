@@ -39,6 +39,7 @@ import { IdentityModule } from './common/identity/identity.module';
 import { EventsModule } from './common/events/events.module';
 import { VacancyAccessModule } from './common/vacancy-access/vacancy-access.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { BillingModule } from './billing/billing.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { CandidateContextGuard } from './common/guards/candidate-context.guard';
@@ -75,6 +76,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     EventsModule,
     VacancyAccessModule,
     NotificationsModule,
+    BillingModule,
     StorageModule,
     AiModule,
     // Outbound fetching of candidate-supplied URLs, with the SSRF policy that

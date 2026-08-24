@@ -5,9 +5,11 @@ import { useState, useTransition } from "react";
 import { unsaveJobAction } from "@/app/(candidate)/actions";
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonStyles } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { FileIcon } from "@/components/ui/icons";
+import {
+  CandidateCard,
+  CandidateEmptyState,
+} from "@/components/candidate/ui";
+import { BookmarkIcon, MapPinIcon } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
 import type { SavedJob } from "@/lib/types";
 
@@ -39,18 +41,16 @@ export function SavedJobsView({ saved }: { saved: SavedJob[] }) {
 
   if (rows.length === 0) {
     return (
-      <Card>
-        <EmptyState
-          icon={<FileIcon className="size-5" />}
-          title={d.savedJobs.empty}
-          description={d.savedJobs.emptyHint}
-          action={
-            <Link href="/jobs" className={buttonStyles("primary", "sm")}>
-              {d.jobs.title}
-            </Link>
-          }
-        />
-      </Card>
+      <CandidateEmptyState
+        icon={<BookmarkIcon className="size-4.5" />}
+        title={d.savedJobs.empty}
+        description={d.savedJobs.emptyHint}
+        action={
+          <Link href="/jobs" className={buttonStyles("primary", "sm")}>
+            {d.jobs.title}
+          </Link>
+        }
+      />
     );
   }
 
@@ -61,14 +61,14 @@ export function SavedJobsView({ saved }: { saved: SavedJob[] }) {
 
         return (
           <li key={item.job.publicSlug}>
-            <Card className="p-4">
+            <CandidateCard interactive={open} className="p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h3 className="text-[15px] font-semibold tracking-tight text-ink">
+                  <h3 className="text-[15.5px] font-semibold leading-snug tracking-[-0.01em] text-ink">
                     {open ? (
                       <Link
                         href={`/jobs/${item.job.publicSlug}`}
-                        className="hover:text-brand"
+                        className="transition-colors duration-[var(--motion-fast)] hover:text-brand"
                       >
                         {item.job.title}
                       </Link>
@@ -76,9 +76,14 @@ export function SavedJobsView({ saved }: { saved: SavedJob[] }) {
                       item.job.title
                     )}
                   </h3>
-                  <p className="mt-0.5 text-[13px] text-ink-muted">
-                    {item.job.organizationName}
-                    {item.job.location ? ` · ${item.job.location}` : ""}
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-muted">
+                    <span className="truncate">{item.job.organizationName}</span>
+                    {item.job.location ? (
+                      <span className="inline-flex min-w-0 items-center gap-1">
+                        <MapPinIcon className="size-3.5 shrink-0" />
+                        <span className="truncate">{item.job.location}</span>
+                      </span>
+                    ) : null}
                   </p>
                 </div>
                 {open ? null : (
@@ -97,7 +102,7 @@ export function SavedJobsView({ saved }: { saved: SavedJob[] }) {
                 {open ? (
                   <Link
                     href={`/jobs/${item.job.publicSlug}`}
-                    className="font-medium text-brand hover:underline"
+                    className="font-medium text-brand transition-colors duration-[var(--motion-fast)] hover:text-brand-hover"
                   >
                     {d.savedJobs.viewJob}
                   </Link>
@@ -114,7 +119,7 @@ export function SavedJobsView({ saved }: { saved: SavedJob[] }) {
                   {d.savedJobs.remove}
                 </Button>
               </div>
-            </Card>
+            </CandidateCard>
           </li>
         );
       })}

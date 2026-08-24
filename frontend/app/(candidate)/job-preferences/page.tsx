@@ -3,7 +3,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
 import { getI18n, getTranslations } from "@/lib/i18n/server";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { CandidatePageHeader } from "@/components/candidate/ui";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { buttonStyles } from "@/components/ui/Button";
@@ -31,7 +31,8 @@ export default async function JobPreferencesPage() {
   if (!session.hasCandidateAccount) {
     return (
       <div className="mx-auto max-w-3xl">
-        <PageHeader
+        <CandidatePageHeader
+          eyebrow={d.nav.sectionProfile}
           title={d.jobPreferences.title}
           description={d.jobPreferences.description}
         />
@@ -58,7 +59,8 @@ export default async function JobPreferencesPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader
+      <CandidatePageHeader
+          eyebrow={d.nav.sectionProfile}
         title={d.jobPreferences.title}
         description={d.jobPreferences.description}
       />

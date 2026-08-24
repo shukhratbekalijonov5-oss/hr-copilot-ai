@@ -153,7 +153,7 @@ export default async function CandidateDetailPage(
     )?.id ?? null;
 
   return (
-    <div className="mx-auto max-w-[90rem]">
+    <div className="ambient-hero mx-auto max-w-[90rem]">
       <PageHeader
         className="mb-4"
         breadcrumbs={[

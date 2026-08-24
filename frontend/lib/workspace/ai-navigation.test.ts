@@ -52,11 +52,10 @@ describe("role-sensitive AI navigation", () => {
     }
   });
 
-  it("restricts settings to administrators", () => {
-    expect(hrefsFor("OWNER")).toContain("/settings");
-    expect(hrefsFor("HR_ADMIN")).toContain("/settings");
-    expect(hrefsFor("RECRUITER")).not.toContain("/settings");
-    expect(hrefsFor("INTERVIEWER")).not.toContain("/settings");
+  it("shows account settings to every organization role", () => {
+    for (const role of ROLES) {
+      expect(hrefsFor(role)).toContain("/settings");
+    }
   });
 });
 
@@ -82,11 +81,16 @@ describe("navigation labels", () => {
   });
 
   it("keeps the AI job searches in the personal workspace only", () => {
-    const { primary } = navigationFor(personalWorkspace);
+    const { primary, secondary } = navigationFor(personalWorkspace);
     expect(primary.map((item) => item.href)).toEqual([
-      // Ordinary search first, and on its own: it is the one job search every
-      // plan includes, and it answers a different question from the two below.
+      // Where a session starts.
+      "/home",
+
+      // Ordinary search and the records it produces. It is the one job search
+      // every plan includes, so it is NOT filed with the two paid ones below.
       "/jobs",
+      "/saved-jobs",
+      "/my-applications",
 
       // The two AI searches, adjacent and in one section. They stay SEPARATE
       // entries — never one merged board — because applying differs: here,
@@ -96,14 +100,14 @@ describe("navigation labels", () => {
       "/job-matches",
       "/external-jobs",
 
-      // The reader's own records and settings.
-      "/job-preferences",
-      "/my-applications",
-      "/my-interview-chats",
-      "/saved-jobs",
+      // The material the searches run on.
       "/my-profile",
+      "/job-preferences",
+      "/my-interview-chats",
+
       "/plans",
     ]);
+    expect(secondary.map((item) => item.href)).toEqual(["/settings"]);
     expect(en.nav.internalAiJobs).toBe("Internal AI Jobs");
     expect(en.nav.externalAiJobs).toBe("External AI Jobs");
 

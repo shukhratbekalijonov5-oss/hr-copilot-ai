@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
 import { getLocale, getTranslations } from "@/lib/i18n/server";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { CandidatePageHeader } from "@/components/candidate/ui";
 import { JobBoard } from "@/components/jobs/JobBoard";
 import {
   explicitFilters,
@@ -57,7 +57,9 @@ export default async function JobsPage(props: PageProps<"/jobs">) {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <PageHeader title={d.jobs.title} description={d.jobs.description} />
+      <CandidatePageHeader
+          eyebrow={d.nav.sectionCareer}
+          title={d.jobs.title} description={d.jobs.description} />
       <JobBoard
         page={jobs}
         savedSlugs={saved.saved.map((item) => item.job.publicSlug)}

@@ -1,6 +1,7 @@
 import {
   ConflictException,
   ForbiddenException,
+  HttpException,
   HttpStatus,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -32,6 +33,7 @@ export const AUTH_ERROR_CODES = {
   EMAIL_ALREADY_REGISTERED: 'AUTH_EMAIL_ALREADY_REGISTERED',
   ACCOUNT_TYPE_CONFLICT: 'AUTH_ACCOUNT_TYPE_CONFLICT',
   ACCOUNT_TYPE_MISMATCH: 'AUTH_ACCOUNT_TYPE_MISMATCH',
+  LOGIN_TEMPORARILY_LOCKED: 'LOGIN_TEMPORARILY_LOCKED',
 } as const;
 
 export type AuthErrorCode =
@@ -78,4 +80,23 @@ export function authForbidden(
     message,
     code,
   });
+}
+
+/**
+ * 429 for temporary login lockout. Deliberately carries NO hint about which
+ * counter tripped or whether the account exists — only how long to wait.
+ */
+export function loginTemporarilyLocked(
+  retryAfterSeconds: number,
+): HttpException {
+  return new HttpException(
+    {
+      statusCode: HttpStatus.TOO_MANY_REQUESTS,
+      error: 'Too Many Requests',
+      message: 'Too many sign-in attempts. Try again later.',
+      code: AUTH_ERROR_CODES.LOGIN_TEMPORARILY_LOCKED,
+      retryAfterSeconds,
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
 }

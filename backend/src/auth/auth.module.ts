@@ -4,6 +4,7 @@ import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
+import { LoginAttemptsService } from './login-attempts.service';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { AuthSessionService } from './auth-session.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthSessionService],
+  providers: [AuthService, AuthSessionService, LoginAttemptsService],
   exports: [AuthService, AuthSessionService],
 })
 export class AuthModule {}

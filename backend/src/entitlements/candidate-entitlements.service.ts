@@ -1,11 +1,12 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { Inject, Injectable } from '@nestjs/common';
 import type { CandidatePlan } from '../generated/prisma/enums';
 import {
   grantedCapabilities,
   hasCapability,
   type CandidateCapability,
 } from './candidate-plan.policy';
+import { ENTITLEMENTS_SOURCE } from './entitlements-source';
+import type { EntitlementsSource } from './entitlements-source';
 
 export interface CandidateEntitlements {
   plan: CandidatePlan;
@@ -13,38 +14,37 @@ export interface CandidateEntitlements {
 }
 
 /**
- * WHERE a candidate's plan comes from — the single seam for the future
- * billing authority.
+ * WHERE a candidate's plan comes from — now an explicit seam.
  *
- * ## Transitional, by design
+ * ## The source is configuration, the contract is not
  *
- * Today the plan is the `candidate_accounts.plan` column: server-side,
- * defaulted to FREE, written by no public API (migrations, test fixtures and
- * operators only), so nothing a candidate sends — body, query, cookie,
- * header, token claim — can change what this service answers.
+ * `ENTITLEMENTS_SOURCE` selects, once at boot, between the transitional
+ * database column (`DbPlanSource` — today's behavior, the development
+ * adapter) and the Java Payment Service
+ * (`PaymentServiceEntitlementsSource` — the billing authority, with a
+ * short bounded cache). See entitlements.module.ts for the selection and
+ * the production warning.
  *
- * When the Java Payment Service exists it becomes the subscription
- * authority, and `planFor` swaps its read to that service (with whatever
- * caching the latency budget needs). That is the ENTIRE migration: the
- * guard, the policy table, the error contract and every gated route consume
- * this service and never know the storage.
+ * Nothing downstream changed: the guard, the policy table, the error
+ * contract and every gated route consume THIS service and never know the
+ * storage. And in every configuration, nothing a candidate sends — body,
+ * query, cookie, header, token claim — can change what this service
+ * answers.
  *
  * ## Fail-closed
  *
- * No candidate account → FREE. A read error propagates rather than
- * defaulting to entitled: an outage must never hand out MAX.
+ * No account / no subscription / unreadable remote truth → FREE, which
+ * grants nothing. No error path defaults to entitled.
  */
 @Injectable()
 export class CandidateEntitlementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(ENTITLEMENTS_SOURCE) private readonly source: EntitlementsSource,
+  ) {}
 
   /** The caller's current plan, resolved live — never from a token claim. */
   async planFor(userId: string): Promise<CandidatePlan> {
-    const account = await this.prisma.candidateAccount.findUnique({
-      where: { userId },
-      select: { plan: true },
-    });
-    return account?.plan ?? 'FREE';
+    return this.source.planFor(userId);
   }
 
   async can(userId: string, capability: CandidateCapability): Promise<boolean> {

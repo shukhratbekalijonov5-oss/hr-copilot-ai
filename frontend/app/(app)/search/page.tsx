@@ -70,7 +70,7 @@ export default async function SearchPage(props: PageProps<"/search">) {
   const evidence = active ? runEvidenceSearch(query, scopeId) : null;
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="ambient-hero mx-auto max-w-4xl">
       <PageHeader title={d.search.title} description={d.search.description} />
       <div className="flex flex-col gap-4">
         {myVacancies.length > 0 ? (

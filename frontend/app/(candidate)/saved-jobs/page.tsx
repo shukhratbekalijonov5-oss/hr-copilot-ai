@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { api } from "@/lib/api";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
 import { getTranslations } from "@/lib/i18n/server";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { CandidatePageHeader } from "@/components/candidate/ui";
 import { SavedJobsView } from "@/components/candidate/SavedJobsView";
 import { CandidateAccountRequired } from "@/components/candidate/CandidateAccountRequired";
 
@@ -18,7 +18,8 @@ export default async function SavedJobsPage() {
   if (!session.hasCandidateAccount) {
     return (
       <div className="mx-auto max-w-3xl">
-        <PageHeader
+        <CandidatePageHeader
+          eyebrow={d.nav.sectionCareer}
           title={d.savedJobs.title}
           description={d.savedJobs.description}
         />
@@ -31,7 +32,8 @@ export default async function SavedJobsPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader
+      <CandidatePageHeader
+          eyebrow={d.nav.sectionCareer}
         title={d.savedJobs.title}
         description={d.savedJobs.description}
       />

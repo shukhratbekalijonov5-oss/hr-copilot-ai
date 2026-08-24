@@ -1,0 +1,11 @@
+# Local development profile. NOT used in production.
+payment:
+  provider: ${PAYMENT_PROVIDER:MOCK}
+  # A well-known local default so the NestJS dev backend can talk to a dev
+  # payment service out of the box. Production has NO default: unset = 401.
+  internal-token: ${PAYMENT_INTERNAL_TOKEN:dev-internal-token}
+  mock-webhook-secret: ${PAYMENT_MOCK_WEBHOOK_SECRET:dev-webhook-secret}
+  # No local Kafka broker by default: outbox rows accumulate (visible in
+  # outbox_pending_total) instead of erroring every two seconds. Set true
+  # when running the docker-compose.dev.yml Kafka.
+  publish-enabled: ${PAYMENT_OUTBOX_PUBLISH_ENABLED:false}

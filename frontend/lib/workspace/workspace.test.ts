@@ -65,23 +65,25 @@ describe("workspace derivation", () => {
 });
 
 describe("navigationFor — organization workspace", () => {
-  it("gives owners and HR admins the full workspace including settings", () => {
-    for (const role of ["OWNER", "HR_ADMIN"] as const) {
+  it("gives organization users the account settings link", () => {
+    for (const role of ["OWNER", "HR_ADMIN", "RECRUITER", "INTERVIEWER"] as const) {
       const nav = navigationFor(orgWorkspace(role));
       const hrefs = nav.primary.map((item) => item.href);
-      expect(hrefs).toContain("/vacancies");
-      expect(hrefs).toContain("/processing");
+      if (role !== "INTERVIEWER") {
+        expect(hrefs).toContain("/vacancies");
+        expect(hrefs).toContain("/processing");
+      }
       expect(nav.secondary.map((item) => item.href)).toContain("/settings");
     }
   });
 
-  it("lets recruiters run hiring but not organization settings", () => {
+  it("lets recruiters run hiring and open account settings", () => {
     const nav = navigationFor(orgWorkspace("RECRUITER"));
     expect(nav.primary.map((item) => item.href)).toContain("/vacancies");
-    expect(nav.secondary.map((item) => item.href)).not.toContain("/settings");
+    expect(nav.secondary.map((item) => item.href)).toContain("/settings");
   });
 
-  it("gives interviewers a narrow surface: no vacancies, compare, processing or settings", () => {
+  it("gives interviewers a narrow surface, plus account settings", () => {
     const nav = navigationFor(orgWorkspace("INTERVIEWER"));
     const hrefs = nav.primary.map((item) => item.href);
 
@@ -90,7 +92,10 @@ describe("navigationFor — organization workspace", () => {
     expect(hrefs).not.toContain("/vacancies");
     expect(hrefs).not.toContain("/compare");
     expect(hrefs).not.toContain("/processing");
-    expect(nav.secondary).toHaveLength(0);
+    expect(nav.secondary.map((item) => item.href)).toEqual([
+      "/plans",
+      "/settings",
+    ]);
   });
 
   it("never shows an interviewer more than an owner", () => {
@@ -106,11 +111,16 @@ describe("navigationFor — organization workspace", () => {
     }
   });
 
-  it("never leaks candidate-side routes into the recruiting sidebar", () => {
+  it("never leaks candidate-only routes into the recruiting sidebar", () => {
+    // `/settings` and `/plans` are served to BOTH account types by the
+    // shared authenticated group, so neither is a candidate-only leak.
+    const sharedRoutes = new Set(["/settings", "/plans"]);
     for (const role of ["OWNER", "HR_ADMIN", "RECRUITER", "INTERVIEWER"] as const) {
       const nav = navigationFor(orgWorkspace(role));
       for (const item of [...nav.primary, ...nav.secondary]) {
-        expect(isPersonalRoute(item.href)).toBe(false);
+        if (!sharedRoutes.has(item.href)) {
+          expect(isPersonalRoute(item.href)).toBe(false);
+        }
       }
     }
   });
@@ -125,6 +135,7 @@ describe("navigationFor — personal workspace", () => {
     expect(hrefs).toContain("/my-applications");
     expect(hrefs).toContain("/saved-jobs");
     expect(hrefs).toContain("/my-profile");
+    expect(nav.secondary.map((item) => item.href)).toContain("/settings");
   });
 
   it("never exposes a recruiting route to the job-seeker side", () => {
@@ -145,6 +156,7 @@ describe("route classification", () => {
     expect(isPersonalRoute("/jobs")).toBe(true);
     expect(isPersonalRoute("/jobs/abc")).toBe(true);
     expect(isPersonalRoute("/my-applications/xyz")).toBe(true);
+    expect(isPersonalRoute("/settings")).toBe(true);
   });
 
   it("does not classify recruiting routes as personal", () => {
@@ -153,7 +165,6 @@ describe("route classification", () => {
       "/vacancies",
       "/candidates",
       "/processing",
-      "/settings",
       "/compare",
       "/search",
     ]) {

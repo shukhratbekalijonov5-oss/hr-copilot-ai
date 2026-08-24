@@ -1,0 +1,20 @@
+notification:
+  internal-token: test-internal-token
+  backend-base-url: ""
+  backend-token: ""
+  payment-base-url: ""
+  payment-token: ""
+  email-provider: LOG
+  email-poll-ms: 200
+  outbox-poll-ms: 200
+  publish-enabled: false
+  expiry-enabled: false
+
+spring:
+  kafka:
+    # Individual tests that exercise Kafka enable/point this themselves.
+    listener:
+      auto-startup: false
+    producer:
+      properties:
+        max.block.ms: 2000

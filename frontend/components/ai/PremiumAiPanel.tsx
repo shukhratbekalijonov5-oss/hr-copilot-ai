@@ -48,18 +48,28 @@ export function PremiumAiPanel({
   const Heading = `h${headingLevel}` as "h2" | "h3" | "h4";
 
   return (
+    /*
+      The AI visual language, applied in ONE place.
+
+      `ai-edge` draws a fading accent hairline along the top and the tint
+      underneath stays very pale. Both are deliberately quiet: this frame
+      wraps text about somebody's own career, and a saturated purple box
+      would read as a marketing callout rather than as a considered answer.
+      Because all four MAX features share this component, they gain the
+      treatment together and cannot drift apart.
+    */
     <section
       aria-labelledby={headingId}
-      className="flex flex-col gap-3 rounded-xl border border-line bg-surface-muted/60 p-4"
+      className="ai-edge ai-halo flex flex-col gap-3 rounded-[14px] border border-ai-line bg-ai-tint p-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-brand-soft text-brand-ink">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-ai-ink/10 text-ai-ink">
             <SparkIcon className="size-3.5" aria-hidden="true" />
           </span>
           <Heading
             id={headingId}
-            className="min-w-0 text-[14px] font-semibold tracking-tight text-ink"
+            className="min-w-0 text-[14px] font-semibold tracking-[-0.01em] text-ai-ink"
           >
             {title}
           </Heading>
@@ -73,7 +83,10 @@ export function PremiumAiPanel({
         {d.premiumAi.disclaimer}
       </p>
 
-      {children}
+      {/* Generated prose gets a reading measure. Long AI paragraphs run the
+          full width of a drawer otherwise, which is what makes them look
+          dumped rather than written. */}
+      <div className="max-w-[68ch]">{children}</div>
     </section>
   );
 }
