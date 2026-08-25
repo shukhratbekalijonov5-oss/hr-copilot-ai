@@ -2702,8 +2702,8 @@ const en = {
       title: "Checkout",
       demoBadge: "Demo checkout",
       openDemo: "Demo payment — {plan}",
-      devOnlyNote:
-        "Dev only. Uses the existing safe plan switch — no card is charged and no payment is created.",
+      demoModeNote:
+        "Portfolio demo. Switches the plan for demonstration using the safe plan switch — no card is charged and no payment is created.",
       brand: "HR Copilot AI",
       orderSummary: "Order summary",
       selectedPlan: "Selected plan",
@@ -2774,10 +2774,10 @@ const en = {
       },
     },
     devSwitch: {
-      title: "Developer Plan Switch",
+      title: "Demo plan switch",
       description:
-        "Dev/test only. The switch posts to the NestJS BFF, then refreshes billing and auth before this page changes.",
-      devOnly: "Development only",
+        "Changes your plan for demonstration only — no payment is taken and no card is charged. The switch asks the backend, then re-reads billing and access before this page changes.",
+      portfolioDemo: "Portfolio Demo",
       switchTo: "Switch to {plan}",
       confirmTitle: "Switch to {plan}?",
       confirmDescription:
@@ -2790,7 +2790,7 @@ const en = {
         invalidTransition: "That plan switch is not available.",
         unauthenticated: "Sign in again to switch plans.",
         forbidden: "This account cannot switch plans.",
-        routeUnavailable: "Developer plan switch is not available here.",
+        routeUnavailable: "The demo plan switch is not enabled on this server.",
         conflict: "The plan switch conflicts with current billing state.",
         paymentUnavailable:
           "Payment service is temporarily unavailable. Try again shortly.",

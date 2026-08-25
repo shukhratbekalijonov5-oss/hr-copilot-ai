@@ -2631,8 +2631,8 @@ const uz: Dictionary = {
       title: "Toʻlov",
       demoBadge: "Demo toʻlov",
       openDemo: "Demo toʻlov — {plan}",
-      devOnlyNote:
-        "Faqat ishlab chiqish uchun. Mavjud xavfsiz reja almashtirishdan foydalanadi — kartadan pul yechilmaydi va toʻlov yaratilmaydi.",
+      demoModeNote:
+        "Portfolio demo. Xavfsiz tarif almashtirish orqali tarifni namoyish uchun o‘zgartiradi — kartadan pul yechilmaydi va to‘lov yaratilmaydi.",
       brand: "HR Copilot AI",
       orderSummary: "Buyurtma xulosasi",
       selectedPlan: "Tanlangan reja",
@@ -2704,10 +2704,10 @@ const uz: Dictionary = {
       },
     },
     devSwitch: {
-      title: "Developer Plan Switch",
+      title: "Demo tarif almashtirgichi",
       description:
-        "Faqat dev/test uchun. Switch NestJS BFFga yuboradi, keyin billing va auth qayta o‘qilgandan so‘ng sahifa o‘zgaradi.",
-      devOnly: "Faqat development",
+        "Tarifni faqat namoyish uchun o‘zgartiradi — to‘lov olinmaydi va kartadan pul yechilmaydi. Switch backendga yuboradi, keyin billing va ruxsat holati qayta o‘qilgandan so‘ng sahifa o‘zgaradi.",
+      portfolioDemo: "Portfolio Demo",
       switchTo: "{plan}ga o‘tkazish",
       confirmTitle: "{plan}ga o‘tkazilsinmi?",
       confirmDescription:
@@ -2720,7 +2720,7 @@ const uz: Dictionary = {
         invalidTransition: "Bu tarifga o‘tish mavjud emas.",
         unauthenticated: "Tarifni o‘zgartirish uchun qayta kiring.",
         forbidden: "Bu hisob tarifni o‘zgartira olmaydi.",
-        routeUnavailable: "Developer Plan Switch bu yerda mavjud emas.",
+        routeUnavailable: "Demo tarif almashtirgichi bu serverda yoqilmagan.",
         conflict: "Tarif o‘zgarishi joriy billing holati bilan zid.",
         paymentUnavailable:
           "To‘lov xizmati vaqtincha mavjud emas. Birozdan keyin qayta urinib ko‘ring.",

@@ -123,20 +123,20 @@ describe("demo checkout modal wiring", () => {
     }
   });
 
-  it("opens the branded demo dialog only from the dev-only action", () => {
+  it("opens the branded demo dialog only from the flagged action", () => {
     expect(workspace).toContain("DemoCheckoutModal");
     expect(workspace).toContain("onClick={() => openDemoCheckout(plan)}");
     expect(workspace).toContain("d.plans.demoCheckout.openDemo");
-    expect(workspace).toContain("if (!showDeveloperPlanSwitch) return;");
+    expect(workspace).toContain("if (!portfolioDemoEnabled) return;");
     expect(workspace).not.toContain("CheckoutConfirmation");
   });
 
-  it("hides the demo action and the dialog in production", () => {
+  it("hides the demo action and the dialog unless the flag is on", () => {
     // Rendered only under the flag, AND the dialog re-checks it.
-    expect(workspace).toContain("{demoPlan && showDeveloperPlanSwitch ? (");
-    expect(workspace).toContain("demoPaymentEnabled={showDeveloperPlanSwitch}");
+    expect(workspace).toContain("{demoPlan && portfolioDemoEnabled ? (");
+    expect(workspace).toContain("demoPaymentEnabled={portfolioDemoEnabled}");
     expect(code("components/plan/CandidatePlansView.tsx")).toContain(
-      'showDeveloperPlanSwitch={process.env.NODE_ENV !== "production"}',
+      "portfolioDemoEnabled={PORTFOLIO_DEMO}",
     );
   });
 

@@ -2,6 +2,7 @@ import { CandidatePageHeader } from "@/components/candidate/ui";
 import { PlansWorkspace } from "@/components/plan/PlansWorkspace";
 import { api, ApiError, toApiError } from "@/lib/api";
 import type { BillingSummary } from "@/lib/billing/types";
+import { PORTFOLIO_DEMO } from "@/lib/config";
 import { getTranslations } from "@/lib/i18n/server";
 import { requirePersonalWorkspace } from "@/lib/workspace/server";
 
@@ -23,6 +24,14 @@ import { requirePersonalWorkspace } from "@/lib/workspace/server";
  * On an API that does not report plans, nothing is marked current — rather
  * than marking Free, which would tell a paying customer they are on the free
  * tier. Absence of information is shown as absence of information.
+ *
+ * ## The demo switch is opt-in, and never replaces checkout
+ *
+ * `PORTFOLIO_DEMO` decides whether the demo plan switch is drawn. It is an
+ * explicit flag rather than `NODE_ENV`, so this deployment can show the switch
+ * as a portfolio piece without shipping a development build. The real Toss
+ * upgrade buttons are outside that gate and render in every environment — the
+ * demo is offered ALONGSIDE checkout, never instead of it.
  *
  * ## It authorizes itself
  *
@@ -48,7 +57,7 @@ export async function CandidatePlansView() {
         initialEntitlements={workspace.entitlements}
         initialBilling={billing.summary}
         initialBillingError={billing.error}
-        showDeveloperPlanSwitch={process.env.NODE_ENV !== "production"}
+        portfolioDemoEnabled={PORTFOLIO_DEMO}
       />
     </div>
   );

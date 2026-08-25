@@ -1,0 +1,27 @@
+# Everything the build stage must not receive.
+#
+# Beyond image size, this is a SECRET boundary: `.env*` files live in the
+# working tree and would otherwise be copied into a build layer by `COPY . .`,
+# where they remain readable in the image history even if a later stage
+# deletes them.
+.env
+.env.*
+!.env.example
+
+node_modules
+.next
+out
+build
+dist
+
+.git
+.gitignore
+.github
+
+# Local test/verification output, never part of a release.
+coverage
+*.log
+.DS_Store
+README.md
+Dockerfile
+.dockerignore

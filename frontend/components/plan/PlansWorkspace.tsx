@@ -26,12 +26,12 @@ export function PlansWorkspace({
   initialEntitlements,
   initialBilling,
   initialBillingError,
-  showDeveloperPlanSwitch,
+  portfolioDemoEnabled,
 }: {
   initialEntitlements: Entitlements;
   initialBilling: BillingSummary | null;
   initialBillingError: "billingUnavailable" | "unauthenticated" | "forbidden" | null;
-  showDeveloperPlanSwitch: boolean;
+  portfolioDemoEnabled: boolean;
 }) {
   const router = useRouter();
   const { d, f } = useI18n();
@@ -43,8 +43,8 @@ export function PlansWorkspace({
   const [checkoutError, setCheckoutError] = useState<
     keyof typeof d.plans.checkout.errors | null
   >(null);
-  // The DEV-ONLY demo dialog, kept in its own state so a demo failure can
-  // never surface on the real upgrade buttons, or the reverse.
+  // The DEMO dialog, kept in its own state so a demo failure can never
+  // surface on the real upgrade buttons, or the reverse.
   const [demoPlan, setDemoPlan] = useState<CheckoutPlan | null>(null);
   const [demoError, setDemoError] = useState<
     keyof typeof d.plans.checkout.errors | null
@@ -91,16 +91,16 @@ export function PlansWorkspace({
     window.location.assign(result.redirectUrl);
   }
 
-  /** Dev-only. Opens the branded demo dialog; never reachable in production. */
+  /** Opens the branded demo dialog. Inert unless portfolio demo mode is on. */
   function openDemoCheckout(plan: CheckoutPlan) {
-    if (!showDeveloperPlanSwitch) return;
+    if (!portfolioDemoEnabled) return;
     setDemoError(null);
     setDemoSucceeded(false);
     setDemoPlan(plan);
   }
 
   /**
-   * The DEMO purchase. It reuses the existing dev plan switch rather than
+   * The DEMO purchase. It reuses the existing plan switch rather than
    * inventing a payment call, so the plan that comes back is the server's,
    * refetched by the action — never a local guess about what the plan became.
    *
@@ -210,17 +210,17 @@ export function PlansWorkspace({
           </p>
         ) : null}
       </section>
-      {showDeveloperPlanSwitch ? (
+      {portfolioDemoEnabled ? (
         <section
           aria-label={d.plans.demoCheckout.demoBadge}
           className="rounded-xl border border-dashed border-line bg-surface p-4"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="text-[13px] leading-relaxed text-ink-muted">
-              {d.plans.demoCheckout.devOnlyNote}
+              {d.plans.demoCheckout.demoModeNote}
             </p>
             <p className="text-[12px] font-medium uppercase tracking-wide text-ink-subtle">
-              {d.plans.devSwitch.devOnly}
+              {d.plans.devSwitch.portfolioDemo}
             </p>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -238,7 +238,7 @@ export function PlansWorkspace({
           </div>
         </section>
       ) : null}
-      {showDeveloperPlanSwitch ? (
+      {portfolioDemoEnabled ? (
         <DeveloperPlanSwitch
           currentPlan={currentPlan}
           pending={devSwitchPending}
@@ -249,11 +249,11 @@ export function PlansWorkspace({
           onSwitch={switchDeveloperPlan}
         />
       ) : null}
-      {demoPlan && showDeveloperPlanSwitch ? (
+      {demoPlan && portfolioDemoEnabled ? (
         <DemoCheckoutModal
           plan={demoPlan}
           /* Double-locked: the dialog cannot open, or pay, without this flag. */
-          demoPaymentEnabled={showDeveloperPlanSwitch}
+          demoPaymentEnabled={portfolioDemoEnabled}
           pending={demoPending}
           succeeded={demoSucceeded}
           error={demoError ? d.plans.checkout.errors[demoError] : null}

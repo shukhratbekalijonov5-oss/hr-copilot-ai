@@ -47,3 +47,49 @@ export const CHAT_SOCKET_URL = `${API_ORIGIN}/chat`;
  */
 export const SESSION_COOKIE = "hrc_session";
 export const REFRESH_COOKIE = "hrc_refresh";
+
+/**
+ * Portfolio demo mode.
+ *
+ * This deployment doubles as a portfolio piece, so the demo plan switch — which
+ * changes a plan WITHOUT taking payment — has to be visible on the public site.
+ * That used to hang off `NODE_ENV !== "production"`, which is the wrong control
+ * for the job: it conflates "how this bundle was compiled" with "is this a
+ * showcase", so the only way to demo anything was to ship a development build.
+ *
+ * So the decision is now explicit and opt-in. The flag is read in exactly one
+ * place, and it must be set to the literal string `true`; anything else —
+ * unset, empty, `false`, `1`, `yes` — leaves demo mode OFF. A typo must fail
+ * closed, because failing open here means handing every visitor a free upgrade.
+ *
+ * ## The frontend flag alone cannot grant a plan
+ *
+ * This only decides whether the control is DRAWN. The switch posts to the BFF,
+ * which forwards to the payment service, where the endpoint exists only under
+ * its own server-side profile. Turning this on without that server flag shows
+ * a switch that answers "not available here" — visibly inert, not silently
+ * privileged. Never treat this as an authorization boundary.
+ *
+ * ## Set it on the container, not in the build
+ *
+ * `NEXT_PUBLIC_*` is inlined when it is present at build time — build with
+ * `true` and the image has `"true"` hardcoded, which can no longer be turned
+ * off without rebuilding. Leave it UNSET at build and the compiler emits a
+ * real `process.env` read instead, so the deployment can set it (and unset it)
+ * on the pod. Prefer that: it keeps one image for both modes and keeps the
+ * default off.
+ *
+ * That works because the only reader is a Server Component. A client component
+ * reading this would need the value at build time, and the runtime toggle
+ * would silently stop working — so keep the flag on the server side of the
+ * boundary and pass it down as a prop, which is what `CandidatePlansView`
+ * does.
+ */
+export function parsePortfolioDemoFlag(raw: string | undefined): boolean {
+  return raw?.trim().toLowerCase() === "true";
+}
+
+/** True only where this build is an explicitly flagged portfolio demo. */
+export const PORTFOLIO_DEMO = parsePortfolioDemoFlag(
+  process.env.NEXT_PUBLIC_PORTFOLIO_DEMO_MODE,
+);

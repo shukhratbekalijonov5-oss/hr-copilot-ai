@@ -2518,8 +2518,8 @@ const ko: Dictionary = {
       title: "결제",
       demoBadge: "데모 결제",
       openDemo: "데모 결제 — {plan}",
-      devOnlyNote:
-        "개발 전용입니다. 기존의 안전한 플랜 전환을 사용하며 카드가 청구되거나 결제가 생성되지 않습니다.",
+      demoModeNote:
+        "포트폴리오 데모입니다. 안전한 요금제 전환을 사용해 시연용으로 요금제를 바꿉니다 — 카드는 청구되지 않고 결제도 생성되지 않습니다.",
       brand: "HR Copilot AI",
       orderSummary: "주문 요약",
       selectedPlan: "선택한 플랜",
@@ -2591,10 +2591,10 @@ const ko: Dictionary = {
       },
     },
     devSwitch: {
-      title: "개발자 요금제 전환",
+      title: "데모 요금제 전환",
       description:
-        "개발/테스트 전용입니다. NestJS BFF에 요청한 뒤 청구와 인증 상태를 다시 읽은 후에만 페이지가 바뀝니다.",
-      devOnly: "개발 전용",
+        "시연용으로만 요금제를 변경합니다 — 결제가 이루어지지 않고 카드도 청구되지 않습니다. 백엔드에 요청한 뒤 청구와 권한 상태를 다시 읽은 후에만 페이지가 바뀝니다.",
+      portfolioDemo: "포트폴리오 데모",
       switchTo: "{plan}로 전환",
       confirmTitle: "{plan}로 전환할까요?",
       confirmDescription:
@@ -2607,7 +2607,7 @@ const ko: Dictionary = {
         invalidTransition: "이 요금제 전환은 사용할 수 없습니다.",
         unauthenticated: "요금제를 전환하려면 다시 로그인해 주세요.",
         forbidden: "이 계정은 요금제를 전환할 수 없습니다.",
-        routeUnavailable: "여기서는 개발자 요금제 전환을 사용할 수 없습니다.",
+        routeUnavailable: "이 서버에서는 데모 요금제 전환이 활성화되어 있지 않습니다.",
         conflict: "현재 청구 상태와 요금제 전환이 충돌합니다.",
         paymentUnavailable:
           "결제 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",

@@ -54,16 +54,21 @@ describe("final payment frontend contract", () => {
     );
   });
 
-  it("renders the real dev/test plan switch only behind the server production gate", () => {
+  it("renders the demo plan switch only behind the explicit portfolio flag", () => {
     const page = code("components/plan/CandidatePlansView.tsx");
     const workspace = code("components/plan/PlansWorkspace.tsx");
     const devSwitch = code("components/plan/DeveloperPlanSwitch.tsx");
 
-    expect(page).toContain('process.env.NODE_ENV !== "production"');
-    expect(workspace).toContain("showDeveloperPlanSwitch ? (");
+    expect(page).toContain("portfolioDemoEnabled={PORTFOLIO_DEMO}");
+    expect(workspace).toContain("portfolioDemoEnabled ? (");
     expect(workspace).toContain("<DeveloperPlanSwitch");
     expect(devSwitch).toContain("CANDIDATE_PLANS.map");
-    expect(devSwitch).toContain("devOnly");
+    expect(devSwitch).toContain("portfolioDemo");
+
+    // The old gate must be gone: NODE_ENV once decided this, and leaving a
+    // second gate behind would mean two answers to one question.
+    expect(page).not.toContain("process.env.NODE_ENV");
+    expect(workspace).not.toContain("process.env.NODE_ENV");
   });
 
   it("contains no Java internal payment URL or secret in frontend source", () => {

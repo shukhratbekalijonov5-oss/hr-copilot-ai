@@ -56,7 +56,7 @@ export function DeveloperPlanSwitch({
           </p>
         </div>
         <p className="text-[12px] font-medium uppercase tracking-wide text-ink-subtle">
-          {d.plans.devSwitch.devOnly}
+          {d.plans.devSwitch.portfolioDemo}
         </p>
       </div>
 
