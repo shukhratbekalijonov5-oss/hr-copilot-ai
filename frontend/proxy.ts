@@ -31,6 +31,22 @@ import {
  */
 
 const AUTH_ROUTES = ["/login", "/register"];
+
+/**
+ * Reachable without a session, and not sign-in screens.
+ *
+ * ## Why the PWA surfaces have to be here
+ *
+ * An install is evaluated by the BROWSER, often before anyone signs in and
+ * sometimes with no cookies at all. A manifest that 307s to /login fails
+ * every installability check, and an offline page behind auth is unreachable
+ * at exactly the moment it is needed — the network is down, so the redirect
+ * cannot complete either.
+ *
+ * Neither route reads a session or returns anything private: the manifest is
+ * the app's public identity, and the offline page is a static apology.
+ */
+const PUBLIC_ROUTES = ["/offline", "/manifest.webmanifest"];
 const CANDIDATE_ROUTE_PREFIXES = [
   "/jobs",
   "/external-jobs",
@@ -117,6 +133,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const accessToken = request.cookies.get(SESSION_COOKIE)?.value ?? null;
   const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value ?? null;
 
+  // Public before anything else: these must answer with or without cookies.
+  if (PUBLIC_ROUTES.includes(pathname)) return NextResponse.next();
+
   const isAuthRoute = AUTH_ROUTES.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`),
   );
@@ -176,8 +195,13 @@ export const config = {
    * Everything except Next internals, the frontend's own route handlers, and
    * static assets. Without the exclusions, auth redirects would also block CSS,
    * JS and images from loading.
+   *
+   * `sw.js` is excluded explicitly: a service worker is fetched by the browser
+   * with no cookies, so a redirect to /login makes registration fail silently
+   * — the app simply is not installable and nothing says why. It is a static
+   * file in `public/` that reads no session.
    */
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|sw\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

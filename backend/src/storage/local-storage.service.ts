@@ -35,9 +35,15 @@ export class LocalStorageService extends StorageService {
       'storage.signedUrlTtlSeconds',
       900,
     );
-    const port = configService.get<number>('app.port', 3001);
-    const prefix = configService.get<string>('app.globalPrefix', 'api');
-    this.publicBaseUrl = `http://localhost:${port}/${prefix}`;
+    // Configurable so signed links stay fetchable off-machine (native
+    // mobile devices cannot reach "localhost"). Default keeps the old
+    // same-machine behavior.
+    this.publicBaseUrl = configService
+      .get<string>(
+        'app.publicBaseUrl',
+        `http://localhost:${configService.get<number>('app.port', 3001)}/${configService.get<string>('app.globalPrefix', 'api')}`,
+      )
+      .replace(/\/+$/, '');
   }
 
   async upload(input: UploadInput): Promise<StoredObject> {

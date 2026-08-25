@@ -8,7 +8,17 @@ import {
   personalFromSession,
 } from "@/lib/workspace/types";
 
-export default async function SettingsLayout({
+/**
+ * The shell for the two routes both account types share.
+ *
+ * It sits on the GROUP, not on `/settings`, because `/plans` is in this group
+ * too and was rendering without any chrome at all — no header, no navigation,
+ * no bottom bar. That was survivable while it was one page nobody linked to;
+ * it stopped being survivable the moment Plans became a row in the More menu
+ * on both sides, because following that link stranded the reader on a page
+ * with no way back.
+ */
+export default async function SharedAccountLayout({
   children,
 }: LayoutProps<"/">) {
   const session = await requireSession();

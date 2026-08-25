@@ -1,6 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
+import { EvidenceDrawer } from "@/components/workspace/EvidenceDrawer";
+import { fromMatchEvidence } from "@/lib/workspace/evidence-view";
 import { Chip } from "@/components/ui/Badge";
 import { ChevronDownIcon, FileIcon, GlobeIcon } from "@/components/ui/icons";
 import { evidencePreview, sectionKey } from "@/lib/ai/evidence-preview";
@@ -18,6 +20,14 @@ import type { MatchEvidence } from "@/lib/types";
  */
 export function MatchEvidenceList({ evidence }: { evidence: MatchEvidence[] }) {
   const { d } = useI18n();
+  /*
+   * Which passage is open in the inspector.
+   *
+   * The card keeps its inline preview — the drawer is for reading the full
+   * passage and its provenance beside the claim, not a replacement for
+   * seeing at a glance what backed it.
+   */
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   if (evidence.length === 0) {
     return (
@@ -25,21 +35,39 @@ export function MatchEvidenceList({ evidence }: { evidence: MatchEvidence[] }) {
     );
   }
 
+  const open = openIndex === null ? null : evidence[openIndex];
+
   return (
-    <ul className="flex flex-col gap-2">
-      {evidence.map((item, index) => (
-        <EvidenceCard key={index} index={index + 1} evidence={item} />
-      ))}
-    </ul>
+    <>
+      <ul className="flex flex-col gap-2">
+        {evidence.map((item, index) => (
+          <EvidenceCard
+            key={index}
+            index={index + 1}
+            evidence={item}
+            onInspect={() => setOpenIndex(index)}
+          />
+        ))}
+      </ul>
+
+      <EvidenceDrawer
+        evidence={
+          open ? fromMatchEvidence(open, (openIndex ?? 0) + 1) : null
+        }
+        onClose={() => setOpenIndex(null)}
+      />
+    </>
   );
 }
 
 function EvidenceCard({
   index,
   evidence,
+  onInspect,
 }: {
   index: number;
   evidence: MatchEvidence;
+  onInspect: () => void;
 }) {
   const { d } = useI18n();
   const [showOriginal, setShowOriginal] = useState(false);
@@ -62,9 +90,18 @@ function EvidenceCard({
           {index}
         </span>
         <span className="sr-only">{`[${index}]`}</span>
-        <h5 className="min-w-0 truncate text-[13px] font-semibold tracking-tight text-ink">
+        <h5 className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight text-ink">
           {heading}
         </h5>
+        {/* Opens the inspector beside the claim rather than navigating away. */}
+        <button
+          type="button"
+          onClick={onInspect}
+          aria-haspopup="dialog"
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-[11.5px] font-medium text-brand transition-colors duration-[var(--motion-fast)] hover:bg-brand-soft hover:text-brand-ink"
+        >
+          {d.ai.viewEvidenceAction}
+        </button>
       </div>
 
       {preview.kind === "list" ? (

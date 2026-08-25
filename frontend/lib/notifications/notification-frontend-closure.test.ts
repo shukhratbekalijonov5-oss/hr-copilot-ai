@@ -119,7 +119,7 @@ describe("settings after the preference removal", () => {
 
   it("keeps /settings on the shared authenticated route for both sides", () => {
     const page = code("app/(settings)/settings/page.tsx");
-    const layout = code("app/(settings)/settings/layout.tsx");
+    const layout = code("app/(settings)/layout.tsx");
 
     expect(page).toContain("requireSession()");
     expect(page).toContain("SettingsWorkspace");
@@ -287,7 +287,7 @@ describe("realtime and read state", () => {
     for (const layout of [
       "app/(app)/layout.tsx",
       "app/(candidate)/layout.tsx",
-      "app/(settings)/settings/layout.tsx",
+      "app/(settings)/layout.tsx",
     ]) {
       const text = code(layout);
       expect(text, layout).toContain("AppShell");
@@ -408,7 +408,7 @@ describe("the notification service outage the BFF now states", () => {
     for (const layout of [
       "app/(app)/layout.tsx",
       "app/(candidate)/layout.tsx",
-      "app/(settings)/settings/layout.tsx",
+      "app/(settings)/layout.tsx",
     ]) {
       expect(code(layout), layout).toContain("catch(() => 0)");
     }

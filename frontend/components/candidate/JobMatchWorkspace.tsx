@@ -18,6 +18,8 @@ import {
   evidenceHint,
 } from "@/lib/candidate/job-match-freshness";
 import { useI18n } from "@/lib/i18n/context";
+import { cn } from "@/lib/utils";
+import { SplitView } from "@/components/workspace/SplitView";
 
 /**
  * The candidate's AI job match surface.
@@ -43,6 +45,16 @@ export function JobMatchWorkspace() {
     loadingMore,
     clear,
   } = useJobMatchState();
+
+  /*
+   * The previewed match, by slug rather than by object, so a re-run or a
+   * "load more" cannot leave a stale object selected — the slug is resolved
+   * against the CURRENT ranking on every render, and a match that dropped
+   * out of it falls back to no selection rather than to deleted data.
+   */
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const selectedMatch =
+    result?.matches.find((match) => match.vacancy.slug === selectedSlug) ?? null;
 
   const hasAccount = evidence?.hasAccount ?? Boolean(result);
   // Files and links are equal evidence. A candidate with a portfolio and no
@@ -213,19 +225,90 @@ export function JobMatchWorkspace() {
               />
             </Card>
           ) : (
-            <ul
-              className={
-                stale
-                  ? "flex flex-col gap-3 opacity-55"
-                  : "flex flex-col gap-3"
-              }
-            >
-              {result.matches.map((match) => (
-                <li key={match.vacancy.slug}>
-                  <MatchCard match={match} pending={result.explanationsPending} />
-                </li>
-              ))}
-            </ul>
+            <div className={stale ? "opacity-55" : undefined}>
+              {/*
+                Below `xl` the ranked cards stack as they always have. Above
+                it there is room to keep the whole ranking visible while
+                reading one match, which is what the list is FOR — comparing
+                position, not scrolling past nine cards to reach the tenth.
+              */}
+              <ul className="flex flex-col gap-3 xl:hidden">
+                {result.matches.map((match) => (
+                  <li key={match.vacancy.slug}>
+                    <MatchCard match={match} pending={result.explanationsPending} />
+                  </li>
+                ))}
+              </ul>
+
+              <div className="hidden xl:block">
+                <SplitView
+                  listLabel={d.jobMatch.title}
+                  previewLabel={d.jobMatch.selectToPreview}
+                  hasSelection={Boolean(selectedMatch)}
+                  list={
+                    <ul className="flex max-h-[calc(100dvh-6rem)] flex-col gap-1.5 overflow-y-auto pr-1 scrollbar-slim">
+                      {result.matches.map((match) => {
+                        const active = match.vacancy.slug === selectedSlug;
+                        return (
+                          <li key={match.vacancy.slug}>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSlug(match.vacancy.slug)}
+                              aria-current={active ? "true" : undefined}
+                              className={cn(
+                                "flex w-full items-start gap-3 rounded-[12px] border px-3 py-2.5 text-left",
+                                "transition-colors duration-[var(--motion-fast)]",
+                                active
+                                  ? "border-brand/30 bg-brand-soft"
+                                  : "border-line bg-surface hover:border-line-strong hover:bg-surface-muted",
+                              )}
+                            >
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[13.5px] font-medium text-ink">
+                                  {match.vacancy.title}
+                                </span>
+                                <span className="block truncate text-[12px] text-ink-muted">
+                                  {match.vacancy.organizationName}
+                                </span>
+                              </span>
+                              {/* The backend's own band and score — not recomputed. */}
+                              <span className="shrink-0 text-right">
+                                <span className="block text-[13px] font-semibold tabular-nums text-ink">
+                                  {Math.round(match.score)}
+                                </span>
+                                <span className="block text-[10.5px] text-ink-subtle">
+                                  {d.jobMatch.band[match.band]}
+                                </span>
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  }
+                  preview={
+                    selectedMatch ? (
+                      <div className="p-1">
+                        <MatchCard
+                          match={selectedMatch}
+                          pending={result.explanationsPending}
+                        />
+                      </div>
+                    ) : null
+                  }
+                  emptyPreview={
+                    <div className="px-6 py-16 text-center">
+                      <p className="text-[14px] font-semibold text-ink">
+                        {d.jobMatch.selectToPreview}
+                      </p>
+                      <p className="mt-1 text-[13px] text-ink-muted">
+                        {d.jobMatch.selectToPreviewHint}
+                      </p>
+                    </div>
+                  }
+                />
+              </div>
+            </div>
           )}
 
           {result.hasMore ? (

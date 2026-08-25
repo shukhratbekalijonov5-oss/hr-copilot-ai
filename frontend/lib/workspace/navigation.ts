@@ -29,7 +29,7 @@ export interface NavItem {
   labelKey: keyof Dictionary["nav"];
   icon: ComponentType<IconProps>;
   /**
-   * Roles this item is shown to. Presence in the sidebar is a usability
+   * Roles this item is shown to. Presence in the navigation is a usability
    * decision only — the backend is the authorization boundary, and every one of
    * these routes is independently guarded there. Hiding a link never makes an
    * action safe.
@@ -40,11 +40,11 @@ export interface NavItem {
   /**
    * Which heading this item sits under.
    *
-   * Grouping is how the sidebar says that Internal and External AI Jobs are
+   * Grouping is how the product says that Internal and External AI Jobs are
    * two doors into one product area while Find jobs is a different one. Items
-   * with the same key must be adjacent — the sidebar renders a heading each
-   * time the key changes rather than sorting, so the list order stays the
-   * single definition of order.
+   * with the same key must be adjacent — a renderer emits a heading each time
+   * the key changes rather than sorting, so the list order stays the single
+   * definition of order.
    */
   groupKey?: keyof Dictionary["nav"];
   /**
@@ -77,17 +77,28 @@ export const ORGANIZATION_NAV: NavItem[] = [
 
   { href: "/vacancies", labelKey: "vacancies", icon: BriefcaseIcon, roles: HIRING, groupKey: "sectionHiring" },
   { href: "/candidates", labelKey: "candidates", icon: UsersIcon, roles: ALL_ROLES, groupKey: "sectionHiring" },
-  { href: "/interview-chats", labelKey: "interviewChats", icon: MessageIcon, roles: ALL_ROLES, groupKey: "sectionHiring" },
 
   { href: "/search", labelKey: "aiSearch", icon: SparkIcon, roles: ALL_ROLES, groupKey: "sectionAiTools" },
   { href: "/compare", labelKey: "compare", icon: CompareIcon, roles: HIRING, groupKey: "sectionAiTools" },
   { href: "/processing", labelKey: "processing", icon: ActivityIcon, roles: HIRING, groupKey: "sectionAiTools" },
+
+  // Messaging is neither a hiring record nor an AI tool; filing it under
+  // either made one of those headings mean two different things.
+  { href: "/interview-chats", labelKey: "interviewChats", icon: MessageIcon, roles: ALL_ROLES, groupKey: "sectionCommunication" },
+
+  { href: "/plans", labelKey: "plans", icon: SparkIcon, roles: ALL_ROLES, groupKey: "sectionAccount" },
+  { href: "/settings", labelKey: "settings", icon: SettingsIcon, roles: ALL_ROLES, groupKey: "sectionAccount" },
 ];
 
-export const ORGANIZATION_SECONDARY_NAV: NavItem[] = [
-  { href: "/plans", labelKey: "plans", icon: SparkIcon, roles: ALL_ROLES },
-  { href: "/settings", labelKey: "settings", icon: SettingsIcon, roles: ALL_ROLES },
-];
+/**
+ * Empty by design.
+ *
+ * Every entry now carries a heading, so there is no unlabelled tail to pin to
+ * the bottom of the rail. The export stays because `navigationFor` returns it
+ * and callers destructure it; a renderer that emits nothing for an empty
+ * list is simpler than one that special-cases its absence.
+ */
+export const ORGANIZATION_SECONDARY_NAV: NavItem[] = [];
 
 /**
  * Job-seeking side, in four areas.
@@ -139,11 +150,11 @@ export const PERSONAL_NAV: NavItem[] = [
   { href: "/my-interview-chats", labelKey: "interviewChats", icon: MessageIcon, groupKey: "sectionProfile" },
 
   { href: "/plans", labelKey: "plans", icon: SparkIcon, groupKey: "sectionAccount" },
+  { href: "/settings", labelKey: "settings", icon: SettingsIcon, groupKey: "sectionAccount" },
 ];
 
-export const PERSONAL_SECONDARY_NAV: NavItem[] = [
-  { href: "/settings", labelKey: "settings", icon: SettingsIcon },
-];
+/** Empty by design — see `ORGANIZATION_SECONDARY_NAV`. */
+export const PERSONAL_SECONDARY_NAV: NavItem[] = [];
 
 export function navigationFor(workspace: Workspace): {
   primary: NavItem[];

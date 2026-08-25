@@ -16,6 +16,21 @@ export interface AppConfiguration {
     port: number;
     frontendUrl: string;
     globalPrefix: string;
+    /**
+     * Express `trust proxy` setting; empty string = disabled. Set to the
+     * number of reverse-proxy hops (usually "1") in production so req.ip is
+     * the real client for throttling/lockout, and X-Forwarded-Proto is
+     * honored.
+     */
+    trustProxy: string;
+    /**
+     * Externally reachable base URL of THIS API (scheme://host[:port]/prefix).
+     * Used wherever the backend mints absolute URLs to itself (local-driver
+     * signed download links). Must be a LAN/public address when native
+     * mobile devices consume those links — localhost is only right when
+     * every client runs on the same machine.
+     */
+    publicBaseUrl: string;
   };
   auth: {
     /** Backend auth signing secret. The project standardises on SECRET_TOKEN. */
@@ -190,6 +205,10 @@ export default (): AppConfiguration => ({
     port: toInt(process.env.PORT, 3001),
     frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:3000',
     globalPrefix: process.env.API_PREFIX ?? 'api',
+    trustProxy: process.env.TRUST_PROXY ?? '',
+    publicBaseUrl:
+      process.env.API_PUBLIC_BASE_URL ??
+      `http://localhost:${toInt(process.env.PORT, 3001)}/${process.env.API_PREFIX ?? 'api'}`,
   },
   auth: {
     secretToken: process.env.SECRET_TOKEN ?? '',

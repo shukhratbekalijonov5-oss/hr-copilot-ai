@@ -36,6 +36,7 @@ import {
 } from "@/lib/notifications/grouping";
 import { notificationHref } from "@/lib/notifications/routing";
 import { cn } from "@/lib/utils";
+import { OPEN_NOTIFICATIONS_EVENT } from "@/lib/ui/notifications-bus";
 import type {
   Notification,
   NotificationAudience,
@@ -141,6 +142,25 @@ export function NotificationBell({
   useEffect(() => {
     notificationsRef.current = notifications;
   }, [notifications]);
+
+  /*
+   * The mobile More sheet has no notifications route to send anyone to — the
+   * web product's notification surface IS this dropdown — so it asks the bell
+   * to open rather than a page being invented for it.
+   */
+  useEffect(() => {
+    function onOpenRequest() {
+      setOpen(true);
+      setOpenedAt(Date.now());
+      // Loading happens HERE, in the event that opens the panel, rather than
+      // in an effect watching `open` — an effect would set state during
+      // commit for something the opening event already knows.
+      void loadPage(1);
+    }
+    window.addEventListener(OPEN_NOTIFICATIONS_EVENT, onOpenRequest);
+    return () =>
+      window.removeEventListener(OPEN_NOTIFICATIONS_EVENT, onOpenRequest);
+  }, [loadPage]);
 
   useEffect(() => {
     if (!open) return;

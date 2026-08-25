@@ -73,14 +73,14 @@ describe("navigationFor — organization workspace", () => {
         expect(hrefs).toContain("/vacancies");
         expect(hrefs).toContain("/processing");
       }
-      expect(nav.secondary.map((item) => item.href)).toContain("/settings");
+      expect(hrefs).toContain("/settings");
     }
   });
 
   it("lets recruiters run hiring and open account settings", () => {
     const nav = navigationFor(orgWorkspace("RECRUITER"));
     expect(nav.primary.map((item) => item.href)).toContain("/vacancies");
-    expect(nav.secondary.map((item) => item.href)).toContain("/settings");
+    expect(nav.primary.map((item) => item.href)).toContain("/settings");
   });
 
   it("gives interviewers a narrow surface, plus account settings", () => {
@@ -92,10 +92,10 @@ describe("navigationFor — organization workspace", () => {
     expect(hrefs).not.toContain("/vacancies");
     expect(hrefs).not.toContain("/compare");
     expect(hrefs).not.toContain("/processing");
-    expect(nav.secondary.map((item) => item.href)).toEqual([
-      "/plans",
-      "/settings",
-    ]);
+    expect(nav.primary.map((item) => item.href)).toContain("/plans");
+    expect(nav.primary.map((item) => item.href)).toContain("/settings");
+    // Every entry now carries a heading, so the unlabelled tail is empty.
+    expect(nav.secondary).toEqual([]);
   });
 
   it("never shows an interviewer more than an owner", () => {
@@ -111,7 +111,7 @@ describe("navigationFor — organization workspace", () => {
     }
   });
 
-  it("never leaks candidate-only routes into the recruiting sidebar", () => {
+  it("never leaks candidate-only routes into the recruiting navigation", () => {
     // `/settings` and `/plans` are served to BOTH account types by the
     // shared authenticated group, so neither is a candidate-only leak.
     const sharedRoutes = new Set(["/settings", "/plans"]);
@@ -135,11 +135,16 @@ describe("navigationFor — personal workspace", () => {
     expect(hrefs).toContain("/my-applications");
     expect(hrefs).toContain("/saved-jobs");
     expect(hrefs).toContain("/my-profile");
-    expect(nav.secondary.map((item) => item.href)).toContain("/settings");
+    expect(hrefs).toContain("/settings");
   });
 
   it("never exposes a recruiting route to the job-seeker side", () => {
-    const recruiting = new Set(ORGANIZATION_NAV.map((item) => item.href));
+    // `/settings` and `/plans` are served to BOTH account types by the shared
+    // authenticated route group, so neither is a recruiting-only leak.
+    const shared = new Set(["/settings", "/plans"]);
+    const recruiting = new Set(
+      ORGANIZATION_NAV.map((item) => item.href).filter((href) => !shared.has(href)),
+    );
     for (const item of navigationFor(personal).primary) {
       expect(recruiting.has(item.href)).toBe(false);
     }

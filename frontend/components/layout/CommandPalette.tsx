@@ -25,7 +25,7 @@ import type { Workspace } from "@/lib/workspace/types";
  * highlighted row so the selection is announced without the focus ring ever
  * leaving the text field.
  *
- * ## It only offers doors the sidebar already shows
+ * ## It only offers doors the bar already shows
  *
  * Commands are derived from `navigationFor`, so role filtering is inherited
  * rather than reimplemented — an interviewer gets no Compare command because

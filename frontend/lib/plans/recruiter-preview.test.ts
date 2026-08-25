@@ -148,21 +148,23 @@ describe("one /plans route, two products", () => {
 });
 
 describe("recruiter shell", () => {
-  it("keeps every existing route and adds only Plans", () => {
-    const hrefs = ORGANIZATION_NAV.map((item) => item.href);
-    expect(hrefs).toEqual([
-      "/dashboard",
-      "/vacancies",
-      "/candidates",
-      "/interview-chats",
-      "/search",
-      "/compare",
-      "/processing",
-    ]);
-    expect(ORGANIZATION_SECONDARY_NAV.map((item) => item.href)).toEqual([
-      "/plans",
-      "/settings",
-    ]);
+  it("keeps every existing route, and adds none", () => {
+    // Same set as before the navigation redesigns; only the grouping moved.
+    expect(new Set(ORGANIZATION_NAV.map((item) => item.href))).toEqual(
+      new Set([
+        "/dashboard",
+        "/vacancies",
+        "/candidates",
+        "/interview-chats",
+        "/search",
+        "/compare",
+        "/processing",
+        "/plans",
+        "/settings",
+      ]),
+    );
+    // Every entry carries a heading now, so the unlabelled tail is empty.
+    expect(ORGANIZATION_SECONDARY_NAV).toEqual([]);
   });
 
   it("groups the recruiter nav into named areas", () => {
@@ -171,10 +173,14 @@ describe("recruiter shell", () => {
       "sectionWorkspace",
       "sectionHiring",
       "sectionAiTools",
+      "sectionCommunication",
+      "sectionAccount",
     ]);
     for (const { locale, dictionary } of ALL_DICTIONARIES) {
       expect(dictionary.nav.sectionHiring, locale).toBeTruthy();
       expect(dictionary.nav.sectionAiTools, locale).toBeTruthy();
+      expect(dictionary.nav.sectionCommunication, locale).toBeTruthy();
+      expect(dictionary.nav.sectionAccount, locale).toBeTruthy();
     }
   });
 

@@ -19,7 +19,7 @@ import { useSpotlight } from "@/lib/ui/use-spotlight";
  *
  * A locked entry keeps its plan badge and stays a real link — the page behind
  * it explains the plan. Hiding it would make a purchasing decision invisible
- * to the person who might make it, which is the same rule the sidebar
+ * to the person who might make it, which is the same rule the navigation
  * follows. Nothing here is a security boundary; the backend guards both.
  *
  * ## They never merge

@@ -237,18 +237,12 @@ describe("candidate shell", () => {
     }
   });
 
-  it("derives the breadcrumb from the same nav definition the sidebar uses", () => {
-    const crumb = code("components/layout/CandidateBreadcrumb.tsx");
-    expect(crumb).toContain("PERSONAL_NAV");
-    expect(crumb).toContain("isNavItemActive");
-    // Areas have no page, so the crumb must not pretend they are links.
-    expect(crumb).not.toContain("href={area");
-  });
-
-  it("shows the signed-in account only on the job-seeker side", () => {
-    const shell = code("components/layout/AppShell.tsx");
-    expect(shell).toContain('workspace.active.kind === "personal" ? user : null');
-    expect(code("components/layout/Sidebar.tsx")).toContain("logoutAction");
+  it("keeps the signed-in account reachable from the header, for both roles", () => {
+    const header = code("components/layout/Header.tsx");
+    expect(header).toContain("logoutAction");
+    expect(header).toContain("user.fullName");
+    // Whose session this is matters on the recruiting side too.
+    expect(header).not.toContain('kind === "personal" ? user : null');
   });
 });
 

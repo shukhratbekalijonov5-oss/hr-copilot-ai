@@ -105,9 +105,12 @@ describe("navigation labels", () => {
       "/job-preferences",
       "/my-interview-chats",
 
+      // Account closes the rail. Settings joined it from the old unlabelled
+      // tail, so every entry now sits under a heading.
       "/plans",
+      "/settings",
     ]);
-    expect(secondary.map((item) => item.href)).toEqual(["/settings"]);
+    expect(secondary).toEqual([]);
     expect(en.nav.internalAiJobs).toBe("Internal AI Jobs");
     expect(en.nav.externalAiJobs).toBe("External AI Jobs");
 

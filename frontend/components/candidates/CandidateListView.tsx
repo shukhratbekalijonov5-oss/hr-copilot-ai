@@ -10,6 +10,9 @@ import { Input, Select } from "@/components/ui/Field";
 import { DocumentStatusBadge } from "@/components/ui/StatusBadge";
 import { SearchIcon, UsersIcon } from "@/components/ui/icons";
 import { useI18n } from "@/lib/i18n/context";
+import { cn } from "@/lib/utils";
+import { SplitView } from "@/components/workspace/SplitView";
+import { CandidatePreview } from "@/components/candidates/CandidatePreview";
 import { DOCUMENT_STATUSES } from "@/lib/types";
 import type { Candidate, CandidateSortKey, Vacancy } from "@/lib/types";
 
@@ -29,6 +32,13 @@ export function CandidateListView({
   const [vacancyId, setVacancyId] = useState(initialVacancyId);
   const [status, setStatus] = useState("all");
   const [sort, setSort] = useState<CandidateSortKey>("recent");
+  /*
+   * The previewed candidate, by id rather than by object, so a re-filter or a
+   * re-sort cannot leave a stale row selected — the id is looked up against
+   * the CURRENT filtered set on every render, and a selection filtered out
+   * simply falls back to no selection.
+   */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Rebuilt per locale rather than hoisted to module scope.
   const sortOptions = useMemo<{ value: CandidateSortKey; label: string }[]>(
@@ -184,6 +194,8 @@ export function CandidateListView({
     />
   );
 
+  const selected = filtered.find((candidate) => candidate.id === selectedId) ?? null;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
@@ -196,7 +208,13 @@ export function CandidateListView({
           onChange={(event) => setSearch(event.target.value)}
           wrapperClassName="lg:max-w-xs lg:flex-1"
         />
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {/*
+          One column on the narrowest phones. At 390px two side-by-side
+          selects gave each ~185px, which truncated "All processing states"
+          mid-word — the browser pass caught it. `xs`-style stacking costs a
+          row of height and makes every option label readable.
+        */}
+        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-3">
           <Select
             aria-label={d.tables.filterByVacancy}
             value={vacancyId}
@@ -227,13 +245,90 @@ export function CandidateListView({
         </p>
       </div>
 
-      <div className="hidden md:block">
+      {/*
+        Three presentations, one per width band, because a candidate row does
+        not survive being squeezed: the dense table below `xl`, a compact
+        selectable list beside a preview above it, and cards on mobile. The
+        table's experience/location/documents columns cannot fit a 22rem
+        column, so the split gets a list built for that width rather than a
+        squeezed table.
+      */}
+      <div className="hidden md:block xl:hidden">
         <DataTable
           columns={columns}
           rows={filtered}
           getRowKey={(candidate) => candidate.id}
           caption={d.tables.captionCandidates}
           empty={empty}
+        />
+      </div>
+
+      <div className="hidden xl:block">
+        <SplitView
+          listLabel={d.candidates.title}
+          previewLabel={d.candidates.selectToPreview}
+          hasSelection={Boolean(selected)}
+          list={
+            filtered.length === 0 ? (
+              <div className="rounded-[14px] border border-line bg-surface">
+                {empty}
+              </div>
+            ) : (
+              <ul className="flex max-h-[calc(100dvh-6rem)] flex-col gap-1.5 overflow-y-auto pr-1 scrollbar-slim">
+                {filtered.map((candidate) => {
+                  const active = candidate.id === selectedId;
+                  return (
+                    <li key={candidate.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(candidate.id)}
+                        aria-current={active ? "true" : undefined}
+                        className={cn(
+                          "flex w-full items-center gap-2.5 rounded-[12px] border px-3 py-2.5 text-left",
+                          "transition-colors duration-[var(--motion-fast)]",
+                          active
+                            ? "border-brand/30 bg-brand-soft"
+                            : "border-line bg-surface hover:border-line-strong hover:bg-surface-muted",
+                        )}
+                      >
+                        <Avatar
+                          name={candidate.fullName}
+                          src={candidate.avatarUrl}
+                          size="sm"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13.5px] font-medium text-ink">
+                            {candidate.fullName}
+                          </span>
+                          <span className="block truncate text-[12px] text-ink-muted">
+                            {candidate.currentTitle ?? d.common.notSet}
+                          </span>
+                        </span>
+                        {candidate.processingStatus ? (
+                          <DocumentStatusBadge status={candidate.processingStatus} />
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )
+          }
+          preview={
+            selected ? (
+              <CandidatePreview candidate={selected} vacancyId={vacancyId} />
+            ) : null
+          }
+          emptyPreview={
+            <div className="px-6 py-16 text-center">
+              <p className="text-[14px] font-semibold text-ink">
+                {d.candidates.selectToPreview}
+              </p>
+              <p className="mt-1 text-[13px] text-ink-muted">
+                {d.candidates.selectToPreviewHint}
+              </p>
+            </div>
+          }
         />
       </div>
 

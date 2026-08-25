@@ -4,6 +4,8 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ProcessingIoAdapter } from './processing/io.adapter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { noStoreMiddleware } from './common/http/no-store.middleware';
+import type { Express } from 'express';
 import { PayloadTooLargeFilter } from './common/filters/payload-too-large.filter';
 
 async function bootstrap(): Promise<void> {
@@ -30,6 +32,29 @@ async function bootstrap(): Promise<void> {
     // Probes stay at the root so orchestrators need not know the API prefix.
     exclude: ['health/live', 'health/ready'],
   });
+
+  /**
+   * Reverse-proxy awareness, OFF unless deliberately configured.
+   *
+   * Behind TLS-terminating ingress every request reaches Node from the
+   * proxy's address; without `trust proxy`, req.ip would be the proxy for
+   * ALL clients — collapsing the per-IP throttler and the login-lockout IP
+   * scoping into one shared bucket. Set TRUST_PROXY to the number of proxy
+   * hops in front of the API (typically 1) — or an express `trust proxy`
+   * preset such as `loopback`. Never enable it without a proxy actually
+   * stripping/overwriting X-Forwarded-For, or clients could spoof their IP.
+   */
+  const trustProxy = config.get<string>('app.trustProxy', '');
+  if (trustProxy) {
+    const value = /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy;
+    const express = app.getHttpAdapter().getInstance() as unknown as Express;
+    express.set('trust proxy', value);
+    logger.log(`Trusting reverse proxy (trust proxy = ${trustProxy})`);
+  }
+
+  // Private data must never land in a shared cache. One rule covers every
+  // bearer-authenticated response plus the token-issuing auth routes.
+  app.use(noStoreMiddleware(globalPrefix));
 
   /**
    * CORS: a single explicit origin, never '*' — credentials are enabled and the

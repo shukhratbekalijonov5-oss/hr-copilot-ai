@@ -10,6 +10,28 @@ import type { Dictionary } from "@/lib/i18n/dictionary";
 import type { Plural } from "@/lib/i18n/dictionaries/en";
 
 const ko: Dictionary = {
+  footer: {
+    tagline: "지원자와 리크루터를 위한 AI 기반 채용·구직 워크스페이스입니다.",
+    blurb: "더 잘 맞는 공고를 찾고, 그 근거를 확인하고, 채용을 한곳에서 관리하세요.",
+    contact: "문의",
+    phoneLabel: "전화",
+    emailLabel: "이메일",
+    social: "팔로우",
+    rights: "© 2026 HR Copilot AI",
+  },
+
+  pwa: {
+    offlineTitle: "오프라인 상태입니다",
+    offlineHint: "계속하려면 다시 연결하세요. 오프라인 상태에서는 아무것도 갱신되지 않습니다.",
+    offlineRetry: "다시 시도",
+    installTitle: "HR Copilot 설치",
+    installHint: "홈 화면에 추가하면 전체 화면 앱으로 사용할 수 있습니다.",
+    install: "설치",
+    installDismiss: "나중에",
+    iosInstallTitle: "홈 화면에 추가",
+    iosInstallHint: "공유 버튼을 누른 뒤 '홈 화면에 추가'를 선택하세요.",
+  },
+
   meta: {
     appName: "HR Copilot AI",
     tagline: "채용 인텔리전스",
@@ -82,10 +104,47 @@ const ko: Dictionary = {
     hint: "Enter 열기 · 방향키 이동 · Esc 닫기",
   },
 
+  primaryNav: {
+    label: "기본 탐색",
+    close: "닫기",
+    sections: {
+      career: "커리어",
+      careerHint: "구직 활동에 관한 모든 것.",
+      aiSearch: "AI 검색",
+      aiSearchHint: "회원님의 근거를 기준으로 순위를 매깁니다.",
+      hiring: "채용",
+      hiringHint: "공고와 지원자를 관리합니다.",
+      more: "더보기",
+      moreHint: "계정과 환경설정.",
+    },
+    comingSoon: "출시 예정",
+    hints: {
+      findJobs: "모든 공개 공고를 살펴봅니다.",
+      savedJobs: "저장해 둔 공고입니다.",
+      myApplications: "지원이 어느 단계인지 확인합니다.",
+      internalAiJobs: "HR Copilot에 등록된 공고입니다.",
+      externalAiJobs: "외부에 게시된 공고입니다.",
+      myProfile: "근거 자료와 상세 정보.",
+      jobPreferences: "원하는 조건입니다.",
+      plans: "구독 정보.",
+      settings: "계정 설정.",
+      notifications: "최근 활동.",
+      vacancies: "내가 만든 공고입니다.",
+      candidates: "지원한 사람들입니다.",
+      compare: "한 공고의 지원자를 비교합니다.",
+      internalAiSearch: "지원자 근거 자료를 검색합니다.",
+      externalAiSearch: "지원자 외부에서 후보를 찾습니다.",
+    },
+  },
+
   nav: {
+    chats: "채팅",
+    more: "더보기",
+    roleCandidate: "구직자",
+    roleRecruiter: "채용 담당자",
+    sectionCommunication: "커뮤니케이션",
     sectionHiring: "채용",
     sectionAiTools: "AI 도구",
-    upgradeHint: "모든 공개 공고에 대한 AI 매칭을 사용해 보세요.",
     sectionHome: "홈",
     sectionCareer: "커리어",
     sectionProfile: "프로필",
@@ -112,8 +171,6 @@ const ko: Dictionary = {
     interviewChats: "인터뷰 채팅",
     savedJobs: "저장한 공고",
     myProfile: "내 프로필",
-    openNavigation: "메뉴 열기",
-    closeNavigation: "메뉴 닫기",
     breadcrumb: "탐색 경로",
     notePersonal:
       "프로필과 지원 내역은 본인의 것입니다. 채용 담당자는 보낸 내용만 확인할 수 있습니다.",
@@ -349,6 +406,10 @@ const ko: Dictionary = {
   },
 
   candidates: {
+    vacancyContext: "공고 컨텍스트",
+    openFullDetail: "상세 정보 열기",
+    selectToPreview: "지원자를 선택하세요",
+    selectToPreviewHint: "선택한 지원자의 정보가 여기에 표시됩니다.",
     title: "지원자",
     description:
       "파이프라인의 모든 지원자와 문서 상태입니다. 모델이 지원자를 순위 매기거나 걸러내지 않습니다.",
@@ -490,6 +551,16 @@ const ko: Dictionary = {
   },
 
   ai: {
+    evidenceDrawerTitle: "근거",
+    evidenceSnippet: "발췌",
+    evidenceSource: "출처",
+    evidenceFile: "파일",
+    evidencePage: "페이지",
+    evidenceLink: "링크",
+    evidenceSourceUnknown: "이 발췌의 출처가 제공되지 않았습니다.",
+    sourceFile: "문서",
+    sourceLink: "링크",
+    viewEvidenceAction: "근거 보기",
     ask: "이 지원자에 대해 질문하기",
     askDescription:
       "답변은 업로드된 문서의 구절만을 근거로 작성되며, 모든 답변에 출처가 함께 표시됩니다.",
@@ -925,6 +996,7 @@ const ko: Dictionary = {
   },
 
   tables: {
+    documentsCount: { other: "문서 {count}개" } as Plural,
     vacancy: "채용 공고",
     candidate: "지원자",
     department: "부서",
@@ -1772,6 +1844,8 @@ const ko: Dictionary = {
   },
 
   jobMatch: {
+    selectToPreview: "매칭을 선택하세요",
+    selectToPreviewHint: "선택한 매칭의 근거와 AI 설명이 여기에 표시됩니다.",
     title: "AI 잡 매칭",
     description:
       "내 프로필과 이력서에 맞는 공고를 근거와 함께 찾아드립니다.",

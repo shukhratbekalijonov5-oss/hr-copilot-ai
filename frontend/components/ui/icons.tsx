@@ -354,3 +354,47 @@ export const MoonIcon = (p: IconProps) => (
     <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5Z" />
   </Icon>
 );
+
+export const PhoneIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6.5 3.5h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A17 17 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2Z" />
+  </Icon>
+);
+
+/*
+ * Social marks, drawn on the same 24px grid and stroke weight as the rest.
+ *
+ * These are simplified line versions rather than the brands' official filled
+ * logos: a footer row that mixes hand-drawn outlines with four downloaded
+ * glyphs looks like a mistake, and the alternative — an icon package for four
+ * symbols — is a dependency this file exists to avoid.
+ */
+export const InstagramIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="5" />
+    <circle cx="12" cy="12" r="4" />
+    <circle cx="17.2" cy="6.8" r="0.6" fill="currentColor" />
+  </Icon>
+);
+
+export const TelegramIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M21 4.5 2.8 11.3a.5.5 0 0 0 .05.95l4.6 1.3 1.7 5.2a.5.5 0 0 0 .87.16l2.4-2.7 4.5 3.3a.5.5 0 0 0 .78-.3L21 4.5Z" />
+    <path d="M9.45 13.55 21 4.5l-11.1 9.75" />
+  </Icon>
+);
+
+export const FacebookIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="4.5" />
+    <path d="M15 8h-1.6A1.9 1.9 0 0 0 11.5 10v11" />
+    <path d="M9 13.2h4.8" />
+  </Icon>
+);
+
+export const XIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 4h3.4l12.6 16h-3.4z" />
+    <path d="M19 4 5 20" />
+  </Icon>
+);

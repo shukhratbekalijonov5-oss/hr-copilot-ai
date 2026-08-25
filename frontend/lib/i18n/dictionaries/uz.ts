@@ -12,6 +12,28 @@ import type { Dictionary } from "@/lib/i18n/dictionary";
 import type { Plural } from "@/lib/i18n/dictionaries/en";
 
 const uz: Dictionary = {
+  footer: {
+    tagline: "Nomzodlar va rekruterlar uchun sunʼiy intellektga asoslangan ishga qabul va ish qidirish makoni.",
+    blurb: "Mosroq ish oʻrinlarini toping, ular ortidagi dalillarni koʻring va ishga qabulni bir joyda boshqaring.",
+    contact: "Aloqa",
+    phoneLabel: "Qoʻngʻiroq",
+    emailLabel: "Email",
+    social: "Ijtimoiy tarmoqlar",
+    rights: "© 2026 HR Copilot AI",
+  },
+
+  pwa: {
+    offlineTitle: "Aloqa yoʻq",
+    offlineHint: "Davom etish uchun qayta ulaning. Oflaynda hech narsa yangilanmaydi.",
+    offlineRetry: "Qayta urinish",
+    installTitle: "HR Copilot ni oʻrnatish",
+    installHint: "Bosh ekranga qoʻshsangiz, toʻliq ekranli ilova sifatida ochiladi.",
+    install: "Oʻrnatish",
+    installDismiss: "Hozir emas",
+    iosInstallTitle: "Bosh ekranga qoʻshish",
+    iosInstallHint: "«Ulashish» tugmasini bosing va «Bosh ekranga qoʻshish» ni tanlang.",
+  },
+
   meta: {
     appName: "HR Copilot AI",
     tagline: "Ishga qabul qilish tahlili",
@@ -108,10 +130,47 @@ const uz: Dictionary = {
     hint: "Enter — ochish · Strelkalar — tanlash · Esc — yopish",
   },
 
+  primaryNav: {
+    label: "Asosiy navigatsiya",
+    close: "Yopish",
+    sections: {
+      career: "Karyera",
+      careerHint: "Ish qidiruvingizga oid hamma narsa.",
+      aiSearch: "AI qidiruv",
+      aiSearchHint: "Sizning dalillaringiz boʻyicha tartiblanadi.",
+      hiring: "Ishga olish",
+      hiringHint: "Vakansiyalaringiz va ulardagi odamlar.",
+      more: "Yana",
+      moreHint: "Hisobingiz va sozlamalar.",
+    },
+    comingSoon: "Tez orada",
+    hints: {
+      findJobs: "Barcha ochiq lavozimlarni koʻrish.",
+      savedJobs: "Siz saqlagan lavozimlar.",
+      myApplications: "Har bir ariza qaysi bosqichda.",
+      internalAiJobs: "HR Copilotda eʼlon qilingan lavozimlar.",
+      externalAiJobs: "Boshqa joyda eʼlon qilingan lavozimlar.",
+      myProfile: "Dalillaringiz va maʼlumotlaringiz.",
+      jobPreferences: "Nima izlayotganingiz.",
+      plans: "Obunangiz.",
+      settings: "Hisob sozlamalari.",
+      notifications: "Soʻnggi faoliyat.",
+      vacancies: "Siz yaratgan vakansiyalar.",
+      candidates: "Ariza bergan odamlar.",
+      compare: "Bitta vakansiyadagi nomzodlarni taqqoslash.",
+      internalAiSearch: "Nomzodlaringiz dalillarini qidirish.",
+      externalAiSearch: "Ariza berganlardan tashqarida qidirish.",
+    },
+  },
+
   nav: {
+    chats: "Chatlar",
+    more: "Yana",
+    roleCandidate: "Ish izlovchi",
+    roleRecruiter: "Rekruter",
+    sectionCommunication: "Muloqot",
     sectionHiring: "Ishga olish",
     sectionAiTools: "AI vositalari",
-    upgradeHint: "Barcha ochiq lavozimlar boʻyicha AI moslashtirishni oching.",
     sectionHome: "Bosh sahifa",
     sectionCareer: "Karyera",
     sectionProfile: "Profil",
@@ -138,8 +197,6 @@ const uz: Dictionary = {
     interviewChats: "Suhbat chatlari",
     savedJobs: "Saqlangan vakansiyalar",
     myProfile: "Mening profilim",
-    openNavigation: "Menyuni ochish",
-    closeNavigation: "Menyuni yopish",
     breadcrumb: "Navigatsiya izi",
     notePersonal:
       "Profilingiz va arizalaringiz sizniki. Rekruterlar faqat siz yuborgan maʼlumotni koʻradi.",
@@ -386,6 +443,10 @@ const uz: Dictionary = {
   },
 
   candidates: {
+    vacancyContext: "Vakansiya konteksti",
+    openFullDetail: "Toʻliq maʼlumotni ochish",
+    selectToPreview: "Nomzodni tanlang",
+    selectToPreviewHint: "Uning maʼlumotlari shu yerda chiqadi.",
     title: "Nomzodlar",
     description:
       "Jarayondagi barcha nomzodlar va ularning hujjat holati. Model hech kimni saralamaydi va tartiblamaydi.",
@@ -531,6 +592,16 @@ const uz: Dictionary = {
   },
 
   ai: {
+    evidenceDrawerTitle: "Dalil",
+    evidenceSnippet: "Parcha",
+    evidenceSource: "Manba",
+    evidenceFile: "Fayl",
+    evidencePage: "Sahifa",
+    evidenceLink: "Havola",
+    evidenceSourceUnknown: "Bu parchaning manbasi koʻrsatilmagan.",
+    sourceFile: "Hujjat",
+    sourceLink: "Havola",
+    viewEvidenceAction: "Dalilni koʻrish",
     ask: "Ushbu nomzod haqida savol berish",
     askDescription:
       "Javob faqat yuklangan hujjatlardagi parchalar asosida yoziladi va har biri manbasi bilan koʻrsatiladi.",
@@ -996,6 +1067,10 @@ const uz: Dictionary = {
   },
 
   tables: {
+    documentsCount: {
+      one: "{count} ta hujjat",
+      other: "{count} ta hujjat",
+    } as Plural,
     vacancy: "Vakansiya",
     candidate: "Nomzod",
     department: "Boʻlim",
@@ -1868,6 +1943,8 @@ const uz: Dictionary = {
   },
 
   jobMatch: {
+    selectToPreview: "Moslikni tanlang",
+    selectToPreviewHint: "Dalillar va AI izohi shu yerda chiqadi.",
     title: "AI ish tanlash",
     description:
       "Profilingiz va rezyumengizga mos ochiq vakansiyalar — har bir moslik ortidagi dalillar bilan.",

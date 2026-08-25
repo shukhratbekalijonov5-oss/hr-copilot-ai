@@ -16,63 +16,69 @@
  * design rather than a broken one.
  */
 :root {
-  /* Blush. A warm, very pale pink page under white surfaces — the warmth is
-     what separates this from every cool-grey admin console, and it is kept
-     under 3% saturation so it reads as "considered", never as "candy". */
-  --page: #fff8fb;
-  --canvas: #fff8fb;
+  /* A very pale COOL blue page under white surfaces. The tint is what
+     separates this from every neutral-grey admin console, and it is kept
+     under 4% saturation so it reads as "considered", never as "corporate
+     portal". Cards separate by temperature and a 1px border, not a shadow. */
+  --page: #f1f6fd;
+  --canvas: #f1f6fd;
   --surface: #ffffff;
-  --surface-raised: #fffbfd;
-  --elevated: #fffbfd;
-  --surface-muted: #faf7fb;
+  --surface-raised: #f8fbff;
+  --elevated: #f8fbff;
+  --surface-muted: #f0f5fc;
 
-  --border: #f0e3ea;
-  --line: #f0e3ea;
-  --line-strong: #e9dde6;
+  --border: #dbe6f4;
+  --line: #dbe6f4;
+  --line-strong: #c8d8ec;
 
-  --text: #17151d;
-  --ink: #17151d;
-  --text-muted: #6f6877;
-  --ink-muted: #6f6877;
-  --ink-subtle: #968e9c;
+  --text: #0f1726;
+  --ink: #0f1726;
+  --text-muted: #5b6a82;
+  --ink-muted: #5b6a82;
+  --ink-subtle: #8393ac;
   --ink-inverted: #ffffff;
 
-  --primary: #6757f5;
-  --primary-hover: #5747e2;
-  --brand: #6757f5;
-  --brand-hover: #5747e2;
-  --accent-soft: #f2eeff;
-  --brand-soft: #f2eeff;
-  --brand-ink: #4a3ac9;
+  --primary: #2d5be8;
+  --primary-hover: #204acd;
+  --brand: #2d5be8;
+  --brand-hover: #204acd;
+  --accent-soft: #e7effe;
+  --brand-soft: #e7effe;
+  --brand-ink: #1d40af;
 
   --success: #047857;
   --positive: #047857;
-  --positive-soft: #e6f6f0;
+  --positive-soft: #e2f6ef;
   --warning: #b45309;
   --warning-soft: #fdf4e3;
   --danger: #be123c;
   --critical: #be123c;
   --critical-soft: #fdeaee;
   --info: #1d4ed8;
-  --info-soft: #e9effd;
-  --neutral-soft: #f7f1f6;
+  --info-soft: #e6effd;
+  --neutral-soft: #eef4fb;
 
-  /* The background grid: pink-violet hairlines, barely there. */
-  --grid-color: rgb(103 87 245 / 0.045);
+  /* The background grid: blue hairlines, barely there. */
+  --grid-color: rgb(45 91 232 / 0.045);
   --grid-size: 32px;
   /* Ambient wash behind hero and AI surfaces. */
-  --ai-glow: rgb(103 87 245 / 0.10);
-  --ai-glow-warm: rgb(236 130 175 / 0.10);
+  --ai-glow: rgb(45 91 232 / 0.10);
+  --ai-glow-warm: rgb(124 108 246 / 0.09);
 
+  /* The AI tokens stay VIOLET while the product is blue. That is deliberate:
+     blue is the product's colour and violet means "a model produced this",
+     so a generated panel has to be distinguishable from an ordinary one at a
+     glance. Collapsing them into one hue would hide exactly the distinction
+     this product exists to make. */
   --ai-tint: #f8f5ff;
   --ai-line: #e6ddfb;
   --ai-ink: #5a45d6;
 
-  --ring: #a99cfa;
-  --shadow-card: 0 1px 2px rgb(69 39 58 / 0.04);
-  --shadow-raised: 0 1px 2px rgb(69 39 58 / 0.04), 0 6px 20px -10px rgb(69 39 58 / 0.12);
-  --shadow-pop: 0 16px 40px -12px rgb(69 39 58 / 0.16), 0 2px 8px -4px rgb(69 39 58 / 0.08);
-  --shadow-glow: 0 0 0 1px rgb(103 87 245 / 0.10), 0 8px 28px -10px rgb(103 87 245 / 0.28);
+  --ring: #8fb2fb;
+  --shadow-card: 0 1px 2px rgb(20 40 80 / 0.05);
+  --shadow-raised: 0 1px 2px rgb(20 40 80 / 0.05), 0 6px 20px -10px rgb(20 40 80 / 0.14);
+  --shadow-pop: 0 16px 40px -12px rgb(20 40 80 / 0.18), 0 2px 8px -4px rgb(20 40 80 / 0.09);
+  --shadow-glow: 0 0 0 1px rgb(45 91 232 / 0.10), 0 8px 28px -10px rgb(45 91 232 / 0.28);
 
   --motion-fast: 150ms;
   --motion-base: 200ms;
@@ -86,57 +92,57 @@
   /* Deep navy, never black. Blue-black surfaces let an indigo accent glow
      without turning neon — on true black the same accent reads as a screen
      defect rather than as light. */
-  --page: #06101f;
-  --canvas: #06101f;
-  --surface: #0b1728;
-  --surface-raised: #10213a;
-  --elevated: #081426;
-  --surface-muted: #10213a;
+  --page: #060e1c;
+  --canvas: #060e1c;
+  --surface: #0b162a;
+  --surface-raised: #101f3a;
+  --elevated: #081326;
+  --surface-muted: #101f3a;
 
-  --border: #1c3150;
-  --line: #1c3150;
-  --line-strong: #2a4368;
+  --border: #1c3054;
+  --line: #1c3054;
+  --line-strong: #294470;
 
-  --text: #f5f7fb;
-  --ink: #f5f7fb;
-  --text-muted: #a8b4c7;
-  --ink-muted: #a8b4c7;
-  --ink-subtle: #718096;
-  --ink-inverted: #06101f;
+  --text: #f0f6ff;
+  --ink: #f0f6ff;
+  --text-muted: #a2b3cd;
+  --ink-muted: #a2b3cd;
+  --ink-subtle: #6e82a0;
+  --ink-inverted: #060e1c;
 
-  --primary: #6c63ff;
-  --primary-hover: #7c73ff;
-  --brand: #6c63ff;
-  --brand-hover: #7c73ff;
-  --accent-soft: #16204a;
-  --brand-soft: #16204a;
-  --brand-ink: #b3adff;
+  --primary: #4285ff;
+  --primary-hover: #609aff;
+  --brand: #4285ff;
+  --brand-hover: #609aff;
+  --accent-soft: #11264e;
+  --brand-soft: #11264e;
+  --brand-ink: #96beff;
 
   --success: #34d399;
   --positive: #34d399;
-  --positive-soft: #0b2a26;
+  --positive-soft: #0a2926;
   --warning: #fbbf5a;
   --warning-soft: #2a2113;
   --danger: #fb7185;
   --critical: #fb7185;
   --critical-soft: #2c1622;
   --info: #7aa7f8;
-  --info-soft: #10203a;
-  --neutral-soft: #122034;
+  --info-soft: #0f1f3a;
+  --neutral-soft: #101e36;
 
-  --grid-color: rgb(124 115 255 / 0.07);
-  --ai-glow: rgb(108 99 255 / 0.20);
-  --ai-glow-warm: rgb(56 130 246 / 0.16);
+  --grid-color: rgb(66 133 255 / 0.07);
+  --ai-glow: rgb(66 133 255 / 0.20);
+  --ai-glow-warm: rgb(124 108 246 / 0.16);
 
   --ai-tint: #101c33;
   --ai-line: #2b3a63;
   --ai-ink: #a99dff;
 
-  --ring: #7c73ff;
+  --ring: #4285ff;
   --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
   --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 20px -10px rgb(0 0 0 / 0.6);
   --shadow-pop: 0 20px 48px -16px rgb(0 0 0 / 0.7), 0 2px 8px -4px rgb(0 0 0 / 0.5);
-  --shadow-glow: 0 0 0 1px rgb(124 115 255 / 0.22), 0 10px 34px -12px rgb(108 99 255 / 0.5);
+  --shadow-glow: 0 0 0 1px rgb(66 133 255 / 0.22), 0 10px 34px -12px rgb(66 133 255 / 0.5);
 
   color-scheme: dark;
 }
@@ -327,6 +333,52 @@
   }
 
   /*
+   * Room for the install banner.
+   *
+   * It is a fixed element above the bottom bar, so the page has to reserve
+   * its height or the last card sits underneath it — which is exactly what
+   * the browser pass found on both dashboards. Only below `lg`, because the
+   * banner is `lg:hidden` and desktop must not gain a dead strip.
+   */
+  @media (max-width: 1023px) {
+    :root.install-banner-open main {
+      padding-bottom: 13.5rem;
+    }
+  }
+
+  /*
+   * The home footer's surface.
+   *
+   * The palette tokens already give it a blush panel in light and a deep navy
+   * one in dark, so the only thing added here is the dark-mode ambient: a
+   * single violet radial at very low opacity, bled off the top edge. It is
+   * painted into a pseudo-element, so it costs no layout and the footer's own
+   * markup stays free of it.
+   *
+   * Light mode gets nothing. A glow on an off-white panel either reads as a
+   * printing error or has to be strong enough to look like a gradient, and
+   * the border is already doing the work of separating it from the page.
+   */
+  .footer-panel {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .theme-dark .footer-panel::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: -1;
+    background: radial-gradient(
+      70% 120% at 20% 0%,
+      var(--ai-glow) 0%,
+      transparent 62%
+    );
+  }
+
+  /*
    * The AI edge: a 1px accent line along the top of a generated surface.
    * A gradient that fades out at both ends, so it reads as a highlight rather
    * than a coloured border — the cheapest way to make "a model wrote this"
@@ -364,19 +416,19 @@
   }
 
   /*
-   * Dark mode gives the primary CTA a very short indigo→violet ramp and a
-   * coloured bloom. In light mode the flat accent already reads as solid, and
-   * a gradient there only makes the button look like a 2014 web app.
+   * Dark mode gives the primary CTA a very short blue ramp and a coloured
+   * bloom. In light mode the flat accent already reads as solid, and a
+   * gradient there only makes the button look like a 2014 web app.
    */
   .theme-dark .btn-raised {
-    background-image: linear-gradient(180deg, #7c73ff 0%, #6c63ff 100%);
+    background-image: linear-gradient(180deg, #609aff 0%, #4285ff 100%);
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.14),
-      0 4px 18px -6px rgb(108 99 255 / 0.55);
+      0 4px 18px -6px rgb(66 133 255 / 0.55);
   }
 
   .theme-dark .btn-raised:hover {
-    background-image: linear-gradient(180deg, #8b83ff 0%, #7168ff 100%);
+    background-image: linear-gradient(180deg, #7aabff 0%, #5793ff 100%);
     box-shadow:
       inset 0 1px 0 rgb(255 255 255 / 0.18),
       0 6px 22px -6px rgb(124 115 255 / 0.7);
@@ -441,7 +493,7 @@
     }
   }
 
-  /* A soft accent surface for the sidebar upgrade card and AI banners. */
+  /* A soft accent surface for upgrade prompts and AI banners. */
   .accent-panel {
     background:
       radial-gradient(120% 140% at 0% 0%, var(--ai-glow) 0%, transparent 62%),
@@ -451,6 +503,11 @@
   /* Modal/drawer entrance. Short, and disabled under reduced motion below. */
   .animate-pop-in {
     animation: pop-in var(--motion-base) var(--ease-out);
+  }
+
+  /* Drawer entrance: slides from the edge it is anchored to. */
+  .animate-drawer-in {
+    animation: drawer-in var(--motion-base) var(--ease-out);
   }
 
   .animate-fade-in {
@@ -478,6 +535,17 @@
   from {
     opacity: 0;
     transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(1.5rem);
   }
   to {
     opacity: 1;

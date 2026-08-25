@@ -1,9 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { I18nProvider } from "@/lib/i18n/context";
 import { getI18n, getTranslations } from "@/lib/i18n/server";
 import { LOCALE_META } from "@/lib/i18n/locales";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme/theme";
+import { PWA } from "@/lib/pwa/config";
+import { ServiceWorkerRegistrar } from "@/components/pwa/ServiceWorkerRegistrar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,8 +27,69 @@ export async function generateMetadata(): Promise<Metadata> {
       template: `%s · ${d.meta.appName}`,
     },
     description: d.meta.description,
+    applicationName: PWA.name,
+
+    /*
+     * iOS home-screen behaviour.
+     *
+     * `capable` is what makes a launch from the home screen open WITHOUT
+     * Safari's chrome. `title` is the label under the icon — the app name in
+     * full would be truncated, so the short one is used deliberately.
+     *
+     * `statusBarStyle: "default"` rather than `black-translucent`: the
+     * translucent style draws the page UNDER the status bar, which on a
+     * notched phone puts the clock on top of our header unless every screen
+     * pays for it. The default style leaves the bar opaque and the layout
+     * honest.
+     */
+    appleWebApp: {
+      capable: true,
+      title: PWA.shortName,
+      statusBarStyle: "default",
+    },
+
+    icons: {
+      icon: [
+        { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+        { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+      ],
+      // iOS ignores the manifest for this and reads the tag; it must be a
+      // PNG, and an SVG here silently falls back to a page screenshot.
+      apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+    },
+
+    // Silences the legacy `format-detection` guesswork that turns any digit
+    // sequence in a candidate's resume into a phone link on iOS.
+    formatDetection: { telephone: false },
   };
 }
+
+/**
+ * Viewport and browser chrome.
+ *
+ * `viewportFit: "cover"` lets the page reach into the safe areas so a fixed
+ * bottom bar sits flush with the bottom of the screen; the bar itself pays
+ * for the inset with `env(safe-area-inset-bottom)`, which is the only correct
+ * place to pay it.
+ *
+ * `maximumScale` is deliberately NOT set. Blocking pinch-zoom is an
+ * accessibility failure — it is the one gesture a low-vision reader relies on
+ * — and it buys nothing that a correct responsive layout does not already
+ * give.
+ *
+ * The two `themeColor` entries are the SURFACE colour per scheme, so the
+ * browser's own bar matches the header it sits above rather than seaming
+ * against it.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: PWA.themeColor },
+    { media: "(prefers-color-scheme: dark)", color: PWA.themeColorDark },
+  ],
+};
 
 /**
  * The one place the active locale is resolved.
@@ -52,7 +115,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       server would be wrong for half of readers and would flash, and applying
       the theme after mount would flash for everyone. So the server stays
       deterministic (fonts only, identical for every request) and the one
-      expected difference is declared here.
+      expected difference is declared here. It is now the ONLY such
+      difference: the sidebar's width class went with the sidebar.
 
       It suppresses only this element's own attributes — not its children, and
       not `<body>`. Any other mismatch anywhere in the tree still warns.
@@ -75,6 +139,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full">
         <I18nProvider locale={locale} dictionary={d}>
           {children}
+          {/* Registers the worker after hydration; renders nothing. */}
+          <ServiceWorkerRegistrar />
         </I18nProvider>
       </body>
     </html>

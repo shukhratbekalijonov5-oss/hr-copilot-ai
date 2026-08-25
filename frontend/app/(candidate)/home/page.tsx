@@ -16,6 +16,7 @@ import {
   CandidateCardSkeleton,
   CandidateHero,
 } from "@/components/candidate/ui";
+import { AppHomeFooter } from "@/components/layout/AppHomeFooter";
 import { SparkIcon, UploadIcon } from "@/components/ui/icons";
 import { readinessSteps, applicationPipeline } from "@/lib/candidate/dashboard";
 
@@ -149,6 +150,9 @@ export default async function CandidateHomePage() {
       <div className="mt-5">
         <DashboardAiBanner />
       </div>
+
+      {/* Home only. See the component for why it is not in the shell. */}
+      <AppHomeFooter />
     </div>
   );
 }

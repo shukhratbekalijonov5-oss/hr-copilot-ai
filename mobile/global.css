@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * The HR Copilot AI palette, shared in structure with the web product.
+ *
+ * Values are raw RGB channels rather than hex so Tailwind's `<alpha-value>`
+ * modifier works — `bg-surface/60` and `border-brand/30` are used throughout
+ * the app and would silently break with hex variables.
+ *
+ * Light is a very pale cool blue page under white surfaces, so a card
+ * separates by temperature and a 1px border rather than by a shadow. Dark is
+ * deep navy, never black — an indigo accent glows on blue-black and reads as
+ * a screen defect on true black.
+ *
+ * The AI tokens stay a restrained violet in both themes. That is deliberate:
+ * blue is the product's colour and violet means "a model produced this", so
+ * a generated panel has to be distinguishable from an ordinary one at a
+ * glance. Collapsing them into one hue would make that distinction invisible
+ * exactly where it matters most.
+ */
+:root {
+  --canvas: 241 246 253;
+  --surface: 255 255 255;
+  --surface-raised: 248 251 255;
+  --surface-muted: 240 245 252;
+  --line: 219 230 244;
+  --line-strong: 200 216 236;
+
+  --ink: 15 23 38;
+  --ink-muted: 91 106 130;
+  --ink-subtle: 131 147 172;
+
+  --brand: 45 91 232;
+  --brand-hover: 32 74 205;
+  --brand-soft: 231 239 254;
+  --brand-ink: 29 64 175;
+
+  --positive: 4 120 87;
+  --positive-soft: 226 246 239;
+  --warning: 180 83 9;
+  --warning-soft: 253 244 227;
+  --critical: 190 18 60;
+  --critical-soft: 253 234 238;
+  --info: 29 78 216;
+  --info-soft: 230 239 253;
+
+  --ai-tint: 245 244 255;
+  --ai-line: 223 220 250;
+  --ai-ink: 88 71 205;
+  --grid: 45 91 232;
+}
+
+.dark:root,
+:root.dark {
+  --canvas: 6 14 28;
+  --surface: 11 22 42;
+  --surface-raised: 16 31 58;
+  --surface-muted: 16 31 58;
+  --line: 28 48 84;
+  --line-strong: 41 68 112;
+
+  --ink: 240 246 255;
+  --ink-muted: 162 179 205;
+  --ink-subtle: 110 130 160;
+
+  --brand: 66 133 255;
+  --brand-hover: 96 154 255;
+  --brand-soft: 17 38 78;
+  --brand-ink: 150 190 255;
+
+  --positive: 52 211 153;
+  --positive-soft: 10 41 38;
+  --warning: 251 191 90;
+  --warning-soft: 42 33 19;
+  --critical: 251 113 133;
+  --critical-soft: 44 22 34;
+  --info: 122 167 248;
+  --info-soft: 15 31 58;
+
+  --ai-tint: 20 26 56;
+  --ai-line: 52 56 112;
+  --ai-ink: 173 165 255;
+  --grid: 66 133 255;
+}

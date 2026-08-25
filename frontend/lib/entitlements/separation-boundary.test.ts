@@ -172,7 +172,7 @@ describe("plan checks live in one place", () => {
     "components/external/ExternalJobsWorkspace.tsx",
     "components/external/SavedExternalJobsView.tsx",
     "components/external/ExternalApplicationsView.tsx",
-    "components/layout/Sidebar.tsx",
+    "components/layout/TopNavMenu.tsx",
     "components/plan/PlanBadge.tsx",
     "components/plan/PlanLockedCard.tsx",
     "app/(candidate)/external-jobs/page.tsx",
@@ -249,10 +249,15 @@ describe("navigation keeps the product legible", () => {
   it("still offers a locked entry as a real link", () => {
     // Hiding it would make a purchasable feature invisible to the person who
     // might buy it; disabling it would swallow the click without explaining.
-    const sidebar = code("components/layout/Sidebar.tsx");
-    expect(sidebar).toContain("<Link");
-    expect(sidebar).not.toMatch(/locked\s*\?\s*null/);
-    expect(sidebar).not.toMatch(/disabled=\{locked/);
+    for (const file of [
+      "components/layout/TopNavMenu.tsx",
+      "components/layout/MobileSheet.tsx",
+    ]) {
+      const source = code(file);
+      expect(source, file).toContain("<Link");
+      expect(source, file).not.toMatch(/locked\s*\?\s*null/);
+      expect(source, file).not.toMatch(/disabled=\{locked/);
+    }
   });
 });
 

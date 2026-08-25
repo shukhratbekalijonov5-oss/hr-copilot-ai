@@ -148,10 +148,17 @@ describe("theme tokens", () => {
     expect(css).not.toContain("prefers-color-scheme: dark");
   });
 
-  it("carries the blush light and navy dark identities", () => {
-    expect(css).toContain("--page: #fff8fb;");
-    expect(css).toContain("--page: #06101f;");
-    expect(css).toContain("--surface: #0b1728;");
+  it("carries the pale-blue light and navy dark identities", () => {
+    expect(css).toContain("--page: #f1f6fd;");
+    expect(css).toContain("--page: #060e1c;");
+    expect(css).toContain("--surface: #0b162a;");
+  });
+
+  it("keeps the AI accent violet while the product is blue", () => {
+    // Blue is the product; violet means "a model produced this". Collapsing
+    // them would hide the distinction the product exists to make.
+    expect(css).toContain("--ai-ink: #5a45d6;");
+    expect(css).toContain("--ai-ink: #a99dff;");
   });
 
   it("exposes the token names the design system is addressed by", () => {

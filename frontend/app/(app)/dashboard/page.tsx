@@ -13,6 +13,7 @@ import {
   ProcessingJobStatusBadge,
   VacancyStatusBadge,
 } from "@/components/ui/StatusBadge";
+import { AppHomeFooter } from "@/components/layout/AppHomeFooter";
 import { ProcessingProgress } from "@/components/processing/ProcessingProgress";
 import {
   ActivityIcon,
@@ -289,6 +290,9 @@ export default async function DashboardPage() {
           )}
         </Card>
       </div>
+
+      {/* Home only. See the component for why it is not in the shell. */}
+      <AppHomeFooter />
     </div>
   );
 }

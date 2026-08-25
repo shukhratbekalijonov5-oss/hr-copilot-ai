@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
  * competing answers to "where am I".
  *
  * Every entry is an EXTERNAL one. `/saved-jobs` and `/my-applications` are the
- * internal lists and are reached from the sidebar; nothing in this strip links
+ * internal lists and are reached from the Career menu; nothing in this strip links
  * a reader from one world into the other expecting the same semantics.
  *
  * ## Why a link strip and not a tab widget

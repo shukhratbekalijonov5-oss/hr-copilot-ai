@@ -12,6 +12,28 @@ import type { Dictionary } from "@/lib/i18n/dictionary";
 import type { Plural } from "@/lib/i18n/dictionaries/en";
 
 const ru: Dictionary = {
+  footer: {
+    tagline: "Рабочее пространство на базе ИИ для найма и поиска работы — для кандидатов и рекрутеров.",
+    blurb: "Находите более подходящие вакансии, разбирайтесь в их обосновании и ведите наём в одном месте.",
+    contact: "Контакты",
+    phoneLabel: "Позвонить",
+    emailLabel: "Написать",
+    social: "Мы в соцсетях",
+    rights: "© 2026 HR Copilot AI",
+  },
+
+  pwa: {
+    offlineTitle: "Нет подключения",
+    offlineHint: "Подключитесь, чтобы продолжить. Офлайн данные не обновляются.",
+    offlineRetry: "Повторить",
+    installTitle: "Установить HR Copilot",
+    installHint: "Добавьте на главный экран — приложение откроется в полноэкранном режиме.",
+    install: "Установить",
+    installDismiss: "Не сейчас",
+    iosInstallTitle: "На экран «Домой»",
+    iosInstallHint: "Нажмите «Поделиться», затем «На экран „Домой“».",
+  },
+
   meta: {
     appName: "HR Copilot AI",
     tagline: "Аналитика для найма",
@@ -124,10 +146,47 @@ const ru: Dictionary = {
     hint: "Enter — открыть · Стрелки — выбор · Esc — закрыть",
   },
 
+  primaryNav: {
+    label: "Основная навигация",
+    close: "Закрыть",
+    sections: {
+      career: "Карьера",
+      careerHint: "Всё о вашем поиске работы.",
+      aiSearch: "AI-поиск",
+      aiSearchHint: "Ранжируется по вашим данным.",
+      hiring: "Найм",
+      hiringHint: "Ваши вакансии и люди в них.",
+      more: "Ещё",
+      moreHint: "Аккаунт и настройки.",
+    },
+    comingSoon: "Скоро",
+    hints: {
+      findJobs: "Просмотр всех открытых вакансий.",
+      savedJobs: "Вакансии, которые вы сохранили.",
+      myApplications: "На каком этапе каждый отклик.",
+      internalAiJobs: "Вакансии, размещённые в HR Copilot.",
+      externalAiJobs: "Вакансии, размещённые в других местах.",
+      myProfile: "Ваши данные и подтверждения.",
+      jobPreferences: "Что вы ищете.",
+      plans: "Ваша подписка.",
+      settings: "Настройки аккаунта.",
+      notifications: "Недавние события.",
+      vacancies: "Созданные вами вакансии.",
+      candidates: "Люди, которые откликнулись.",
+      compare: "Сравнение откликнувшихся в одной вакансии.",
+      internalAiSearch: "Поиск по данным ваших кандидатов.",
+      externalAiSearch: "Поиск за пределами откликнувшихся.",
+    },
+  },
+
   nav: {
+    chats: "Чаты",
+    more: "Ещё",
+    roleCandidate: "Соискатель",
+    roleRecruiter: "Рекрутер",
+    sectionCommunication: "Общение",
     sectionHiring: "Найм",
     sectionAiTools: "AI-инструменты",
-    upgradeHint: "Откройте AI-подбор по всем открытым вакансиям.",
     sectionHome: "Главная",
     sectionCareer: "Карьера",
     sectionProfile: "Профиль",
@@ -154,8 +213,6 @@ const ru: Dictionary = {
     interviewChats: "Интервью-чаты",
     savedJobs: "Сохранённые вакансии",
     myProfile: "Мой профиль",
-    openNavigation: "Открыть меню",
-    closeNavigation: "Закрыть меню",
     breadcrumb: "Навигационная цепочка",
     notePersonal:
       "Ваш профиль и отклики принадлежат вам. Рекрутеры видят только то, что вы отправили.",
@@ -396,6 +453,10 @@ const ru: Dictionary = {
   },
 
   candidates: {
+    vacancyContext: "Контекст вакансии",
+    openFullDetail: "Открыть карточку",
+    selectToPreview: "Выберите кандидата",
+    selectToPreviewHint: "Его данные появятся здесь.",
     title: "Кандидаты",
     description:
       "Все, кто есть в вашей воронке, и состояние их документов. Модель никого не ранжирует и не отсеивает.",
@@ -542,6 +603,16 @@ const ru: Dictionary = {
   },
 
   ai: {
+    evidenceDrawerTitle: "Подтверждение",
+    evidenceSnippet: "Фрагмент",
+    evidenceSource: "Источник",
+    evidenceFile: "Файл",
+    evidencePage: "Страница",
+    evidenceLink: "Ссылка",
+    evidenceSourceUnknown: "Источник этого фрагмента не был указан.",
+    sourceFile: "Документ",
+    sourceLink: "Ссылка",
+    viewEvidenceAction: "Открыть подтверждение",
     ask: "Задать вопрос об этом кандидате",
     askDescription:
       "Ответ составляется только по фрагментам загруженных документов, и к каждому прилагается источник.",
@@ -1007,6 +1078,12 @@ const ru: Dictionary = {
   },
 
   tables: {
+    documentsCount: {
+      one: "{count} документ",
+      few: "{count} документа",
+      many: "{count} документов",
+      other: "{count} документа",
+    } as Plural,
     vacancy: "Вакансия",
     candidate: "Кандидат",
     department: "Отдел",
@@ -1891,6 +1968,8 @@ const ru: Dictionary = {
   },
 
   jobMatch: {
+    selectToPreview: "Выберите совпадение",
+    selectToPreviewHint: "Здесь появятся подтверждения и объяснение AI.",
     title: "AI-подбор вакансий",
     description:
       "Открытые вакансии, подходящие вашему профилю и резюме, — с подтверждением по каждому совпадению.",

@@ -23,6 +23,28 @@ export interface Plural {
 }
 
 const en = {
+  footer: {
+    tagline: "AI-powered hiring and job discovery workspace for candidates and recruiters.",
+    blurb: "Find stronger matches, understand the evidence behind them, and manage hiring in one place.",
+    contact: "Contact",
+    phoneLabel: "Call",
+    emailLabel: "Email",
+    social: "Follow",
+    rights: "© 2026 HR Copilot AI",
+  },
+
+  pwa: {
+    offlineTitle: "You're offline",
+    offlineHint: "Reconnect to continue. Nothing here updates while you are offline.",
+    offlineRetry: "Try again",
+    installTitle: "Install HR Copilot",
+    installHint: "Add it to your home screen for a full-screen app.",
+    install: "Install",
+    installDismiss: "Not now",
+    iosInstallTitle: "Add to Home Screen",
+    iosInstallHint: "Tap Share, then choose Add to Home Screen.",
+  },
+
   meta: {
     appName: "HR Copilot AI",
     tagline: "Recruitment intelligence",
@@ -135,10 +157,47 @@ const en = {
     hint: "Enter to open · Arrow keys to move · Esc to close",
   },
 
+  primaryNav: {
+    label: "Main navigation",
+    close: "Close",
+    sections: {
+      career: "Career",
+      careerHint: "Everything about your job hunt.",
+      aiSearch: "AI Search",
+      aiSearchHint: "Ranked against your own evidence.",
+      hiring: "Hiring",
+      hiringHint: "Your vacancies and the people in them.",
+      more: "More",
+      moreHint: "Your account and preferences.",
+    },
+    comingSoon: "Coming soon",
+    hints: {
+      findJobs: "Browse every open role.",
+      savedJobs: "The roles you kept.",
+      myApplications: "Where each application stands.",
+      internalAiJobs: "Roles published on HR Copilot.",
+      externalAiJobs: "Roles published elsewhere.",
+      myProfile: "Your evidence and details.",
+      jobPreferences: "What you are looking for.",
+      plans: "Your subscription.",
+      settings: "Account settings.",
+      notifications: "Recent activity.",
+      vacancies: "Roles you created.",
+      candidates: "People who applied.",
+      compare: "Compare applicants in one vacancy.",
+      internalAiSearch: "Search your candidates' evidence.",
+      externalAiSearch: "Sourcing beyond your applicants.",
+    },
+  },
+
   nav: {
+    chats: "Chats",
+    more: "More",
+    roleCandidate: "Candidate",
+    roleRecruiter: "Recruiter",
+    sectionCommunication: "Communication",
     sectionHiring: "Hiring",
     sectionAiTools: "AI tools",
-    upgradeHint: "Unlock AI job matching across every open role.",
     sectionHome: "Home",
     sectionCareer: "Career",
     sectionProfile: "Profile",
@@ -165,8 +224,6 @@ const en = {
     interviewChats: "Interview chats",
     savedJobs: "Saved jobs",
     myProfile: "My profile",
-    openNavigation: "Open navigation",
-    closeNavigation: "Close navigation",
     breadcrumb: "Breadcrumb",
     notePersonal:
       "Your profile and applications are yours. Recruiters only see what you send them.",
@@ -411,6 +468,10 @@ const en = {
   },
 
   candidates: {
+    vacancyContext: "Vacancy context",
+    openFullDetail: "Open full detail",
+    selectToPreview: "Select a candidate",
+    selectToPreviewHint: "Their details appear here.",
     title: "Candidates",
     description:
       "Everyone in your pipeline, with the state of their documents. Nobody is ranked or filtered by the model.",
@@ -558,6 +619,16 @@ const en = {
   },
 
   ai: {
+    evidenceDrawerTitle: "Evidence",
+    evidenceSnippet: "Passage",
+    evidenceSource: "Source",
+    evidenceFile: "File",
+    evidencePage: "Page",
+    evidenceLink: "Link",
+    evidenceSourceUnknown: "The source was not reported for this passage.",
+    sourceFile: "Document",
+    sourceLink: "Link",
+    viewEvidenceAction: "View evidence",
     ask: "Ask about this candidate",
     askDescription:
       "Answers are written only from passages in the uploaded documents, and every one is shown with its source.",
@@ -1017,6 +1088,10 @@ const en = {
 
   /** Shared table headers, filters and list-view copy. */
   tables: {
+    documentsCount: {
+      one: "{count} document",
+      other: "{count} documents",
+    } as Plural,
     vacancy: "Vacancy",
     candidate: "Candidate",
     department: "Department",
@@ -1912,6 +1987,8 @@ const en = {
   },
 
   jobMatch: {
+    selectToPreview: "Select a match",
+    selectToPreviewHint: "The full match, its evidence and the AI explanation appear here.",
     title: "AI Job Match",
     description:
       "Find open roles that match your profile and resume, with the evidence behind each match.",

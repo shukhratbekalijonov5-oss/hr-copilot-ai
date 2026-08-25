@@ -59,7 +59,7 @@ export interface WorkspaceContext {
    * What the caller's plan unlocks.
    *
    * Carried on the workspace rather than fetched per screen so that the
-   * sidebar, the tab strip and the page body cannot disagree about what is
+   * navigation, the tab strip and the page body cannot disagree about what is
    * locked within a single render.
    */
   entitlements: Entitlements;

@@ -1,6 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
+import { EvidenceDrawer } from "@/components/workspace/EvidenceDrawer";
+import { fromCitation } from "@/lib/workspace/evidence-view";
 import { CitationLink } from "@/components/evidence/CitationLink";
 import { Chip } from "@/components/ui/Badge";
 import { AlertIcon, ChevronDownIcon } from "@/components/ui/icons";
@@ -25,6 +27,8 @@ interface CitationListProps {
   activeCitationId?: string | null;
   /** Deep link used where there is no viewer on the page. */
   hrefFor?: (citation: Citation) => string;
+  /** e.g. the vacancy this reading sits inside. Shown in the inspector. */
+  contextLabel?: string;
   className?: string;
 }
 
@@ -41,9 +45,19 @@ export function CitationList({
   onSelectCitation,
   activeCitationId,
   hrefFor,
+  contextLabel,
   className,
 }: CitationListProps) {
   const { d, p } = useI18n();
+  /*
+   * The passage open in the inspector.
+   *
+   * Independent of `onSelectCitation`, which moves a document VIEWER to the
+   * page. Both can be present: the viewer shows the file, the drawer shows
+   * the exact quoted passage and its provenance next to the claim. Neither
+   * replaces the other, so opening one must not disturb the other.
+   */
+  const [inspected, setInspected] = useState<number | null>(null);
 
   if (citations.length === 0) {
     // The dangerous empty state: the prose cites sources the backend did not
@@ -83,6 +97,7 @@ export function CitationList({
             index={index + 1}
             citation={citation}
             onSelect={onSelectCitation}
+            onInspect={() => setInspected(index)}
             href={hrefFor?.(citation)}
             active={activeCitationId === citation.id}
           />
@@ -91,6 +106,16 @@ export function CitationList({
       <p className="text-[11.5px] leading-relaxed text-ink-subtle">
         {d.ai.citationSourceLanguageNote}
       </p>
+
+      <EvidenceDrawer
+        evidence={
+          inspected === null
+            ? null
+            : fromCitation(citations[inspected], inspected + 1)
+        }
+        contextLabel={contextLabel}
+        onClose={() => setInspected(null)}
+      />
     </div>
   );
 }
@@ -111,12 +136,15 @@ function SourceCard({
   index,
   citation,
   onSelect,
+  onInspect,
   href,
   active,
 }: {
   index: number;
   citation: Citation;
   onSelect?: (citation: Citation) => void;
+  /** Opens the inspector beside the claim, without leaving the answer. */
+  onInspect: () => void;
   href?: string;
   active: boolean;
 }) {
@@ -145,9 +173,17 @@ function SourceCard({
           {index}
         </span>
         <span className="sr-only">{`[${index}]`}</span>
-        <h4 className="min-w-0 truncate text-[13px] font-semibold tracking-tight text-ink">
+        <h4 className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight text-ink">
           {heading}
         </h4>
+        <button
+          type="button"
+          onClick={onInspect}
+          aria-haspopup="dialog"
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-[11.5px] font-medium text-brand transition-colors duration-[var(--motion-fast)] hover:bg-brand-soft hover:text-brand-ink"
+        >
+          {d.ai.viewEvidenceAction}
+        </button>
       </div>
 
       {preview.kind === "list" ? (

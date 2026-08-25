@@ -7,18 +7,18 @@ import type { Workspace } from "@/lib/workspace/types";
  *
  * ## It is navigation, not search
  *
- * Every command is a route this account can already see in the sidebar. The
+ * Every command is a route this account can already see in the navigation. The
  * palette calls no API, indexes no content, and never invents a result: a
  * box that looks like search but only knows nine page names is worse than a
  * box that plainly is a jump list.
  *
- * ## Built from the SAME nav definition the sidebar renders
+ * ## Built from the SAME nav definition the navigation renders
  *
  * Role filtering, ordering and grouping all come from `navigationFor`, so a
  * recruiter who cannot see Compare cannot jump to it either, and a route
  * added to the nav appears here for free. Nothing here is a security
  * boundary — the backend guards every one of these pages — but a palette
- * offering doors that are not in the sidebar would still be a bug.
+ * offering doors that are not in the navigation would still be a bug.
  */
 /** Broadcast by the header button; the palette listens for it. */
 export const OPEN_PALETTE_EVENT = "hrc:palette";
@@ -49,7 +49,7 @@ export function commandsFor(workspace: Workspace, d: Dictionary): Command[] {
 
   return [
     ...primary.map(toCommand),
-    // Secondary entries have no group of their own in the sidebar; in a flat
+    // Secondary entries have no group of their own; in a flat
     // list they need one, and "Account" is what they are.
     ...secondary.map((item) => ({
       ...toCommand(item),
