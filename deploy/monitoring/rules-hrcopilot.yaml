@@ -365,6 +365,62 @@ spec:
             summary: "Qdrant is unreachable"
             description: "All semantic search and AI matching degrade or fail."
 
+    # ------------------------------------------------------------- backups
+    - name: hrcopilot.backup
+      rules:
+        # A backup system nobody watches is a backup system that has already
+        # failed. These three cover the ways it fails: the job errors, the
+        # job silently stops running, or it runs forever without finishing.
+        - alert: HRCopilotBackupJobFailed
+          expr: |
+            kube_job_status_failed{namespace="hrcopilot", job_name=~"hrcopilot-backup.*"} > 0
+          for: 5m
+          labels: { severity: critical, component: backup }
+          annotations:
+            summary: "Nightly backup job failed"
+            description: >-
+              {{ $labels.job_name }} ended in failure. Every step exits
+              non-zero on error, so this means dumps, snapshots, the file
+              archive, a checksum or the off-server upload did not complete.
+            runbook: "kubectl -n hrcopilot logs job/{{ $labels.job_name }} --all-containers"
+
+        - alert: HRCopilotBackupStale
+          # 26h, not 24h: one missed nightly run is the signal, and the extra
+          # two hours stop a slow or slightly-late run from paging.
+          expr: |
+            time() - max(kube_job_status_completion_time{namespace="hrcopilot", job_name=~"hrcopilot-backup.*"}) > 93600
+            or absent(kube_job_status_completion_time{namespace="hrcopilot", job_name=~"hrcopilot-backup.*"})
+          for: 30m
+          labels: { severity: critical, component: backup }
+          annotations:
+            summary: "No successful backup in over 26 hours"
+            description: >-
+              The most recent successful backup is older than one nightly
+              cycle, or no completed backup job exists at all. Recovery point
+              is drifting further away with every hour.
+            runbook: "kubectl -n hrcopilot get cronjob hrcopilot-backup; kubectl -n hrcopilot get jobs"
+
+        - alert: HRCopilotBackupRunningTooLong
+          expr: |
+            kube_job_status_active{namespace="hrcopilot", job_name=~"hrcopilot-backup.*"} > 0
+          for: 45m
+          labels: { severity: warning, component: backup }
+          annotations:
+            summary: "Backup job still running after 45 minutes"
+            description: >-
+              A healthy run takes well under a minute. Something is hanging
+              — most likely the off-server upload.
+
+        - alert: HRCopilotBackupSuspended
+          # A suspended CronJob produces no failures and no stale-job signal
+          # for a whole day; this catches it immediately.
+          expr: kube_cronjob_spec_suspend{namespace="hrcopilot", cronjob="hrcopilot-backup"} != 0
+          for: 15m
+          labels: { severity: critical, component: backup }
+          annotations:
+            summary: "Backup CronJob is suspended"
+            description: "hrcopilot-backup is suspended, so no backups are being taken at all."
+
     # ------------------------------------------------------ monitoring self
     - name: hrcopilot.monitoring
       rules:

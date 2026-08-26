@@ -51,20 +51,27 @@ qdrant:
 
 backup:
   enabled: true
-  image: postgres:16-alpine
-  schedule: "30 2 * * *"
+  # 03:00 Asia/Seoul — genuinely off-peak for this product's users. Expressed
+  # as a timeZone rather than hand-converted UTC so it stays correct.
+  schedule: "0 3 * * *"
+  timeZone: "Asia/Seoul"
+  databases: [hr_copilot, hr_copilot_payments, hr_copilot_notifications]
+  # Off-server copies are what survive losing the node; local copies exist
+  # only to make same-day restores fast, so they are pruned harder.
   retentionDays: 14
+  localRetentionDays: 3
   storage: 10Gi
-  # R2 offsite step: prepared, OFF until production credentials exist as
-  # secret 'backup-r2' (rclone.conf). Local PVC backups run either way.
+  images:
+    postgres: postgres:16-alpine
+    curl: curlimages/curl:8.10.1
+    rclone: rclone/rclone:1.68
+  # OFF-SERVER STEP. Off until a Cloudflare R2 API token exists as the
+  # secret 'backup-r2' (an rclone.conf). Everything else — dumps, snapshots,
+  # file archive, manifest, checksums — runs either way, so switching this on
+  # is a one-secret change and no code change. See deploy/backup/README.md.
   r2:
     enabled: false
-    remote: "r2:hrcopilot-backups/postgres"
-
-qdrantBackup:
-  # Snapshot CronJob — disabled until collections exist in production.
-  enabled: false
-  schedule: "45 2 * * *"
+    remote: "r2:hrcopilot-backups"
 
 networkPolicy:
   enabled: true

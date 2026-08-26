@@ -1,0 +1,370 @@
+{{- if .Values.backup.enabled }}
+# ============================================================================
+# HR Copilot disaster-recovery backup — ONE job, one point-in-time set.
+#
+# This replaces the earlier postgres-only CronJob and the separate (disabled)
+# qdrant-snapshot CronJob. Two schedulers producing two unrelated artefact
+# sets cannot be restored as a consistent whole, and a Qdrant snapshot written
+# only to the Qdrant PVC is not a backup at all — it dies with the disk it is
+# protecting against.
+#
+# The job runs as a chain of initContainers, each in the image best suited to
+# its step, sharing one staging directory:
+#
+#   prepare  → stamp the run, create the layout
+#   postgres → pg_dump all three databases
+#   qdrant   → snapshot every collection through the snapshot API
+#   archive  → tar the uploaded-files PVC, write manifest + checksums
+#   finalize → verify checksums, upload to R2, verify remotely, prune
+#
+# SECURITY CONTEXT NOTE: there is deliberately no `fsGroup`. fsGroup makes
+# the kubelet recursively chown every mounted volume, and this pod mounts the
+# LIVE uploads PVC. The backups PVC is mode 2777 and the uploads files are
+# world-readable (0644 under 2755 dirs), so uid 70 can write backups and read
+# uploads without any ownership change to production data.
+# ----------------------------------------------------------------------------
+# PVC-SAFETY: Helm-owned but carries the keep policy — `helm uninstall` will
+# NOT delete it. The name is historical (it predates Qdrant/file backups);
+# renaming it would orphan the existing dumps, which is a worse trade than an
+# imperfect name.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+  labels: { app: hrcopilot-backup }
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: {{ .Values.backup.storage }} } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hrcopilot-backup-scripts
+  labels: { app: hrcopilot-backup }
+data:
+  prepare.sh: |
+    #!/bin/sh
+    # One timestamp for the whole run, written where every later step reads it.
+    set -eu
+    ts=$(date -u +%Y%m%dT%H%M%SZ)
+    day=$(echo "$ts" | cut -c1-8)
+    printf '%s' "$ts" > /backups/.current
+    mkdir -p "/backups/$ts/postgres" "/backups/$ts/qdrant" "/backups/$ts/files"
+    echo "backup run $ts (day $day) staged at /backups/$ts"
+
+  postgres.sh: |
+    #!/bin/sh
+    # Plain SQL + gzip, matching the format this project has always used and
+    # restored. No pipe around pg_dump: a piped failure would be masked by
+    # gzip's exit status, which is how silent 20-byte "backups" happen.
+    set -eu
+    ts=$(cat /backups/.current)
+    out="/backups/$ts/postgres"
+    # k3s admits a NEWLY created pod to the postgres allow-list only after
+    # ~10-20s, so wait rather than fail.
+    tries=0
+    until pg_isready -h postgres -U postgres -q; do
+      tries=$((tries+1))
+      [ "$tries" -ge 18 ] && echo "postgres unreachable after 90s" && exit 1
+      sleep 5
+    done
+    for db in {{ join " " .Values.backup.databases }}; do
+      echo "dumping $db"
+      pg_dump -h postgres -U postgres -d "$db" -f "$out/$db.sql.part"
+      gzip "$out/$db.sql.part"
+      mv "$out/$db.sql.part.gz" "$out/$db.sql.gz"
+      echo "  $(du -h "$out/$db.sql.gz" | cut -f1) $db.sql.gz"
+    done
+
+  qdrant.sh: |
+    #!/bin/sh
+    # Per-collection snapshots through the snapshot API, then DOWNLOADED off
+    # the Qdrant PVC and DELETED server-side. A snapshot left on the Qdrant
+    # volume protects against nothing and slowly fills that volume.
+    set -eu
+    ts=$(cat /backups/.current)
+    out="/backups/$ts/qdrant"
+    Q=http://qdrant:6333
+    tries=0
+    until curl -sf "$Q/healthz" >/dev/null 2>&1 || curl -sf "$Q/" >/dev/null 2>&1; do
+      tries=$((tries+1))
+      [ "$tries" -ge 18 ] && echo "qdrant unreachable after 90s" && exit 1
+      sleep 5
+    done
+    # Discover collections rather than hardcoding: a collection added later
+    # must not be silently missing from the backup.
+    # Discovered, minus restore-drill collections. A DR rehearsal leaves
+    # `restore_test_*` copies behind, and without this filter the next backup
+    # faithfully archives them — doubling its size and its restore time.
+    cols=$(curl -sf "$Q/collections" | sed 's/.*"collections":\[//; s/\].*//' \
+           | tr ',' '\n' | sed -n 's/.*"name":"\([^"]*\)".*/\1/p' \
+           | grep -v '^restore_test_' || true)
+    [ -n "$cols" ] || { echo "no collections found"; exit 1; }
+    for c in $cols; do
+      echo "snapshotting $c"
+      name=$(curl -sf -X POST "$Q/collections/$c/snapshots" \
+             | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
+      [ -n "$name" ] || { echo "  snapshot creation failed for $c"; exit 1; }
+      curl -sf -o "$out/$c.snapshot" "$Q/collections/$c/snapshots/$name"
+      # Reclaim the server-side copy; the downloaded file is the backup now.
+      curl -sf -X DELETE "$Q/collections/$c/snapshots/$name" >/dev/null
+      echo "  $(du -h "$out/$c.snapshot" | cut -f1) $c.snapshot"
+    done
+
+  archive.sh: |
+    #!/bin/sh
+    # Uploaded files, plus the manifest and checksums that make the whole set
+    # verifiable. The uploads PVC is mounted READ-ONLY.
+    set -eu
+    ts=$(cat /backups/.current)
+    root="/backups/$ts"
+    files=$(find /storage -type f | wc -l | tr -d ' ')
+    # Sum of FILE sizes, not `du`: du counts directory inodes too, so a
+    # du-derived total can never be reproduced by a restore and would make
+    # every verification look like a mismatch.
+    bytes=$(find /storage -type f -exec stat -c %s {} + | awk '{t+=$1} END {print t+0}')
+    echo "archiving $files file(s), $bytes byte(s)"
+    tar -czf "$root/files/storage.tar.part" -C /storage .
+    mv "$root/files/storage.tar.part" "$root/files/storage.tar.gz"
+
+    # Checksums over every artefact, relative to the run root so they can be
+    # verified after download without path rewriting.
+    cd "$root"
+    find postgres qdrant files -type f ! -name checksums.sha256 \
+      | sort | xargs sha256sum > checksums.sha256
+    total=$(find "$root" -type f -exec stat -c %s {} + | awk '{t+=$1} END {print t+0}')
+
+    # Manifest: what this backup is, what produced it, and what it must
+    # restore into. No secrets — only names, sizes, versions and digests.
+    {
+      printf '{\n'
+      printf '  "backupId": "%s",\n' "$ts"
+      printf '  "timestampUtc": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf '  "environment": "production",\n'
+      printf '  "cluster": "hrcopilot",\n'
+      printf '  "helmRevision": %s,\n' "${HELM_REVISION:-0}"
+      printf '  "imageTags": {\n'
+      printf '    "backend": "%s",\n' "${TAG_BACKEND:-unknown}"
+      printf '    "frontend": "%s",\n' "${TAG_FRONTEND:-unknown}"
+      printf '    "aiService": "%s",\n' "${TAG_AI:-unknown}"
+      printf '    "paymentService": "%s",\n' "${TAG_PAYMENT:-unknown}"
+      printf '    "notificationService": "%s"\n' "${TAG_NOTIFICATION:-unknown}"
+      printf '  },\n'
+      printf '  "postgres": [\n'
+      first=1
+      for f in postgres/*.sql.gz; do
+        [ -e "$f" ] || continue
+        [ $first -eq 1 ] || printf ',\n'; first=0
+        printf '    {"database": "%s", "file": "%s", "bytes": %s}' \
+          "$(basename "$f" .sql.gz)" "$f" "$(stat -c %s "$f")"
+      done
+      printf '\n  ],\n'
+      printf '  "qdrant": [\n'
+      first=1
+      for f in qdrant/*.snapshot; do
+        [ -e "$f" ] || continue
+        [ $first -eq 1 ] || printf ',\n'; first=0
+        printf '    {"collection": "%s", "file": "%s", "bytes": %s}' \
+          "$(basename "$f" .snapshot)" "$f" "$(stat -c %s "$f")"
+      done
+      printf '\n  ],\n'
+      printf '  "files": {"archive": "files/storage.tar.gz", "bytes": %s, "sourceFileCount": %s, "sourceBytes": %s},\n' \
+        "$(stat -c %s files/storage.tar.gz)" "$files" "$bytes"
+      printf '  "totalBytes": %s,\n' "$total"
+      printf '  "checksumFile": "checksums.sha256",\n'
+      printf '  "remotePrefix": "%s",\n' "${REMOTE_PREFIX:-}"
+      printf '  "status": "staged"\n'
+      printf '}\n'
+    } > manifest.json
+    sha256sum manifest.json >> checksums.sha256
+    echo "manifest written; total $total bytes"
+
+  finalize.sh: |
+    #!/bin/sh
+    # Verify locally, ship off-server, verify remotely, prune. Any failure
+    # exits non-zero so the Job — and the alert watching it — shows it.
+    set -eu
+    ts=$(cat /backups/.current)
+    root="/backups/$ts"
+    cd "$root"
+
+    echo "--- verifying local checksums ---"
+    sha256sum -c checksums.sha256 >/dev/null
+    echo "all $(wc -l < checksums.sha256) artefact checksums verified"
+
+    {{- if .Values.backup.r2.enabled }}
+    day=$(echo "$ts" | cut -c1-4)/$(echo "$ts" | cut -c5-6)/$(echo "$ts" | cut -c7-8)
+    dest="{{ .Values.backup.r2.remote }}/$day/$ts"
+    echo "--- uploading to $dest ---"
+    rclone --config /r2/rclone.conf copy "$root" "$dest" --checksum --transfers 4
+
+    echo "--- verifying remote objects ---"
+    # Every local artefact must exist remotely with the same size. rclone
+    # check compares both sides and exits non-zero on any difference.
+    rclone --config /r2/rclone.conf check "$root" "$dest" --one-way
+    remote_count=$(rclone --config /r2/rclone.conf lsf "$dest" -R --files-only | wc -l)
+    local_count=$(find . -type f | wc -l)
+    [ "$remote_count" -eq "$local_count" ] || {
+      echo "remote object count $remote_count != local $local_count"; exit 1; }
+    echo "$remote_count object(s) confirmed in R2"
+
+    echo "--- remote retention ({{ .Values.backup.retentionDays }} days) ---"
+    # Age-based and never applied to the newest backup: rclone --min-age
+    # cannot touch what was just written, and the guard below refuses to
+    # prune at all unless a newer complete backup exists remotely.
+    newest=$(rclone --config /r2/rclone.conf lsf {{ .Values.backup.r2.remote }} -R --dirs-only \
+             | grep -E '[0-9]{8}T[0-9]{6}Z/$' | sort | tail -1)
+    if [ -n "$newest" ]; then
+      rclone --config /r2/rclone.conf delete {{ .Values.backup.r2.remote }} \
+        --min-age {{ .Values.backup.retentionDays }}d --rmdirs
+    else
+      echo "no completed remote backup found; skipping prune"
+    fi
+    {{- else }}
+    echo "--- R2 OFFSITE UPLOAD DISABLED ---"
+    echo "No 'backup-r2' credentials are configured, so this backup exists"
+    echo "ONLY on the node it is protecting. See deploy/backup/README.md."
+    {{- end }}
+
+    echo "--- local retention ({{ .Values.backup.localRetentionDays }} days) ---"
+    # Keep the newest run unconditionally, whatever its age.
+    keep=$(ls -1d /backups/*/ 2>/dev/null | sed 's#/$##' | sort | tail -1)
+    for d in /backups/*/; do
+      d=${d%/}
+      case "$d" in "$keep") continue ;; esac
+      case "$(basename "$d")" in
+        [0-9]*T[0-9]*Z) ;;
+        *) continue ;;
+      esac
+      if [ -n "$(find "$d" -maxdepth 0 -mtime +{{ .Values.backup.localRetentionDays }})" ]; then
+        echo "pruning $(basename "$d")"; rm -rf "$d"
+      fi
+    done
+    # Legacy flat dumps from the pre-unified job.
+    find /backups -maxdepth 1 -name '*.sql.gz' -mtime +{{ .Values.backup.retentionDays }} -delete 2>/dev/null || true
+
+    echo "BACKUP OK $ts"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hrcopilot-backup
+  labels: { app: hrcopilot-backup }
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  {{- with .Values.backup.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: hrcopilot-backup
+            # Required by the NetworkPolicies to reach the data services.
+            hrcopilot.dev/postgres-client: "true"
+            hrcopilot.dev/qdrant-client: "true"
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            # No fsGroup: see the note at the top of this file.
+            seccompProfile: { type: RuntimeDefault }
+          initContainers:
+            - name: prepare
+              image: busybox:1.36
+              command: ["/bin/sh", "/scripts/prepare.sh"]
+              securityContext: &hardened
+                allowPrivilegeEscalation: false
+                capabilities: { drop: ["ALL"] }
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+              resources: &small
+                requests: { cpu: 50m, memory: 64Mi }
+                limits: { cpu: 500m, memory: 256Mi }
+            - name: postgres
+              image: {{ .Values.backup.images.postgres }}
+              command: ["/bin/sh", "/scripts/postgres.sh"]
+              securityContext: *hardened
+              env:
+                - name: PGPASSWORD
+                  valueFrom: { secretKeyRef: { name: postgres-credentials, key: postgres-password } }
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits: { cpu: "1", memory: 512Mi }
+            - name: qdrant
+              image: {{ .Values.backup.images.curl }}
+              command: ["/bin/sh", "/scripts/qdrant.sh"]
+              securityContext: *hardened
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+              resources: *small
+            - name: archive
+              image: busybox:1.36
+              command: ["/bin/sh", "/scripts/archive.sh"]
+              securityContext: *hardened
+              env:
+                - { name: HELM_REVISION, value: {{ .Release.Revision | quote }} }
+                - { name: TAG_BACKEND, value: {{ .Values.apps.backend.tag | quote }} }
+                - { name: TAG_FRONTEND, value: {{ .Values.apps.frontend.tag | quote }} }
+                - { name: TAG_AI, value: {{ (index .Values.apps "ai-service").tag | quote }} }
+                - { name: TAG_PAYMENT, value: {{ (index .Values.apps "payment-service").tag | quote }} }
+                - { name: TAG_NOTIFICATION, value: {{ (index .Values.apps "notification-service").tag | quote }} }
+                - { name: REMOTE_PREFIX, value: {{ if .Values.backup.r2.enabled }}{{ .Values.backup.r2.remote | quote }}{{ else }}""{{ end }} }
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                # READ-ONLY view of live uploads.
+                - { name: storage, mountPath: /storage, readOnly: true }
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits: { cpu: "1", memory: 512Mi }
+          containers:
+            - name: finalize
+              image: {{ .Values.backup.images.rclone }}
+              command: ["/bin/sh", "/scripts/finalize.sh"]
+              securityContext: *hardened
+              env:
+                # rclone writes nothing outside the config it is given, but it
+                # still wants a HOME it can stat.
+                - { name: HOME, value: /tmp }
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+                {{- if .Values.backup.r2.enabled }}
+                - { name: r2, mountPath: /r2, readOnly: true }
+                {{- end }}
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits: { cpu: "1", memory: 512Mi }
+          volumes:
+            - name: backups
+              persistentVolumeClaim: { claimName: postgres-backups }
+            - name: storage
+              persistentVolumeClaim: { claimName: backend-storage }
+            - name: scripts
+              configMap: { name: hrcopilot-backup-scripts, defaultMode: 0555 }
+            - name: tmp
+              emptyDir: {}
+            {{- if .Values.backup.r2.enabled }}
+            - name: r2
+              secret: { secretName: backup-r2 }
+            {{- end }}
+{{- end }}
