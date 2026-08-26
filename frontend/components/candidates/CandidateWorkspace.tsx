@@ -9,7 +9,8 @@ import {
 } from "@/app/(app)/candidates/[id]/actions";
 import { AnswerPanel } from "@/components/ai/AnswerPanel";
 import { EvidenceMapPanel } from "@/components/ai/EvidenceMapPanel";
-import { HrMatchInsightPanel } from "@/components/candidates/HrMatchInsightPanel";
+import { HrMatchSummaryCard } from "@/components/candidates/HrMatchSummaryCard";
+import { HrMatchRequirementsCard } from "@/components/candidates/HrMatchRequirementsCard";
 import type { HrMatchInsight } from "@/lib/match/hr-insight";
 import { InterviewQuestionsPanel } from "@/components/ai/InterviewQuestionsPanel";
 import { SummaryPanel } from "@/components/ai/SummaryPanel";
@@ -351,6 +352,19 @@ export function CandidateWorkspace({
 
   const overview = (
     <div className="flex flex-col gap-4">
+      {/*
+        The recruiter's headline read, first thing on the page. Keyed on the
+        active vacancy so a switch discards it rather than relabelling it.
+      */}
+      {selectedVacancy ? (
+        <HrMatchSummaryCard
+          key={`summary-${selectedVacancy.id}`}
+          insight={matchInsight}
+          failure={matchInsightFailure}
+          vacancyTitle={selectedVacancy.title}
+        />
+      ) : null}
+
       {/* PROFILE — who this person is, right now. */}
       <Card>
         <CardHeader title={d.candidates.profile} />
@@ -623,10 +637,14 @@ export function CandidateWorkspace({
         reason as the map below: a vacancy switch must discard it, never
         re-label it.
       */}
-      <HrMatchInsightPanel
-        key={`insight-${selectedVacancy.id}`}
+      {/*
+        The PROOF half of the assessment. The headline numbers live in
+        Overview; this tab carries the per-requirement verdicts and their
+        citations, above the retrieval view of the same documents.
+      */}
+      <HrMatchRequirementsCard
+        key={`requirements-${selectedVacancy.id}`}
         insight={matchInsight}
-        failure={matchInsightFailure}
         vacancyTitle={selectedVacancy.title}
       />
       <EvidenceMapPanel

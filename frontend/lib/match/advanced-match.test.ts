@@ -381,9 +381,13 @@ describe("improvement suggestions", () => {
   it("is candidate-facing only", () => {
     // The shared panel takes an explicit opt-in, the HR panel never passes it.
     expect(code("components/candidate/MatchCard.tsx")).toContain("showImprovements");
-    expect(code("components/candidates/HrMatchInsightPanel.tsx")).not.toContain(
-      "showImprovements",
-    );
+    for (const file of [
+      "components/candidates/HrMatchSummaryCard.tsx",
+      "components/candidates/HrMatchRequirementsCard.tsx",
+    ]) {
+      expect(code(file), file).not.toContain("showImprovements");
+      expect(code(file), file).not.toContain("ImprovementSuggestions");
+    }
   });
 });
 
@@ -423,10 +427,11 @@ describe("HR candidate detail", () => {
   });
 
   it("discards the assessment when the vacancy changes", () => {
-    // Keyed on the vacancy id, so vacancy A's numbers cannot survive under
-    // vacancy B's heading.
+    // Both halves are keyed on the vacancy id, so vacancy A's numbers cannot
+    // survive under vacancy B's heading on either tab.
     const workspace = code("components/candidates/CandidateWorkspace.tsx");
-    expect(workspace).toContain("key={`insight-${selectedVacancy.id}`}");
+    expect(workspace).toContain("key={`summary-${selectedVacancy.id}`}");
+    expect(workspace).toContain("key={`requirements-${selectedVacancy.id}`}");
     expect(workspace).toContain("insight={matchInsight}");
   });
 
@@ -442,21 +447,70 @@ describe("HR candidate detail", () => {
     expect(page).toContain("readMatchInsight(candidate.id, selected.id)");
     expect(page).toContain("api.getHrMatchInsight");
 
-    const panel = code("components/candidates/HrMatchInsightPanel.tsx");
-    // No client fetching of any kind: no action import, no click handler.
-    expect(panel).not.toContain("useTransition");
-    expect(panel).not.toContain("onClick");
-    expect(panel).not.toContain("runMatchInsightAction");
+    // No client fetching of any kind in either half: no action, no handler.
+    for (const file of [
+      "components/candidates/HrMatchSummaryCard.tsx",
+      "components/candidates/HrMatchRequirementsCard.tsx",
+    ]) {
+      const panel = code(file);
+      expect(panel, file).not.toContain("useTransition");
+      expect(panel, file).not.toContain("onClick");
+      expect(panel, file).not.toContain("runMatchInsightAction");
+    }
   });
 
-  it("puts the advanced summary above the legacy evidence map", () => {
+  it("puts the requirement proof above the legacy evidence map", () => {
     const workspace = code("components/candidates/CandidateWorkspace.tsx");
-    const advanced = workspace.indexOf("<HrMatchInsightPanel");
+    const matrix = workspace.indexOf("<HrMatchRequirementsCard");
     const legacy = workspace.indexOf("<EvidenceMapPanel");
-    expect(advanced).toBeGreaterThan(-1);
+    expect(matrix).toBeGreaterThan(-1);
     expect(legacy).toBeGreaterThan(-1);
-    // Order matters: score/eligibility/confidence first, evidence cards after.
-    expect(advanced).toBeLessThan(legacy);
+    expect(matrix).toBeLessThan(legacy);
+  });
+
+  it("shows the headline read first in Overview", () => {
+    const workspace = code("components/candidates/CandidateWorkspace.tsx");
+    const overview = workspace.indexOf("const overview = (");
+    const summary = workspace.indexOf("<HrMatchSummaryCard");
+    const profile = workspace.indexOf("d.candidates.profile");
+    expect(summary).toBeGreaterThan(overview);
+    // Before the profile card: triage numbers are the first thing read.
+    expect(summary).toBeLessThan(profile);
+  });
+
+  it("splits the analysis instead of rendering it twice", () => {
+    const summary = code("components/candidates/HrMatchSummaryCard.tsx");
+    const requirements = code("components/candidates/HrMatchRequirementsCard.tsx");
+
+    // Overview: the triage read.
+    expect(summary).toContain("<MatchInsightSummary");
+    expect(summary).toContain("<MatchDimensions");
+    // ...and NOT the per-requirement proof.
+    expect(summary).not.toContain("<RequirementMatrix");
+    expect(summary).not.toContain("<TransferableSkills");
+
+    // JD Evidence: the proof, and none of the headline numbers.
+    expect(requirements).toContain("<RequirementMatrix");
+    expect(requirements).toContain("<TransferableSkills");
+    expect(requirements).not.toContain("<MatchInsightSummary");
+    expect(requirements).not.toContain("<MatchDimensions");
+  });
+
+  it("keeps Overview usable when the assessment is missing or failed", () => {
+    const summary = code("components/candidates/HrMatchSummaryCard.tsx");
+    // Null insight and no failure renders nothing at all — the rest of
+    // Overview stands. A failure is a line of text, never a thrown error.
+    expect(summary).toContain("if (!insight && !failure) return null;");
+    expect(summary).toContain("d.matchInsight.unavailable");
+    // The workspace guards on the vacancy, so no vacancy means no card.
+    const workspace = code("components/candidates/CandidateWorkspace.tsx");
+    expect(workspace).toContain("{selectedVacancy ? (");
+  });
+
+  it("keeps the requirement card silent when there is nothing to prove", () => {
+    const requirements = code("components/candidates/HrMatchRequirementsCard.tsx");
+    expect(requirements).toContain("requirementMatrix.length === 0");
+    expect(requirements).toContain("transferableSkills.length === 0");
   });
 });
 
@@ -556,6 +610,9 @@ describe("locales", () => {
     "scoreChangeTitle",
     "improveTitle",
     "noCurrentEvidence",
+    "strengths",
+    "gaps",
+    "unavailable",
   ];
 
   it("translates every advanced heading in all four locales", () => {

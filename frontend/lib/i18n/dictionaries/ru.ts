@@ -2034,6 +2034,10 @@ const ru: Dictionary = {
     highestEvidenceConfidence: "Наибольшая уверенность",
     hardGaps: "Пробелы по обязательным",
     notAssessed: "Не оценён",
+    strengths: "Подтверждённое",
+    gaps: "Нет или мало подтверждений",
+    unavailable: "Анализ соответствия недоступен",
+    loading: "Читаем соответствие…",
   },
   jobMatch: {
     selectToPreview: "Выберите совпадение",

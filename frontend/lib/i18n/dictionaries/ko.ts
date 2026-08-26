@@ -1910,6 +1910,10 @@ const ko: Dictionary = {
     highestEvidenceConfidence: "근거 신뢰도 최고",
     hardGaps: "필수 미충족",
     notAssessed: "평가되지 않음",
+    strengths: "뒷받침되는 근거",
+    gaps: "부족하거나 없는 근거",
+    unavailable: "매치 분석을 불러올 수 없습니다",
+    loading: "매치를 읽는 중…",
   },
   jobMatch: {
     selectToPreview: "매칭을 선택하세요",

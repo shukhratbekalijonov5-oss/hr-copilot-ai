@@ -2009,6 +2009,10 @@ const uz: Dictionary = {
     highestEvidenceConfidence: "Eng yuqori dalil ishonchliligi",
     hardGaps: "Majburiy bo‘shliqlar",
     notAssessed: "Baholanmagan",
+    strengths: "Kuchli dalil",
+    gaps: "Yetishmayotgan yoki zaif dalil",
+    unavailable: "Moslik tahlili mavjud emas",
+    loading: "Moslik o‘qilmoqda…",
   },
   jobMatch: {
     selectToPreview: "Moslikni tanlang",

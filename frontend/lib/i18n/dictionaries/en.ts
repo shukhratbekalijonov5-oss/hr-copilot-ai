@@ -2053,6 +2053,10 @@ const en = {
     highestEvidenceConfidence: "Highest evidence confidence",
     hardGaps: "Must-have gaps",
     notAssessed: "Not assessed",
+    strengths: "Strong evidence",
+    gaps: "Missing or weaker evidence",
+    unavailable: "Match insight unavailable",
+    loading: "Reading the match…",
   },
   jobMatch: {
     selectToPreview: "Select a match",
