@@ -10,6 +10,7 @@ import {
 import { AnswerPanel } from "@/components/ai/AnswerPanel";
 import { EvidenceMapPanel } from "@/components/ai/EvidenceMapPanel";
 import { HrMatchInsightPanel } from "@/components/candidates/HrMatchInsightPanel";
+import type { HrMatchInsight } from "@/lib/match/hr-insight";
 import { InterviewQuestionsPanel } from "@/components/ai/InterviewQuestionsPanel";
 import { SummaryPanel } from "@/components/ai/SummaryPanel";
 import { Avatar } from "@/components/ui/Avatar";
@@ -79,6 +80,9 @@ interface CandidateWorkspaceProps {
   /** Stored requirement mapping, read server-side. Null when never run. */
   evidenceMap: EvidenceMap | null;
   evidenceMapFailure: AiFailureReason | null;
+  /** The advanced assessment for the active pair, read on the server. */
+  matchInsight: HrMatchInsight | null;
+  matchInsightFailure: AiFailureReason | null;
   role: Role;
 }
 
@@ -111,6 +115,8 @@ export function CandidateWorkspace({
   currentEvidence,
   evidenceMap,
   evidenceMapFailure,
+  matchInsight,
+  matchInsightFailure,
   role,
 }: CandidateWorkspaceProps) {
   const router = useRouter();
@@ -619,8 +625,8 @@ export function CandidateWorkspace({
       */}
       <HrMatchInsightPanel
         key={`insight-${selectedVacancy.id}`}
-        candidateId={candidate.id}
-        vacancyId={selectedVacancy.id}
+        insight={matchInsight}
+        failure={matchInsightFailure}
         vacancyTitle={selectedVacancy.title}
       />
       <EvidenceMapPanel

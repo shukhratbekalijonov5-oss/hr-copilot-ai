@@ -427,7 +427,36 @@ describe("HR candidate detail", () => {
     // vacancy B's heading.
     const workspace = code("components/candidates/CandidateWorkspace.tsx");
     expect(workspace).toContain("key={`insight-${selectedVacancy.id}`}");
-    expect(workspace).toContain("vacancyId={selectedVacancy.id}");
+    expect(workspace).toContain("insight={matchInsight}");
+  });
+
+  it("is read on the server, not behind a button", () => {
+    /*
+     * REGRESSION. The panel first shipped fetching on click, which meant the
+     * live JD Evidence tab showed a heading and a button where the analysis
+     * belonged, and the request never fired unless a recruiter guessed to
+     * press it. The endpoint is a sub-second read, so the page fetches it and
+     * passes it down.
+     */
+    const page = code("app/(app)/candidates/[id]/page.tsx");
+    expect(page).toContain("readMatchInsight(candidate.id, selected.id)");
+    expect(page).toContain("api.getHrMatchInsight");
+
+    const panel = code("components/candidates/HrMatchInsightPanel.tsx");
+    // No client fetching of any kind: no action import, no click handler.
+    expect(panel).not.toContain("useTransition");
+    expect(panel).not.toContain("onClick");
+    expect(panel).not.toContain("runMatchInsightAction");
+  });
+
+  it("puts the advanced summary above the legacy evidence map", () => {
+    const workspace = code("components/candidates/CandidateWorkspace.tsx");
+    const advanced = workspace.indexOf("<HrMatchInsightPanel");
+    const legacy = workspace.indexOf("<EvidenceMapPanel");
+    expect(advanced).toBeGreaterThan(-1);
+    expect(legacy).toBeGreaterThan(-1);
+    // Order matters: score/eligibility/confidence first, evidence cards after.
+    expect(advanced).toBeLessThan(legacy);
   });
 });
 

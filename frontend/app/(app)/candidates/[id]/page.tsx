@@ -11,6 +11,7 @@ import {
   selectedVacancyId,
 } from "@/lib/vacancy/selection";
 import { vacancyAttempts } from "@/lib/vacancy/applicants";
+import type { HrMatchInsight } from "@/lib/match/hr-insight";
 import type {
   AiFailureReason,
   Candidate,
@@ -27,6 +28,29 @@ async function readEvidenceMap(
     return { map: await api.getEvidenceMap(candidateId, vacancyId), failure: null };
   } catch (error) {
     return { map: null, failure: aiFailureReason(error, "retrieval") };
+  }
+}
+
+/**
+ * Reads the advanced assessment for the ACTIVE pair.
+ *
+ * Fetched on the server so the analysis is in the first paint rather than
+ * behind a button: the endpoint is a sub-second deterministic read, and a
+ * recruiter opening a candidate has already asked the only question it
+ * answers. A failure travels back as a value so the rest of the page still
+ * renders.
+ */
+async function readMatchInsight(
+  candidateId: string,
+  vacancyId: string,
+): Promise<{ insight: HrMatchInsight | null; failure: AiFailureReason | null }> {
+  try {
+    return {
+      insight: await api.getHrMatchInsight(candidateId, vacancyId),
+      failure: null,
+    };
+  } catch (error) {
+    return { insight: null, failure: aiFailureReason(error, "retrieval") };
   }
 }
 
@@ -124,7 +148,7 @@ export default async function CandidateDetailPage(
    * generation is unavailable; when retrieval is down the reason travels into
    * the panel instead of failing the page.
    */
-  const [evidence, conversations, currentEvidence] = selected
+  const [evidence, conversations, currentEvidence, matchInsight] = selected
     ? await Promise.all([
         readEvidenceMap(candidate.id, selected.id),
         // Creator-scoped: a colleague's vacancy yields nothing rather than
@@ -142,8 +166,14 @@ export default async function CandidateDetailPage(
         api
           .getCandidateCurrentEvidence(candidate.id, selected.id)
           .catch(() => null),
+        readMatchInsight(candidate.id, selected.id),
       ])
-    : [{ map: null, failure: null }, null, null];
+    : [
+        { map: null, failure: null },
+        null,
+        null,
+        { insight: null, failure: null },
+      ];
 
   const evidenceMap = evidence.map;
   const evidenceMapFailure = evidence.failure;
@@ -173,6 +203,8 @@ export default async function CandidateDetailPage(
         currentEvidence={currentEvidence}
         evidenceMap={evidenceMap}
         evidenceMapFailure={evidenceMapFailure}
+        matchInsight={matchInsight.insight}
+        matchInsightFailure={matchInsight.failure}
         role={
           workspace.active.kind === "organization"
             ? workspace.active.role
