@@ -10,6 +10,70 @@ metadata:
 spec:
   redirectScheme: { scheme: https, permanent: true }
 ---
+# Security headers (final hardening, 2026-08-26). One authoritative layer:
+# neither Next.js nor NestJS sets any of these, so Traefik owns them and no
+# duplicates can arise. Facts these values were derived from:
+#   - the frontend is fully self-contained: next/font self-hosts at build
+#     time, no OAuth, no analytics, no Toss SDK (checkout is a top-level
+#     redirect to the Toss-hosted page, which CSP does not restrict);
+#   - inline <script> is structurally required (theme boot script in
+#     app/layout.tsx + Next App Router flight-data scripts, no nonce
+#     plumbing), hence 'unsafe-inline' in script-src — enforced only after
+#     a Report-Only soak proved the rest of the policy violation-free;
+#   - the HR document viewer renders PDFs in <iframe src="blob:..."> and a
+#     CSS select-arrow uses a data: SVG → frame-src blob:, img-src data:;
+#   - avatars/documents are signed URLs on api.hrcopilot.cloud consumed via
+#     <img> (no-cors) and fetch → img-src/connect-src include the API host,
+#     and the API must NOT send Cross-Origin-Resource-Policy: same-origin;
+#   - socket.io runs over wss to the API host → connect-src wss.
+# COOP same-origin is safe: no OAuth popups; window.open targets external
+# sites that never script back. COEP/CORP are deliberately unset (COEP
+# would demand CORP on every subresource for no isolation benefit; CORP on
+# the API would break the cross-origin avatar <img>). Permissions-Policy
+# leaves `payment` unset: the Toss flow is a top-level redirect to Toss's
+# own origin, but locking the feature here buys nothing and could bite a
+# future embedded-widget flow. HSTS has no `preload` on purpose — not
+# submitted to the preload list, keep the exit door.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers-frontend
+spec:
+  headers:
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    contentTypeNosniff: true
+    customFrameOptionsValue: DENY
+    referrerPolicy: strict-origin-when-cross-origin
+    permissionsPolicy: camera=(), microphone=(), geolocation=(), usb=(), bluetooth=(), serial=()
+    # Enforced after a Report-Only rollout + live headless-chromium
+    # regression (login, candidate home/job-matches/external-jobs/plans,
+    # HR dashboard/candidate-detail Overview+JD Evidence, PWA SW active)
+    # produced zero violations, zero page errors, zero failed requests.
+    contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.hrcopilot.cloud; font-src 'self'; connect-src 'self' https://api.hrcopilot.cloud wss://api.hrcopilot.cloud; frame-src blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self'; manifest-src 'self'"
+    customResponseHeaders:
+      Cross-Origin-Opener-Policy: same-origin
+      X-Powered-By: ""
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers-api
+spec:
+  headers:
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    contentTypeNosniff: true
+    customFrameOptionsValue: DENY
+    referrerPolicy: strict-origin-when-cross-origin
+    permissionsPolicy: camera=(), microphone=(), geolocation=(), usb=(), bluetooth=(), serial=()
+    # JSON/file API: the only meaningful document directive is frame-ancestors
+    # (clickjacking). No resource CSP — signed PDF/image responses are opened
+    # directly in tabs and by the mobile app, and must render unrestricted.
+    contentSecurityPolicy: "frame-ancestors 'none'"
+    customResponseHeaders:
+      X-Powered-By: ""
+---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -25,7 +89,7 @@ kind: Ingress
 metadata:
   name: frontend
   annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-redirect-https@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-redirect-https@kubernetescrd,{{ .Release.Namespace }}-security-headers-frontend@kubernetescrd
     {{- if .Values.ingress.tls }}
     cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
     {{- end }}
@@ -50,7 +114,7 @@ metadata:
   name: frontend-www
   annotations:
     # Canonical redirect: www always lands on the apex.
-    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-redirect-https@kubernetescrd,{{ .Release.Namespace }}-redirect-www@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-redirect-https@kubernetescrd,{{ .Release.Namespace }}-redirect-www@kubernetescrd,{{ .Release.Namespace }}-security-headers-frontend@kubernetescrd
     {{- if .Values.ingress.tls }}
     cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
     {{- end }}
@@ -74,7 +138,7 @@ kind: Ingress
 metadata:
   name: api
   annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-redirect-https@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-redirect-https@kubernetescrd,{{ .Release.Namespace }}-security-headers-api@kubernetescrd
     {{- if .Values.ingress.tls }}
     cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
     {{- end }}
