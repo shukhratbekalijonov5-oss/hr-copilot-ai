@@ -55,7 +55,10 @@ export function HrMatchRequirementsCard({
         <Chip>{vacancyTitle}</Chip>
       </div>
       <div className="px-4 pb-3">
-        <RequirementMatrix rows={insight.insight.requirementMatrix} />
+        <RequirementMatrix
+          rows={insight.insight.requirementMatrix}
+          showHeading={false}
+        />
         <TransferableSkills skills={insight.insight.transferableSkills} />
       </div>
     </Card>

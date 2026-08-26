@@ -35,18 +35,35 @@ import type { RequirementMatrixRow } from "@/lib/match/insight";
  * current evidence found" phrasing. Neither this component nor the dictionary
  * may ever render it as a claim that the candidate lacks the skill.
  */
-export function RequirementMatrix({ rows }: { rows: RequirementMatrixRow[] }) {
+export function RequirementMatrix({
+  rows,
+  /**
+   * False where a surrounding card already names the section — the HR tab
+   * wraps this in a titled card, and two identical headings in a row is just
+   * a stutter. The section keeps an accessible name either way.
+   */
+  showHeading = true,
+}: {
+  rows: RequirementMatrixRow[];
+  showHeading?: boolean;
+}) {
   const { d } = useI18n();
   if (rows.length === 0) return null;
 
   return (
-    <section aria-labelledby="requirement-matrix-title" className="mt-4">
-      <h4
-        id="requirement-matrix-title"
-        className="text-[13px] font-semibold tracking-tight text-ink"
-      >
-        {d.matchInsight.requirementMatrix}
-      </h4>
+    <section
+      aria-label={showHeading ? undefined : d.matchInsight.requirementMatrix}
+      aria-labelledby={showHeading ? "requirement-matrix-title" : undefined}
+      className={showHeading ? "mt-4" : "mt-1"}
+    >
+      {showHeading ? (
+        <h4
+          id="requirement-matrix-title"
+          className="text-[13px] font-semibold tracking-tight text-ink"
+        >
+          {d.matchInsight.requirementMatrix}
+        </h4>
+      ) : null}
 
       {/* Column headings exist only where there are columns. */}
       <div className="mt-2 hidden grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-3 border-b border-line pb-1.5 sm:grid">
