@@ -4,6 +4,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useId, useState } from "react";
 import { MatchEvidenceList } from "@/components/candidate/MatchEvidenceList";
+import { MatchInsightPanel } from "@/components/match/MatchInsightPanel";
+import { hasAdvancedDetail } from "@/lib/match/insight";
 import { SaveJobButton } from "@/components/jobs/SaveJobButton";
 import { Badge, Chip, type BadgeTone } from "@/components/ui/Badge";
 import { AiInsightPanel, CandidateCard } from "@/components/candidate/ui";
@@ -156,6 +158,22 @@ export function MatchCard({
           </Disclosure>
         ) : null}
       </div>
+
+      {/*
+        The ADVANCED analysis, when the backend ran one.
+        Placed above the legacy breakdown rather than replacing it: the older
+        supported/unsupported/unclear lists are still the deterministic
+        fallback for a row ranked before the advanced engine shipped, and a
+        reader who has both should meet the richer one first.
+      */}
+      {match.insight && hasAdvancedDetail(match.insight) ? (
+        <MatchInsightPanel
+          score={match.score}
+          band={match.band}
+          insight={match.insight}
+          showImprovements
+        />
+      ) : null}
 
       <RequirementBreakdown match={match} />
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { api, ApiError } from "@/lib/api";
 import { runAiAction, type AiActionResult } from "@/lib/api/ai-failure";
 import { getLocale } from "@/lib/i18n/server";
+import type { HrMatchInsight } from "@/lib/match/hr-insight";
 import type {
   ApplicationStatus,
   CandidateSummary,
@@ -189,5 +190,24 @@ export async function readEvidenceMapAction(
 ): Promise<AiActionResult<EvidenceMap>> {
   return runAiAction("retrieval", () =>
     api.getEvidenceMap(candidateId, vacancyId),
+  );
+}
+
+/**
+ * The advanced vacancy-context assessment for one applicant.
+ *
+ * Computed on demand rather than on page load: it ranks the candidate against
+ * the vacancy's whole requirement list, and firing that for every recruiter
+ * who merely opens a profile would spend the work on output nobody asked to
+ * see. The active vacancy is passed in explicitly, so the assessment can only
+ * ever describe the pair the page is currently showing.
+ */
+export async function runMatchInsightAction(
+  candidateId: string,
+  vacancyId: string,
+): Promise<AiActionResult<HrMatchInsight>> {
+  const locale = await getLocale();
+  return runAiAction("retrieval", () =>
+    api.getHrMatchInsight(candidateId, vacancyId, locale),
   );
 }

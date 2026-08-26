@@ -44,8 +44,24 @@ import type {
   JobSearchContextResponse,
   CandidateJobIntentResponse,
   JobSalaryViewResponse,
+  MatchEvidenceRefResponse,
+  JobMatchResponse,
+  MatchInsightResponse,
+  HrMatchInsightResponse,
+  CompareInsightsResponse,
+  CompareSuperlativeResponse,
 } from "@/lib/api/contracts";
 import { PIPELINE_STAGES } from "@/lib/types";
+import type {
+  CareerTrajectory,
+  MatchEvidenceRef,
+  MatchInsight,
+} from "@/lib/match/insight";
+import type {
+  CompareInsights,
+  CompareSuperlative,
+  HrMatchInsight,
+} from "@/lib/match/hr-insight";
 import { resolveEntitlements } from "@/lib/entitlements/plan";
 import type {
   AccountProfile,
@@ -1051,6 +1067,7 @@ export function toJobMatchResult(response: JobMatchesResponse): JobMatchResult {
       })),
       saved: match.saved,
       applicationState: match.applicationState,
+      insight: toMatchInsight(match, "CANDIDATE"),
     })),
     locale: response.locale,
     generated: response.generated,
@@ -1084,6 +1101,227 @@ export function toJobMatchResult(response: JobMatchesResponse): JobMatchResult {
  * Only a fallback: the backend owns the thresholds, and deriving them here
  * would be a second source of truth that could disagree with the score.
  */
+/**
+ * Reads the advanced insight off a match row, or returns null.
+ *
+ * Null is the honest answer for a row ranked before the advanced engine
+ * existed: §"do not treat null analysis as score 0". `insightVersion` is the
+ * backend's own marker that an analysis ran, so it — not the presence of any
+ * one array — decides whether there is an insight at all. A row where the
+ * engine ran but found nothing still yields an insight object whose lists are
+ * empty, and the UI then chooses per section whether to draw anything.
+ *
+ * Every list defaults to `[]` and every number is passed straight through. No
+ * value here is derived, summed or rescaled: the backend owns the arithmetic.
+ */
+function toMatchInsight(
+  match: JobMatchResponse,
+  context: "CANDIDATE" | "HR",
+): MatchInsight | null {
+  if (!match.insightVersion) return null;
+  return buildInsight(match, context, match.insightVersion);
+}
+
+/**
+ * Builds the insight from either carrier shape.
+ *
+ * The candidate list returns the advanced fields FLAT on each match row; the
+ * HR endpoints nest the same fields under `insight`. Both are read here so
+ * the two surfaces can never drift into different defaulting rules — one
+ * missing-array policy, one place.
+ */
+function buildInsight(
+  match: MatchInsightSource,
+  context: "CANDIDATE" | "HR",
+  version: string,
+): MatchInsight {
+  const breakdown = match.evidenceConfidenceBreakdown ?? {};
+  const trajectory = match.careerTrajectory ?? {};
+
+  return {
+    version,
+    context,
+    eligibility: match.eligibility ?? "ELIGIBLE",
+    eligibilityReasons: (match.eligibilityReasons ?? []).map((reason) => ({
+      code: reason.code,
+      detail: reason.detail,
+    })),
+    evidenceConfidence: match.evidenceConfidence ?? 0,
+    evidenceConfidenceBreakdown: {
+      sources: breakdown.sources ?? 0,
+      volume: breakdown.volume ?? 0,
+      coverage: breakdown.coverage ?? 0,
+      profileCompleteness: breakdown.profileCompleteness ?? 0,
+      consistency: breakdown.consistency ?? 0,
+    },
+    // A dimension with no `max` cannot be drawn as `score/max`, so it is
+    // dropped rather than rendered against an invented denominator.
+    dimensions: (match.dimensions ?? [])
+      .filter((dimension) => typeof dimension.max === "number" && dimension.max > 0)
+      .map((dimension) => ({
+        key: dimension.key,
+        labelKey: dimension.labelKey ?? `match.dimension.${dimension.key}`,
+        score: dimension.score,
+        max: dimension.max,
+        normalizedScore: dimension.normalizedScore ?? dimension.score / dimension.max,
+        reason: dimension.reason ?? undefined,
+      })),
+    requirementMatrix: (match.requirementMatrix ?? []).map((row) => ({
+      requirementId: row.requirementId ?? null,
+      text: row.text,
+      priority: row.priority,
+      status: row.status,
+      scoreContribution: row.scoreContribution ?? 0,
+      evidenceCount: row.evidenceCount ?? 0,
+      evidenceRefs: (row.evidenceRefs ?? []).map(toMatchEvidenceRef),
+      transferable: row.transferable ?? null,
+      reason: row.reason ?? "",
+    })),
+    transferableSkills: (match.transferableSkills ?? []).map((skill) => ({
+      sourceSkill: skill.sourceSkill,
+      targetRequirement: skill.targetRequirement,
+      targetSkill: skill.targetSkill ?? null,
+      credit: skill.credit ?? 0,
+      relation: skill.relation ?? "",
+      reason: skill.reason ?? "",
+      evidenceRefs: (skill.evidenceRefs ?? []).map(toMatchEvidenceRef),
+    })),
+    contradictions: (match.contradictions ?? []).map((item) => ({
+      kind: item.kind ?? "",
+      summary: item.summary,
+      sourceA: item.sourceA ?? "",
+      sourceB: item.sourceB ?? "",
+      confidencePenalty: item.confidencePenalty ?? 0,
+    })),
+    careerTrajectory: {
+      status: (trajectory.status as CareerTrajectory["status"]) ?? "UNKNOWN",
+      score: trajectory.score ?? null,
+      reasons: trajectory.reasons ?? [],
+    },
+    // Preserved as null. A pair with no previous ranking has no history, and
+    // inventing "0 -> 73" would report a rise that never happened.
+    scoreChange: match.scoreChange
+      ? {
+          previous: match.scoreChange.previous,
+          current: match.scoreChange.current,
+          delta:
+            match.scoreChange.delta ??
+            match.scoreChange.current - match.scoreChange.previous,
+          reasons: match.scoreChange.reasons ?? [],
+        }
+      : null,
+    improvementSuggestions: (match.improvementSuggestions ?? [])
+      .map((suggestion) => ({
+        requirementId: suggestion.requirementId ?? null,
+        type: suggestion.type ?? "",
+        text: suggestion.text,
+        impactRank: suggestion.impactRank ?? 0,
+      }))
+      .sort((a, b) => a.impactRank - b.impactRank),
+  };
+}
+
+function toMatchEvidenceRef(ref: MatchEvidenceRefResponse): MatchEvidenceRef {
+  return {
+    sourceKind: ref.sourceKind ?? "FILE",
+    fileName: ref.fileName ?? null,
+    pageNumber: ref.pageNumber ?? null,
+    section: ref.section ?? null,
+    snippet: ref.snippet ?? "",
+    sourceUrl: ref.sourceUrl ?? null,
+  };
+}
+
+/** The optional advanced fields, however they are carried. */
+type MatchInsightSource = Omit<MatchInsightResponse, "version" | "context">;
+
+/**
+ * HR vacancy-context assessment.
+ *
+ * `insight.version` decides the version string; an HR payload always carries
+ * an analysis (the endpoint exists to compute one), so unlike the list row
+ * there is no null case to model here.
+ */
+export function toHrMatchInsight(
+  response: HrMatchInsightResponse,
+): HrMatchInsight {
+  return {
+    candidate: response.candidate,
+    vacancy: response.vacancy,
+    score: response.score,
+    capabilityScore: response.capabilityScore ?? response.score,
+    tier: response.tier ?? "",
+    band: response.band ?? "",
+    matchedSkills: response.matchedSkills ?? [],
+    missingSkills: response.missingSkills ?? [],
+    insight: buildInsight(
+      response.insight,
+      "HR",
+      response.insight.version ?? "advanced-match-v1",
+    ),
+    generatedAt: response.generatedAt,
+  };
+}
+
+/**
+ * Compare intelligence.
+ *
+ * Superlatives are passed through exactly as decided. Nothing is re-sorted,
+ * re-ranked or tie-broken here — §"do not calculate winners independently in
+ * frontend" — and a null superlative stays null rather than being filled by
+ * picking a leader from `candidates`.
+ */
+export function toCompareInsights(
+  response: CompareInsightsResponse,
+): CompareInsights {
+  const superlative = (
+    value: CompareSuperlativeResponse | null | undefined,
+  ): CompareSuperlative | null =>
+    value
+      ? {
+          candidateId: value.candidateId,
+          fullName: value.fullName,
+          value: value.value,
+        }
+      : null;
+
+  return {
+    vacancy: response.vacancy,
+    candidates: response.candidates.map((candidate) => ({
+      candidateId: candidate.candidateId,
+      fullName: candidate.fullName,
+      // Null is preserved throughout: a candidate who could not be assessed
+      // has no score, and rendering 0 would place them last on merit they
+      // were never measured on.
+      score: candidate.score ?? null,
+      band: candidate.band ?? null,
+      eligibility: candidate.eligibility ?? null,
+      evidenceConfidence: candidate.evidenceConfidence ?? null,
+      mustHaveGapCount: candidate.mustHaveGapCount ?? null,
+      dimensions: (candidate.dimensions ?? [])
+        .filter((dimension) => typeof dimension.max === "number" && dimension.max > 0)
+        .map((dimension) => ({
+          key: dimension.key,
+          labelKey: dimension.labelKey ?? `match.dimension.${dimension.key}`,
+          score: dimension.score,
+          max: dimension.max,
+          normalizedScore: dimension.normalizedScore ?? dimension.score / dimension.max,
+          reason: dimension.reason ?? undefined,
+        })),
+      error: candidate.error ?? null,
+    })),
+    superlatives: {
+      bestTechnicalMatch: superlative(response.superlatives.bestTechnicalMatch),
+      bestSeniorityFit: superlative(response.superlatives.bestSeniorityFit),
+      fewestMustHaveGaps: superlative(response.superlatives.fewestMustHaveGaps),
+      highestEvidenceConfidence: superlative(
+        response.superlatives.highestEvidenceConfidence,
+      ),
+    },
+    generatedAt: response.generatedAt,
+  };
+}
+
 function bandFromStrength(strength: JobMatchStrength): MatchBand {
   if (strength === "STRONG") return "STRONG";
   if (strength === "PARTIAL") return "PARTIAL";

@@ -19,6 +19,7 @@ import {
   MIN_COMPARE_CANDIDATES,
 } from "@/lib/constants";
 import { MyVacancySelector } from "@/components/vacancies/MyVacancySelector";
+import { CompareInsightsPanel } from "@/components/compare/CompareInsightsPanel";
 import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
 import type {
@@ -278,6 +279,20 @@ export function CompareWorkspace({
             description={d.compare.selectAtLeastHint}
           />
         </Card>
+      ) : null}
+
+      {/*
+        Comparison intelligence, keyed on the exact selection so changing who
+        is being compared discards the previous verdict instead of relabelling
+        it. Sits above the evidence table: superlatives are the summary a
+        recruiter scans first, the table is the detail behind it.
+      */}
+      {!loading && !mapping && vacancyId ? (
+        <CompareInsightsPanel
+          key={`${vacancyId}:${selected.join(",")}`}
+          vacancyId={vacancyId}
+          candidateIds={selected}
+        />
       ) : null}
 
       {!loading && !mapping && result ? (

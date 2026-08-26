@@ -55,6 +55,7 @@ function match(overrides: Partial<JobMatch> = {}): JobMatch {
     evidence: [],
     saved: false,
     applicationState: null,
+    insight: null,
     ...overrides,
   };
 }

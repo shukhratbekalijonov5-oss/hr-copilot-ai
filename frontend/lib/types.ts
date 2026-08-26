@@ -1,4 +1,5 @@
 import type { Entitlements } from "@/lib/entitlements/plan";
+import type { MatchInsight } from "@/lib/match/insight";
 
 /**
  * Domain types for HR Copilot AI.
@@ -1721,6 +1722,11 @@ export interface JobMatch {
   evidence: MatchEvidence[];
   saved: boolean;
   applicationState: ApplicationStatus | null;
+  /**
+   * The advanced analysis, or null for a row ranked before the engine shipped.
+   * Null means "not analysed" and is never rendered as a zero score.
+   */
+  insight: MatchInsight | null;
 }
 
 export interface JobMatchResult {

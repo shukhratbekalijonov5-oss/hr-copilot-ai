@@ -8,6 +8,7 @@ import "server-only";
 import * as ai from "@/lib/api/ai.service";
 import * as applications from "@/lib/api/applications.service";
 import * as billing from "@/lib/api/billing.service";
+import * as matchInsight from "@/lib/api/match-insight.service";
 import * as account from "@/lib/api/account.service";
 import * as auth from "@/lib/api/auth.service";
 import * as candidateAccount from "@/lib/api/candidate-account.service";
@@ -105,6 +106,10 @@ export const api = {
   getInterviewQuestions: ai.getInterviewQuestions,
   runEvidenceMap: ai.runEvidenceMap,
   getEvidenceMap: ai.getEvidenceMap,
+
+  // advanced match (HR side)
+  getHrMatchInsight: matchInsight.getHrMatchInsight,
+  getCompareInsights: matchInsight.getCompareInsights,
 
   // evidence & compare
   compareCandidates: compare.compareCandidates,

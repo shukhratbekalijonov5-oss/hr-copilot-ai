@@ -972,6 +972,109 @@ export interface JobMatchResponse {
   evidence: MatchEvidenceResponse[];
   saved: boolean;
   applicationState: ApplicationStatus | null;
+
+  /**
+   * The ADVANCED MATCH insight, `advanced-match-v1`.
+   *
+   * Every field is optional because a row ranked before the advanced engine
+   * shipped carries none of them, and that row must still render. Absence is
+   * "no analysis", never "an analysis that scored zero".
+   */
+  insightVersion?: string | null;
+  eligibility?: MatchEligibilityResponse | null;
+  eligibilityReasons?: EligibilityReasonResponse[] | null;
+  evidenceConfidence?: number | null;
+  evidenceConfidenceBreakdown?: EvidenceConfidenceBreakdownResponse | null;
+  dimensions?: MatchDimensionResponse[] | null;
+  requirementMatrix?: RequirementMatrixRowResponse[] | null;
+  transferableSkills?: TransferableSkillResponse[] | null;
+  contradictions?: MatchContradictionResponse[] | null;
+  careerTrajectory?: CareerTrajectoryResponse | null;
+  scoreChange?: MatchScoreChangeResponse | null;
+  improvementSuggestions?: ImprovementSuggestionResponse[] | null;
+}
+
+export type MatchEligibilityResponse = "ELIGIBLE" | "PARTIAL" | "BLOCKED";
+
+export interface EligibilityReasonResponse {
+  code: string;
+  detail: string;
+}
+
+export interface EvidenceConfidenceBreakdownResponse {
+  sources?: number;
+  volume?: number;
+  coverage?: number;
+  profileCompleteness?: number;
+  consistency?: number;
+}
+
+export interface MatchDimensionResponse {
+  key: string;
+  labelKey?: string | null;
+  score: number;
+  max: number;
+  normalizedScore?: number | null;
+  reason?: string | null;
+}
+
+export interface MatchEvidenceRefResponse {
+  sourceKind?: "FILE" | "URL" | "PROFILE" | null;
+  fileName?: string | null;
+  pageNumber?: number | null;
+  section?: string | null;
+  snippet?: string | null;
+  sourceUrl?: string | null;
+}
+
+export interface RequirementMatrixRowResponse {
+  requirementId?: string | null;
+  text: string;
+  priority: "MUST_HAVE" | "NICE_TO_HAVE";
+  status: "STRONG" | "MATCH" | "PARTIAL" | "MISSING" | "BLOCKED";
+  scoreContribution?: number | null;
+  evidenceCount?: number | null;
+  evidenceRefs?: MatchEvidenceRefResponse[] | null;
+  transferable?: { sourceSkill: string; relation: string } | null;
+  reason?: string | null;
+}
+
+export interface TransferableSkillResponse {
+  sourceSkill: string;
+  targetRequirement: string;
+  targetSkill?: string | null;
+  credit?: number | null;
+  relation?: string | null;
+  reason?: string | null;
+  evidenceRefs?: MatchEvidenceRefResponse[] | null;
+}
+
+export interface MatchContradictionResponse {
+  kind?: string | null;
+  summary: string;
+  sourceA?: string | null;
+  sourceB?: string | null;
+  confidencePenalty?: number | null;
+}
+
+export interface CareerTrajectoryResponse {
+  status?: string | null;
+  score?: number | null;
+  reasons?: string[] | null;
+}
+
+export interface MatchScoreChangeResponse {
+  previous: number;
+  current: number;
+  delta?: number | null;
+  reasons?: string[] | null;
+}
+
+export interface ImprovementSuggestionResponse {
+  requirementId?: string | null;
+  type?: string | null;
+  text: string;
+  impactRank?: number | null;
 }
 
 export interface JobMatchesResponse {
@@ -1401,4 +1504,67 @@ export interface ExternalMatchBreakdownResponse {
 export interface ExternalAlreadyTrackedResponse {
   message: string;
   trackingId: string | null;
+}
+
+
+/** HR vacancy-context assessment: `POST /candidates/:id/vacancies/:id/match-insight`. */
+export interface HrMatchInsightResponse {
+  candidate: { id: string; fullName: string };
+  vacancy: { id: string; title: string; status: string };
+  score: number;
+  capabilityScore?: number | null;
+  tier?: string | null;
+  band?: string | null;
+  matchedSkills?: string[] | null;
+  missingSkills?: string[] | null;
+  insight: MatchInsightResponse;
+  generatedAt: string;
+}
+
+/** The advanced insight as its own object (HR endpoints nest it under `insight`). */
+export interface MatchInsightResponse {
+  version?: string | null;
+  context?: "CANDIDATE" | "HR" | null;
+  eligibility?: MatchEligibilityResponse | null;
+  eligibilityReasons?: EligibilityReasonResponse[] | null;
+  evidenceConfidence?: number | null;
+  evidenceConfidenceBreakdown?: EvidenceConfidenceBreakdownResponse | null;
+  dimensions?: MatchDimensionResponse[] | null;
+  requirementMatrix?: RequirementMatrixRowResponse[] | null;
+  transferableSkills?: TransferableSkillResponse[] | null;
+  contradictions?: MatchContradictionResponse[] | null;
+  careerTrajectory?: CareerTrajectoryResponse | null;
+  scoreChange?: MatchScoreChangeResponse | null;
+  improvementSuggestions?: ImprovementSuggestionResponse[] | null;
+}
+
+export interface CompareSuperlativeResponse {
+  candidateId: string;
+  fullName: string;
+  value: number;
+}
+
+export interface CompareInsightCandidateResponse {
+  candidateId: string;
+  fullName: string;
+  score?: number | null;
+  band?: string | null;
+  eligibility?: MatchEligibilityResponse | null;
+  evidenceConfidence?: number | null;
+  mustHaveGapCount?: number | null;
+  dimensions?: MatchDimensionResponse[] | null;
+  error?: string | null;
+}
+
+/** `POST /vacancies/:id/compare-insights`. */
+export interface CompareInsightsResponse {
+  vacancy: { id: string; title: string; status: string };
+  candidates: CompareInsightCandidateResponse[];
+  superlatives: {
+    bestTechnicalMatch?: CompareSuperlativeResponse | null;
+    bestSeniorityFit?: CompareSuperlativeResponse | null;
+    fewestMustHaveGaps?: CompareSuperlativeResponse | null;
+    highestEvidenceConfidence?: CompareSuperlativeResponse | null;
+  };
+  generatedAt: string;
 }

@@ -65,6 +65,7 @@ function result(): JobMatchResult {
         evidence: [],
         saved: false,
         applicationState: null,
+  insight: null,
       },
       {
         vacancy: {
@@ -102,6 +103,7 @@ function result(): JobMatchResult {
         evidence: [],
         saved: true,
         applicationState: null,
+  insight: null,
       },
     ],
   };

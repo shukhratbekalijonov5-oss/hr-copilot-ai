@@ -9,6 +9,7 @@ import {
 } from "@/app/(app)/candidates/[id]/actions";
 import { AnswerPanel } from "@/components/ai/AnswerPanel";
 import { EvidenceMapPanel } from "@/components/ai/EvidenceMapPanel";
+import { HrMatchInsightPanel } from "@/components/candidates/HrMatchInsightPanel";
 import { InterviewQuestionsPanel } from "@/components/ai/InterviewQuestionsPanel";
 import { SummaryPanel } from "@/components/ai/SummaryPanel";
 import { Avatar } from "@/components/ui/Avatar";
@@ -611,6 +612,17 @@ export function CandidateWorkspace({
     </Card>
   ) : (
     <>
+      {/*
+        Advanced assessment for THIS pair. Keyed on the vacancy for the same
+        reason as the map below: a vacancy switch must discard it, never
+        re-label it.
+      */}
+      <HrMatchInsightPanel
+        key={`insight-${selectedVacancy.id}`}
+        candidateId={candidate.id}
+        vacancyId={selectedVacancy.id}
+        vacancyTitle={selectedVacancy.title}
+      />
       <EvidenceMapPanel
         // Remounts on a vacancy change so the panel reloads for the new pair.
         key={selectedVacancy.id}

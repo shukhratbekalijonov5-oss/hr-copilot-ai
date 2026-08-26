@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { runAiAction, type AiActionResult } from "@/lib/api/ai-failure";
 import { getLocale } from "@/lib/i18n/server";
 import type { ComparisonResult } from "@/lib/types";
+import type { CompareInsights } from "@/lib/match/hr-insight";
 
 /**
  * Rebuilds the comparison when the selection changes.
@@ -32,5 +33,26 @@ export async function mapMissingCandidatesAction(
   const locale = await getLocale();
   return runAiAction("retrieval", () =>
     api.mapMissingCandidates(vacancyId, candidateIds, locale),
+  );
+}
+
+/**
+ * The deterministic comparison intelligence for the current selection.
+ *
+ * Separate from `compareCandidatesAction` on purpose: that one reports what
+ * each candidate's documents contain, this one returns the backend's decided
+ * superlatives. Keeping them apart means the evidence comparison still works
+ * when the ranking engine has nothing to say about a pair, and neither
+ * request has to wait for the other.
+ *
+ * The winners arrive already chosen. Nothing in the frontend re-sorts them.
+ */
+export async function compareInsightsAction(
+  vacancyId: string,
+  candidateIds: string[],
+): Promise<AiActionResult<CompareInsights>> {
+  const locale = await getLocale();
+  return runAiAction("retrieval", () =>
+    api.getCompareInsights(vacancyId, candidateIds, locale),
   );
 }
