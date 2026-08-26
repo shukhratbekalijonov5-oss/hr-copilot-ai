@@ -144,7 +144,7 @@ apps:
   frontend:
     enabled: true
     image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-frontend
-    tag: "9f69276"   # frontend demo-mode build (patched live 2026-08-26, reconciled here)
+    tag: "2f17ed6"   # HR match headline in Overview (2026-08-26)
     port: 3000
     replicas: 1
     imagePullSecret: regcred
