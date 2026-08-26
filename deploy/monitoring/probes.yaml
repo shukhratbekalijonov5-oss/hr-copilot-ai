@@ -1,0 +1,39 @@
+# Outside-in probes. These are what tell us the product is reachable by a
+# real user: DNS resolves, TLS validates, the ingress routes, the app answers.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: hrcopilot-public
+  namespace: monitoring
+  labels: { release: kps }
+spec:
+  interval: 60s
+  module: http_2xx_or_redirect     # the apex 307s to /login by design
+  prober:
+    url: blackbox.monitoring.svc.cluster.local:9115
+    path: /probe
+  targets:
+    staticConfig:
+      static:
+        - https://hrcopilot.cloud/
+        - https://www.hrcopilot.cloud/
+      labels: { tier: frontend }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: hrcopilot-api
+  namespace: monitoring
+  labels: { release: kps }
+spec:
+  interval: 60s
+  module: http_2xx
+  prober:
+    url: blackbox.monitoring.svc.cluster.local:9115
+    path: /probe
+  targets:
+    staticConfig:
+      static:
+        - https://api.hrcopilot.cloud/health/live
+        - https://api.hrcopilot.cloud/health/ready
+      labels: { tier: api }

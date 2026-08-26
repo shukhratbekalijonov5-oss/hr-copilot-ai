@@ -1,0 +1,18 @@
+# Redis exporter, deployed INTO the hrcopilot namespace on purpose: the
+# redis-access NetworkPolicy admits same-namespace pods carrying the client
+# label, so this label is what lets the exporter connect at all.
+fullnameOverride: redis-exporter
+redisAddress: redis://redis.hrcopilot.svc.cluster.local:6379
+# This chart spells pod-template labels `labels:` (not `podLabels:`) — the
+# wrong key is silently ignored, the NetworkPolicy then blocks the exporter,
+# and redis_up sits at 0 while everything looks "installed".
+labels:
+  hrcopilot.dev/redis-client: "true"
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }  # 100m throttled on every scrape
+serviceMonitor:
+  enabled: true
+  namespace: hrcopilot
+  labels: { release: kps }
+  interval: 30s

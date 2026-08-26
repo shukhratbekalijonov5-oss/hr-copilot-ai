@@ -1,0 +1,191 @@
+# kube-prometheus-stack for the single-node k3s production cluster.
+#
+# Sizing is deliberate: this node runs the whole product (app + Postgres +
+# Qdrant + Kafka + Redis) in 15Gi. Monitoring gets enough to be useful and
+# no more — 15d retention on 10Gi, and hard memory limits so a metrics
+# explosion can never evict the product.
+#
+# Nothing here is reachable from the internet: no ingress objects, all
+# ClusterIP. Grafana/Prometheus/Alertmanager are viewed via kubectl
+# port-forward. The Grafana admin password lives in a cluster Secret
+# created out-of-band (never in this file, never in git).
+
+fullnameOverride: kps
+
+# --- k3s reality -----------------------------------------------------------
+# k3s runs the control plane as one embedded process; there are no separate
+# scheduler/controller-manager/proxy/etcd metrics endpoints to scrape, so
+# both the scrape jobs and their default alert rules are switched off. Left
+# on, they would sit permanently DOWN and fire permanently — the exact
+# "alert that is always firing" failure this audit exists to prevent.
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeProxy: { enabled: false }
+kubeEtcd: { enabled: false }
+
+defaultRules:
+  create: true
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeScheduler: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+    kubernetesSystem: false      # control-plane version skew; N/A on k3s
+    windows: false
+    alertmanager: true
+    general: true
+    k8sContainerCpuUsageSecondsTotal: true
+    kubeApiserverAvailability: false
+    kubeApiserverBurnrate: false
+    kubeApiserverHistogram: false
+    kubeApiserverSlos: false
+    kubelet: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true
+
+# --- Prometheus ------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: 8GB
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    # Discover every ServiceMonitor/PodMonitor/Probe/Rule in the cluster,
+    # not only those carrying this release's labels — the hrcopilot chart
+    # ships its own and must not need a label handshake with this release.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { cpu: "1", memory: 2Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources: { requests: { storage: 10Gi } }
+
+# --- Alertmanager ----------------------------------------------------------
+# Delivery goes to the in-cluster Mailpit SMTP sink that the product already
+# uses for transactional mail. It is a real SMTP delivery path end to end
+# (Alertmanager → SMTP → mailbox) with no external credentials to leak,
+# which is what makes the fire/resolved proof in this audit verifiable.
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 10m, memory: 64Mi }
+      limits: { cpu: 200m, memory: 256Mi }
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources: { requests: { storage: 2Gi } }
+  config:
+    global:
+      smtp_smarthost: mailpit.hrcopilot.svc.cluster.local:1025
+      smtp_from: alerts@hrcopilot.cloud
+      smtp_require_tls: false
+      resolve_timeout: 5m
+    route:
+      receiver: ops-email
+      # Group by the identity of the problem, never by instance/pod — that
+      # would page once per replica for one incident.
+      group_by: ['alertname', 'namespace', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      routes:
+        # Critical pages immediately and repeats faster.
+        - receiver: ops-email-critical
+          matchers: [ 'severity="critical"' ]
+          group_wait: 10s
+          repeat_interval: 4h
+        # Two stack-internal alerts that are always firing by design and must
+        # never reach a human: Watchdog proves the pipeline is alive, and
+        # InfoInhibitor exists only to drive the inhibition rules below.
+        - receiver: "null"
+          matchers: [ 'alertname=~"Watchdog|InfoInhibitor"' ]
+    inhibit_rules:
+      # One critical incident silences the warning about the same thing.
+      - source_matchers: [ 'severity="critical"' ]
+        target_matchers: [ 'severity="warning"' ]
+        equal: ['alertname', 'namespace']
+      # A pod that is down explains everything else about that pod.
+      - source_matchers: [ 'alertname="KubePodNotReady"' ]
+        target_matchers: [ 'severity=~"warning|critical"' ]
+        equal: ['namespace', 'pod']
+    receivers:
+      - name: "null"
+      - name: ops-email
+        email_configs:
+          - to: ops@hrcopilot.cloud
+            send_resolved: true
+      - name: ops-email-critical
+        email_configs:
+          - to: ops@hrcopilot.cloud
+            send_resolved: true
+            headers: { Subject: '[CRITICAL] {{ .CommonLabels.alertname }}' }
+
+# --- Grafana ---------------------------------------------------------------
+grafana:
+  fullnameOverride: kps-grafana
+  # Password comes from a Secret created on the cluster, never from git.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  service: { type: ClusterIP }
+  ingress: { enabled: false }        # deliberately not public
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: 2Gi
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider: { foldersFromFilesStructure: true }
+    datasources: { enabled: true }
+  grafana.ini:
+    analytics: { reporting_enabled: false, check_for_updates: false }
+    news: { news_feed_enabled: false }
+    users: { allow_sign_up: false }
+
+# --- Exporters -------------------------------------------------------------
+nodeExporter:
+  enabled: true
+prometheus-node-exporter:
+  # 200m was low enough that the exporter was CPU-throttled on every scrape
+  # and CPUThrottlingHigh sat permanently firing. A limit is a ceiling, not a
+  # reservation: raising it costs nothing while the exporter stays idle.
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+kubeStateMetrics:
+  enabled: true
+kube-state-metrics:
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 256Mi }
+
+prometheusOperator:
+  resources:
+    requests: { cpu: 20m, memory: 128Mi }
+    limits: { cpu: 400m, memory: 512Mi }

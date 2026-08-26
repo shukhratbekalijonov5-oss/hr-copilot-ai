@@ -55,6 +55,14 @@ spec:
   podSelector: { matchLabels: { app: qdrant } }
   policyTypes: ["Ingress"]
   ingress:
+    # Prometheus scrapes Qdrant's own /metrics from the monitoring namespace.
+    # Read-only, and the only cross-namespace exception in this file: every
+    # other data service is reached through an exporter that runs in THIS
+    # namespace and therefore already satisfies the client-label rule.
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: monitoring }
+      ports: [{ protocol: TCP, port: 6333 }]
     - from:
         - podSelector: { matchLabels: { hrcopilot.dev/qdrant-client: "true" } }
       ports:

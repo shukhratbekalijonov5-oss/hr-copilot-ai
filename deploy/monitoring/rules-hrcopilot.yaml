@@ -1,0 +1,379 @@
+# HR Copilot production alerts.
+#
+# Three rules were applied to every alert here:
+#
+#  1. Nothing fires on a single bad sample. Every alert has a `for:` long
+#     enough that a transient blip resolves itself first.
+#  2. Nothing fires forever on history. Counters are read through
+#     increase()/rate(), never as absolute totals, so yesterday's incident
+#     cannot keep today's alert firing.
+#  3. Nothing fires for something nobody switched on. The external sync
+#     alerts are gated on `hrcopilot_external_sync_scheduled`, so a provider
+#     that production deliberately does not run is silent instead of
+#     permanently stale.
+#
+# Threshold provenance is recorded per group rather than guessed.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: hrcopilot
+  namespace: monitoring
+  labels: { release: kps }
+spec:
+  groups:
+    # ---------------------------------------------------------------- uptime
+    - name: hrcopilot.availability
+      rules:
+        - alert: HRCopilotProbeDown
+          # Outside-in: covers DNS, TLS, ingress and the app in one signal.
+          # 5m ≈ five consecutive 60s probes, so one dropped probe is quiet.
+          expr: probe_success == 0
+          for: 5m
+          labels: { severity: critical, component: availability }
+          annotations:
+            summary: "{{ $labels.instance }} is not answering"
+            description: >-
+              The blackbox probe for {{ $labels.instance }} has failed for 5
+              minutes. Users cannot reach this endpoint.
+            runbook: >-
+              Check ingress and pod health: kubectl -n hrcopilot get pods;
+              kubectl -n kube-system logs deploy/traefik --tail=50
+
+        - alert: HRCopilotProbeSlow
+          expr: probe_duration_seconds > 5
+          for: 15m
+          labels: { severity: warning, component: availability }
+          annotations:
+            summary: "{{ $labels.instance }} is responding slowly"
+            description: "End-to-end probe time has exceeded 5s for 15 minutes."
+
+    # ------------------------------------------------------------------ TLS
+    - name: hrcopilot.tls
+      rules:
+        # Let's Encrypt certificates are 90 days and cert-manager renews at
+        # ~30 days remaining. 21 days therefore means "renewal should already
+        # have happened and did not" — a real failure, not a countdown.
+        - alert: HRCopilotCertExpiringSoon
+          expr: (min by (instance) (probe_ssl_earliest_cert_expiry) - time()) / 86400 < 21
+          for: 1h
+          labels: { severity: warning, component: tls }
+          annotations:
+            summary: "TLS certificate for {{ $labels.instance }} expires soon"
+            description: >-
+              {{ $value | printf "%.1f" }} days of validity left, which means
+              cert-manager's automatic renewal has not completed.
+            runbook: "kubectl -n hrcopilot describe certificate; kubectl -n hrcopilot get certificaterequest"
+
+        - alert: HRCopilotCertExpiringCritical
+          expr: (min by (instance) (probe_ssl_earliest_cert_expiry) - time()) / 86400 < 7
+          for: 30m
+          labels: { severity: critical, component: tls }
+          annotations:
+            summary: "TLS certificate for {{ $labels.instance }} expires in under 7 days"
+            description: "{{ $value | printf \"%.1f\" }} days left. Renewal is failing; the site will break."
+
+    # ------------------------------------------------------------------ API
+    - name: hrcopilot.api
+      rules:
+        # Traefik counts every request that reaches the platform, which makes
+        # it the authoritative error source. Traefik's own `service` label
+        # arrives as `exported_service` because the ServiceMonitor claims
+        # `service` for the Kubernetes Service name.
+        #
+        # The second half of each expression is a floor on traffic: on an idle
+        # portfolio deployment a single failed request is 100% of one minute,
+        # and without the floor this alert would be pure noise. 0.02 req/s ≈
+        # one request per minute sustained over the window.
+        - alert: HRCopilotApiHighErrorRate
+          expr: |
+            (
+              sum by (exported_service) (rate(traefik_service_requests_total{code=~"5..",exported_service=~"hrcopilot-.*"}[5m]))
+              /
+              sum by (exported_service) (rate(traefik_service_requests_total{exported_service=~"hrcopilot-.*"}[5m]))
+            ) > 0.05
+            and
+            sum by (exported_service) (rate(traefik_service_requests_total{exported_service=~"hrcopilot-.*"}[5m])) > 0.02
+          for: 10m
+          labels: { severity: warning, component: api }
+          annotations:
+            summary: "{{ $labels.exported_service }} is returning 5xx"
+            description: >-
+              {{ $value | humanizePercentage }} of requests to
+              {{ $labels.exported_service }} have failed with a 5xx for 10
+              minutes.
+            runbook: "kubectl -n hrcopilot logs deploy/backend --tail=100"
+
+        - alert: HRCopilotApiErrorRateCritical
+          expr: |
+            (
+              sum by (exported_service) (rate(traefik_service_requests_total{code=~"5..",exported_service=~"hrcopilot-.*"}[5m]))
+              /
+              sum by (exported_service) (rate(traefik_service_requests_total{exported_service=~"hrcopilot-.*"}[5m]))
+            ) > 0.20
+            and
+            sum by (exported_service) (rate(traefik_service_requests_total{exported_service=~"hrcopilot-.*"}[5m])) > 0.02
+          for: 5m
+          labels: { severity: critical, component: api }
+          annotations:
+            summary: "{{ $labels.exported_service }} is mostly failing"
+            description: "{{ $value | humanizePercentage }} of requests are 5xx. Treat as an outage."
+
+        # protocol="http" is not optional. socket.io connections are measured
+        # by Traefik as single requests lasting as long as the connection, so
+        # they sit permanently in the top duration bucket. Including them puts
+        # p95 at 5s forever (measured: websocket p95 5s vs http p95 0.095s)
+        # and this alert would fire on a perfectly healthy API.
+        - alert: HRCopilotApiLatencyHigh
+          expr: |
+            histogram_quantile(0.95,
+              sum by (exported_service, le) (
+                rate(traefik_service_request_duration_seconds_bucket{exported_service=~"hrcopilot-.*",protocol="http"}[10m])
+              )
+            ) > 3
+            and
+            sum by (exported_service) (rate(traefik_service_requests_total{exported_service=~"hrcopilot-.*",protocol="http"}[10m])) > 0.02
+          for: 15m
+          labels: { severity: warning, component: api }
+          annotations:
+            summary: "{{ $labels.exported_service }} p95 latency above 3s"
+            description: "95th percentile response time is {{ $value | printf \"%.1f\" }}s over 10 minutes."
+
+    # ------------------------------------------------------------ workloads
+    - name: hrcopilot.workloads
+      rules:
+        # increase() over a window, NOT restartCount > 0: the ai-service has
+        # three historical restarts that must never alert again. Migration
+        # and backup pods are excluded — a Job container that exits is doing
+        # its job, not crashing.
+        - alert: HRCopilotPodRestarting
+          expr: |
+            increase(
+              kube_pod_container_status_restarts_total{
+                namespace=~"hrcopilot|monitoring",
+                pod!~".*-migrate-.*|.*backup.*"
+              }[15m]
+            ) > 0
+          for: 5m
+          labels: { severity: warning, component: workload }
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.pod }} restarted"
+            description: >-
+              Container {{ $labels.container }} restarted
+              {{ $value | printf "%.0f" }} time(s) in the last 15 minutes.
+            runbook: "kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} --previous --tail=100"
+
+        - alert: HRCopilotWorkloadDown
+          # Every product workload runs a single replica by design, so
+          # "0 available" is a full outage of that component.
+          expr: |
+            kube_deployment_status_replicas_available{namespace="hrcopilot"} == 0
+            or
+            kube_statefulset_status_replicas_ready{namespace="hrcopilot"} == 0
+          for: 5m
+          labels: { severity: critical, component: workload }
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.deployment }}{{ $labels.statefulset }} has no ready replica"
+            description: "The workload has had zero ready replicas for 5 minutes."
+
+    # ----------------------------------------------------------------- disk
+    - name: hrcopilot.disk
+      rules:
+        # NOTE ON PVCs: this cluster uses the local-path provisioner, which
+        # is hostPath underneath. Every PVC therefore reports the NODE
+        # filesystem's size and usage (all eight report 192.7GiB), and the
+        # requested PVC size is not an enforced quota. A per-PVC percentage
+        # alert would be eight identical copies of the node alert, so the
+        # node filesystem alert below IS the storage alert for every volume.
+        - alert: HRCopilotNodeDiskFillingUp
+          expr: |
+            100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}
+                    / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}) > 80
+          for: 15m
+          labels: { severity: warning, component: storage }
+          annotations:
+            summary: "Node disk {{ $value | printf \"%.0f\" }}% full"
+            description: >-
+              The root filesystem backs every PVC (Postgres, Qdrant, Kafka,
+              uploads, Prometheus). Baseline usage is ~8%, so 80% means
+              something is growing that should not be.
+            runbook: "du -xh --max-depth=2 /var/lib/rancher/k3s/storage | sort -h | tail -20"
+
+        - alert: HRCopilotNodeDiskCritical
+          expr: |
+            100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}
+                    / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}) > 90
+          for: 5m
+          labels: { severity: critical, component: storage }
+          annotations:
+            summary: "Node disk {{ $value | printf \"%.0f\" }}% full — data loss risk"
+            description: "PostgreSQL and Kafka stop accepting writes when this filesystem fills."
+
+        - alert: HRCopilotNodeInodesLow
+          expr: |
+            100 * (1 - node_filesystem_files_free{mountpoint="/"}
+                    / node_filesystem_files{mountpoint="/"}) > 85
+          for: 15m
+          labels: { severity: warning, component: storage }
+          annotations:
+            summary: "Node inode usage at {{ $value | printf \"%.0f\" }}%"
+            description: "Free space can look fine while inode exhaustion still breaks writes."
+
+    # -------------------------------------------------------- external jobs
+    - name: hrcopilot.external-jobs
+      rules:
+        # Production syncs every provider hourly (EXTERNAL_SYNC_INTERVAL_MS
+        # =3600000). 2.5h = two missed cycles plus slack, so one slow or
+        # retried run stays quiet. Gated on `scheduled` so a provider that is
+        # switched off in production is silent rather than eternally stale.
+        - alert: HRCopilotExternalSyncStale
+          expr: |
+            (
+              time() - hrcopilot_external_sync_last_success_timestamp_seconds > 9000
+            ) and on (provider) (hrcopilot_external_sync_scheduled == 1)
+          for: 15m
+          labels: { severity: warning, component: external-jobs }
+          annotations:
+            summary: "No successful {{ $labels.provider }} sync for over 2.5 hours"
+            description: >-
+              The hourly sweep for {{ $labels.provider }} has not completed
+              successfully in {{ $value | humanizeDuration }}. External job
+              listings are going stale.
+            runbook: "kubectl -n hrcopilot logs deploy/backend --tail=200 | grep -i external"
+
+        - alert: HRCopilotExternalSyncStaleCritical
+          expr: |
+            (
+              time() - hrcopilot_external_sync_last_success_timestamp_seconds > 21600
+            ) and on (provider) (hrcopilot_external_sync_scheduled == 1)
+          for: 15m
+          labels: { severity: critical, component: external-jobs }
+          annotations:
+            summary: "{{ $labels.provider }} has not synced for 6 hours"
+            description: "Six missed hourly cycles. The scheduler or the provider is broken."
+
+        - alert: HRCopilotExternalSyncFailing
+          expr: hrcopilot_external_sync_failed_runs_24h > 3
+          for: 30m
+          labels: { severity: warning, component: external-jobs }
+          annotations:
+            summary: "{{ $labels.provider }} sync is failing repeatedly"
+            description: >-
+              {{ $value | printf "%.0f" }} FAILED/PARTIAL runs for
+              {{ $labels.provider }} in the last 24h. Note that a failed run
+              never deletes listings by design, so this degrades freshness,
+              not correctness.
+
+        # The index is the search-visible copy of PostgreSQL. A backlog is
+        # normal for minutes after a sweep; 45 minutes means reconciliation
+        # is not draining.
+        - alert: HRCopilotExternalIndexBacklog
+          expr: hrcopilot_external_index_pending > 0
+          for: 45m
+          labels: { severity: warning, component: external-jobs }
+          annotations:
+            summary: "Semantic index is {{ $value | printf \"%.0f\" }} job(s) behind PostgreSQL"
+            description: >-
+              External jobs exist in PostgreSQL whose Qdrant entry is missing
+              or older than the row. Candidate search is showing stale results.
+            runbook: "Check the external-jobs queue and ai-service reachability."
+
+        - alert: HRCopilotExternalIndexJobsFailing
+          # increase(), not the raw gauge: four failed jobs from an earlier
+          # incident are already on the queue and must not alert forever.
+          expr: increase(hrcopilot_external_jobs_queue_jobs{state="failed"}[30m]) > 0
+          for: 5m
+          labels: { severity: warning, component: external-jobs }
+          annotations:
+            summary: "New external-jobs queue failures"
+            description: "{{ $value | printf \"%.0f\" }} job(s) newly failed in the last 30 minutes."
+
+        - alert: HRCopilotMetricsStale
+          # If collection breaks, every alert above silently stops being true.
+          expr: hrcopilot_metrics_collection_success == 0
+          for: 15m
+          labels: { severity: warning, component: monitoring }
+          annotations:
+            summary: "Backend metrics collection is failing"
+            description: "The backend cannot refresh its gauges, so external-jobs alerts are blind."
+
+    # --------------------------------------------------------- data services
+    - name: hrcopilot.data
+      rules:
+        - alert: HRCopilotPostgresDown
+          expr: pg_up == 0
+          for: 5m
+          labels: { severity: critical, component: postgres }
+          annotations:
+            summary: "PostgreSQL is unreachable"
+            description: "The exporter cannot connect. Every product surface depends on this."
+            runbook: "kubectl -n hrcopilot logs postgres-0 --tail=100"
+
+        - alert: HRCopilotRedisDown
+          expr: redis_up == 0
+          for: 5m
+          labels: { severity: critical, component: redis }
+          annotations:
+            summary: "Redis is unreachable"
+            description: >-
+              Sessions, rate limiting, FX snapshots and every BullMQ queue
+              (including external sync) stop working.
+
+        - alert: HRCopilotRedisMemoryHigh
+          # maxmemory-policy is noeviction: at 100% Redis returns errors on
+          # write rather than silently dropping queue jobs. 85% is the warning.
+          expr: 100 * (redis_memory_used_bytes / redis_memory_max_bytes) > 85
+          for: 15m
+          labels: { severity: warning, component: redis }
+          annotations:
+            summary: "Redis memory at {{ $value | printf \"%.0f\" }}% of maxmemory"
+            description: "Policy is noeviction, so writes start failing at 100%, they do not evict."
+
+        - alert: HRCopilotRedisRejectingConnections
+          expr: increase(redis_rejected_connections_total[15m]) > 0
+          for: 5m
+          labels: { severity: warning, component: redis }
+          annotations:
+            summary: "Redis rejected {{ $value | printf \"%.0f\" }} connection(s)"
+            description: "The client limit has been reached in the last 15 minutes."
+
+        - alert: HRCopilotKafkaBrokerDown
+          expr: kafka_brokers < 1
+          for: 5m
+          labels: { severity: critical, component: kafka }
+          annotations:
+            summary: "No Kafka broker available"
+            description: >-
+              Single-broker KRaft cluster. Billing entitlement events and
+              notification emails stop being delivered.
+
+        - alert: HRCopilotKafkaConsumerLag
+          expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 1000
+          for: 15m
+          labels: { severity: warning, component: kafka }
+          annotations:
+            summary: "{{ $labels.consumergroup }} is {{ $value | printf \"%.0f\" }} messages behind"
+            description: >-
+              Consumer group {{ $labels.consumergroup }} is not keeping up on
+              topic {{ $labels.topic }}. Entitlement or notification events
+              are being processed late.
+
+        - alert: HRCopilotQdrantDown
+          expr: up{job="qdrant"} == 0
+          for: 5m
+          labels: { severity: critical, component: qdrant }
+          annotations:
+            summary: "Qdrant is unreachable"
+            description: "All semantic search and AI matching degrade or fail."
+
+    # ------------------------------------------------------ monitoring self
+    - name: hrcopilot.monitoring
+      rules:
+        - alert: HRCopilotTargetDown
+          # Monitoring that has stopped looking is worse than no monitoring,
+          # because it looks healthy.
+          expr: up{job=~"backend|qdrant|redis-exporter|kafka-exporter|postgres-exporter|traefik-metrics"} == 0
+          for: 10m
+          labels: { severity: warning, component: monitoring }
+          annotations:
+            summary: "Prometheus cannot scrape {{ $labels.job }}"
+            description: "Target {{ $labels.instance }} has been down for 10 minutes; its alerts are now blind."

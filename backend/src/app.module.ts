@@ -21,6 +21,7 @@ import { EntitlementsModule } from './entitlements/entitlements.module';
 import { PlanCapabilityGuard } from './entitlements/plan-capability.guard';
 import { CandidatePreferencesModule } from './candidate-preferences/candidate-preferences.module';
 import { ExternalJobsModule } from './external-jobs/external-jobs.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { CandidateLinksModule } from './candidate-links/candidate-links.module';
 import { WebIngestionModule } from './web-ingestion/web-ingestion.module';
 import { PublicJobsModule } from './public-jobs/public-jobs.module';
@@ -94,6 +95,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     // External job ingestion. Registers no scheduler and calls no
     // provider yet: the pipeline exists so an implementation can plug in.
     ExternalJobsModule,
+    MetricsModule,
     CandidateLinksModule,
     PublicJobsModule,
     UsersModule,

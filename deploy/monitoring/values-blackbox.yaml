@@ -1,0 +1,31 @@
+# Blackbox exporter: the outside-in view. Everything else in this stack
+# measures the system from within, which cannot tell you that DNS, TLS or the
+# ingress is broken — only a real HTTPS request from outside can.
+fullnameOverride: blackbox
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 100m, memory: 128Mi }
+config:
+  modules:
+    http_2xx:
+      prober: http
+      timeout: 10s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: []          # any 2xx
+        follow_redirects: true
+        preferred_ip_protocol: ip4
+        ip_protocol_fallback: false
+    # The apex redirects to /login, so the useful check there is "the
+    # redirect itself is served correctly", not "the body is a 200".
+    http_2xx_or_redirect:
+      prober: http
+      timeout: 10s
+      http:
+        valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+        valid_status_codes: [200, 301, 302, 307, 308]
+        follow_redirects: false
+        preferred_ip_protocol: ip4
+        ip_protocol_fallback: false
+serviceMonitor:
+  enabled: false      # probes are declared as Probe CRs instead (probes.yaml)

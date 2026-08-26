@@ -1,0 +1,16 @@
+# Kafka exporter — the only source of consumer-group lag for the billing and
+# notification consumers. Same namespace/label reasoning as Redis.
+fullnameOverride: kafka-exporter
+kafkaServer:
+  - kafka.hrcopilot.svc.cluster.local:9092
+podLabels:
+  hrcopilot.dev/kafka-client: "true"
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }  # 100m throttled on every scrape
+prometheus:
+  serviceMonitor:
+    enabled: true
+    namespace: hrcopilot
+    additionalLabels: { release: kps }
+    interval: 30s

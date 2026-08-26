@@ -1,0 +1,18 @@
+# PostgreSQL exporter. The connection URI lives in a Secret created on the
+# cluster (never in git); this file only names it. Note the database is
+# `hr_copilot` (underscore) — `hrcopilot` is the namespace, not the database.
+fullnameOverride: postgres-exporter
+config:
+  datasourceSecret:
+    name: postgres-exporter-dsn
+    key: DATA_SOURCE_NAME
+podLabels:
+  hrcopilot.dev/postgres-client: "true"
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 100m, memory: 128Mi }
+serviceMonitor:
+  enabled: true
+  namespace: hrcopilot
+  labels: { release: kps }
+  interval: 30s

@@ -7,6 +7,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { noStoreMiddleware } from './common/http/no-store.middleware';
 import type { Express } from 'express';
 import { PayloadTooLargeFilter } from './common/filters/payload-too-large.filter';
+import { startMetricsServer } from './metrics/metrics.server';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -89,6 +90,9 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   await app.listen(port);
+
+  // Cluster-internal metrics listener on its own port (never ingress-routed).
+  startMetricsServer(app, config.get<number>('app.metricsPort', 9464));
 
   // Safe startup output only: no connection strings, secrets or tokens.
   logger.log(`HR Copilot API listening on port ${port}`);

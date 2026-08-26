@@ -97,7 +97,7 @@ apps:
   backend:
     enabled: true
     image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-backend
-    tag: "9f69276-live2" # hourly live-only external lifecycle (2026-08-26)
+    tag: "d6d86c8-metrics2" # + Prometheus metrics on 9464 (2026-08-26)
     port: 3001
     replicas: 1   # HARD limit: in-process BullMQ + socket.io without Redis adapter
     imagePullSecret: regcred

@@ -1,0 +1,77 @@
+# What Prometheus scrapes beyond the kube-prometheus-stack defaults.
+#
+# Three sources the product cannot be monitored without:
+#   1. Traefik  — the only place every public request is counted, and so the
+#      authoritative source for API availability, latency and 5xx.
+#   2. Backend  — the only place that knows whether each external provider
+#      actually synced and whether the semantic index is behind PostgreSQL.
+#      Served on port 9464, which the ingress does not route: internal only.
+#   3. Qdrant   — its own /metrics, for vector-store health.
+---
+# Traefik publishes metrics on its own entrypoint (:9100) which the chart's
+# LoadBalancer Service does not expose. This Service exists only for scraping.
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-metrics
+  namespace: kube-system
+  labels: { app.kubernetes.io/name: traefik, hrcopilot.dev/scrape: "true" }
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-kube-system
+  ports:
+    - { name: metrics, port: 9100, targetPort: 9100, protocol: TCP }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: traefik
+  namespace: kube-system
+  labels: { release: kps }
+spec:
+  selector:
+    matchLabels: { app.kubernetes.io/name: traefik, hrcopilot.dev/scrape: "true" }
+  endpoints:
+    - { port: metrics, path: /metrics, interval: 30s }
+---
+# The backend's metrics port. Deliberately a second Service: the public
+# `backend` Service (3001) is what the ingress routes, and metrics must never
+# appear on it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-metrics
+  namespace: hrcopilot
+  labels: { app: backend, hrcopilot.dev/scrape: "true" }
+spec:
+  type: ClusterIP
+  selector: { app: backend }
+  ports:
+    - { name: metrics, port: 9464, targetPort: 9464, protocol: TCP }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: backend
+  namespace: hrcopilot
+  labels: { release: kps }
+spec:
+  selector:
+    matchLabels: { app: backend, hrcopilot.dev/scrape: "true" }
+  endpoints:
+    # 30s matches the service's own 25s refresh TTL: one scrape, one refresh.
+    - { port: metrics, path: /metrics, interval: 30s, scrapeTimeout: 10s }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: qdrant
+  namespace: hrcopilot
+  labels: { release: kps }
+spec:
+  selector:
+    matchLabels: { app: qdrant }
+  endpoints:
+    - { port: http, path: /metrics, interval: 60s }

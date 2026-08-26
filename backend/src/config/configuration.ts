@@ -36,6 +36,12 @@ export interface AppConfiguration {
      * every client runs on the same machine.
      */
     publicBaseUrl: string;
+    /**
+     * Port for the cluster-internal Prometheus metrics listener. Deliberately
+     * NOT the API port: the public ingress routes only the API port, so
+     * metrics stay unreachable from the internet without needing auth.
+     */
+    metricsPort: number;
   };
   auth: {
     /** Backend auth signing secret. The project standardises on SECRET_TOKEN. */
@@ -215,6 +221,7 @@ export default (): AppConfiguration => ({
     publicBaseUrl:
       process.env.API_PUBLIC_BASE_URL ??
       `http://localhost:${toInt(process.env.PORT, 3001)}/${process.env.API_PREFIX ?? 'api'}`,
+    metricsPort: toInt(process.env.METRICS_PORT, 9464),
   },
   auth: {
     secretToken: process.env.SECRET_TOKEN ?? '',
