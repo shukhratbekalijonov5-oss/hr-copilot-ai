@@ -63,6 +63,7 @@ from app.models.schemas import (
     JobMatchResponse,
     MatchEvidence,
     RequirementCheck,
+    RequirementInsight,
 )
 
 logger = get_logger(__name__)
@@ -385,6 +386,9 @@ def _to_match(entry: ScoredVacancy, rank: int) -> JobMatch:
         unsupportedRequirements=[RequirementCheck(**c) for c in entry.unsupported],
         unclearRequirements=[RequirementCheck(**c) for c in entry.unclear],
         evidence=_evidence_for(entry),
+        requirementInsights=[
+            RequirementInsight(**row) for row in entry.requirement_insights
+        ],
     )
 
 

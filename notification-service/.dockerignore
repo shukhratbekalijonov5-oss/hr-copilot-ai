@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+
+build
+.gradle
+.git
+.gitignore
+.github
+*.log
+.DS_Store
+Dockerfile
+.dockerignore
+docker-compose.dev.yml

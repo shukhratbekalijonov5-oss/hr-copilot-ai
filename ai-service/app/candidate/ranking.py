@@ -85,6 +85,18 @@ TIER_PARTIAL = 40
 #: that a page of results stays small.
 MAX_EVIDENCE_PER_MATCH = 5
 
+#: Passages kept per REQUIREMENT in the insight rows, and how long each
+#: snippet may be. Three cited passages per requirement is what the recruiter
+#: evidence map ships with (`mapping_max_evidence`), kept as a constant here so
+#: this module stays store- and settings-free.
+MAX_EVIDENCE_PER_REQUIREMENT = 3
+_INSIGHT_SNIPPET_CHARS = 220
+
+#: The pseudo-source built from the profile form. One "source" no matter how
+#: many fields repeat a skill — repetition inside the profile must never look
+#: like independent corroboration.
+PROFILE_SOURCE_ID = "profile"
+
 
 @dataclass
 class VacancyCandidate:
@@ -116,6 +128,10 @@ class ScoredVacancy:
     #: Provenance is not optional — a capability the UI shows must be traceable
     #: to the file or link it came from.
     evidence: list[EvidenceHit] = field(default_factory=list)
+    #: Per-requirement classification depth (dicts shaped like
+    #: schemas.RequirementInsight). Parallel to supported/unsupported/unclear,
+    #: which are a frozen wire contract that must not grow.
+    requirement_insights: list[dict] = field(default_factory=list)
 
 
 def rank_vacancies(
@@ -167,6 +183,7 @@ def _score_one(
     supported: list[dict] = []
     unsupported: list[dict] = []
     unclear: list[dict] = []
+    insight_rows: list[dict] = []
     evidence: list[EvidenceHit] = []
     seen_evidence: set[tuple[str, int]] = set()
 
@@ -183,6 +200,39 @@ def _score_one(
             thresholds=thresholds,
         )
         entry = {"text": text, "required": is_required, "reason": result.reason}
+
+        # The parallel insight row: same classification, plus the depth the
+        # advanced contract needs. DISTINCT non-profile sources is the
+        # anti-stuffing measure — twenty mentions in one file are one source.
+        insight_rows.append(
+            {
+                "text": text,
+                "required": is_required,
+                "status": result.status,
+                "reason": result.reason,
+                "matchedTerms": list(result.matched_terms),
+                "missingTerms": list(result.missing_terms),
+                "distinctEvidenceSources": len(
+                    {
+                        hit.documentId
+                        for hit in result.evidence
+                        if hit.documentId and hit.documentId != PROFILE_SOURCE_ID
+                    }
+                ),
+                "evidence": [
+                    {
+                        "documentId": hit.documentId,
+                        "fileName": hit.sourceTitle or hit.fileName,
+                        "pageNumber": hit.pageNumber,
+                        "section": hit.section,
+                        "text": hit.text[:_INSIGHT_SNIPPET_CHARS],
+                        "sourceType": hit.sourceType or "FILE",
+                        "sourceUrl": hit.sourceUrl,
+                    }
+                    for hit in result.evidence[:MAX_EVIDENCE_PER_REQUIREMENT]
+                ],
+            }
+        )
 
         if result.status == EVIDENCE_FOUND:
             supported.append(entry)
@@ -268,6 +318,7 @@ def _score_one(
         matched_skills=matched_skills,
         missing_skills=missing_skills[:12],
         evidence=evidence,
+        requirement_insights=insight_rows,
     )
 
 

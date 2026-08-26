@@ -132,6 +132,7 @@ function row(overrides: Partial<RankingVacancyRow> = {}): RankingVacancyRow {
     domainExperience: [],
     organization: { name: 'Acme' },
     requirements: [{ text: 'Node.js', required: true }],
+    languages: [],
     ...overrides,
   };
 }

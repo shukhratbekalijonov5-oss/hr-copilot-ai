@@ -1,0 +1,47 @@
+# Trivy policy for HR Copilot AI.
+#
+# ## The gate, in one sentence
+#
+# A build fails on a CRITICAL vulnerability that has a fix available; HIGH is
+# reported and does not block.
+#
+# ## Why `ignore-unfixed` is the whole design
+#
+# Base images routinely carry CRITICALs with no upstream patch. Gating on
+# those would leave every pipeline red for something nobody can act on, and a
+# permanently red pipeline is one people learn to ignore — which is strictly
+# worse than no gate at all. Failing only on FIXABLE findings keeps every
+# failure actionable: there is a version to move to, so move to it.
+#
+# ## HIGH is reported, not enforced
+#
+# A typical Java or Python image carries 20–30 HIGH findings at any moment.
+# Blocking on them would stop all delivery within a week. They are printed on
+# every run so the trend is visible, and are triaged deliberately rather than
+# by build failure.
+#
+# ## Exceptions are listed in .trivyignore, never by lowering this bar
+#
+# Every entry there needs a CVE, a reason and a review date. An exception with
+# no expiry is a permanent hole that nobody revisits.
+
+severity:
+  - CRITICAL
+  - HIGH
+
+# Only findings with an available fix can fail a build.
+ignore-unfixed: true
+
+# Vulnerabilities, leaked secrets, and Dockerfile/IaC misconfiguration.
+scan:
+  scanners:
+    - vuln
+    - secret
+    - config
+
+# A scan that cannot reach its database must not silently pass.
+exit-code: 1
+
+db:
+  # A stale local DB is worse than a slow scan: it reports yesterday's risk.
+  skip-update: false

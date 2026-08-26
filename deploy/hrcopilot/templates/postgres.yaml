@@ -1,0 +1,94 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  labels: { app: postgres }
+data:
+  # Runs ONLY on first boot with an empty data volume. Each service owns
+  # exactly its database; nothing shares the superuser.
+  10-create-databases.sh: |
+    #!/bin/sh
+    set -eu
+    psql -v ON_ERROR_STOP=1 -U postgres <<SQL
+    CREATE USER hrcopilot_app PASSWORD '$APP_DB_PASSWORD';
+    CREATE USER hrcopilot_payment PASSWORD '$PAYMENT_DB_PASSWORD';
+    CREATE USER hrcopilot_notification PASSWORD '$NOTIFICATION_DB_PASSWORD';
+    CREATE DATABASE hr_copilot OWNER hrcopilot_app;
+    CREATE DATABASE hr_copilot_payments OWNER hrcopilot_payment;
+    CREATE DATABASE hr_copilot_notifications OWNER hrcopilot_notification;
+    REVOKE CONNECT ON DATABASE hr_copilot FROM PUBLIC;
+    REVOKE CONNECT ON DATABASE hr_copilot_payments FROM PUBLIC;
+    REVOKE CONNECT ON DATABASE hr_copilot_notifications FROM PUBLIC;
+    SQL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels: { app: postgres }
+spec:
+  type: ClusterIP
+  selector: { app: postgres }
+  ports: [{ name: pg, port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels: { app: postgres }
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70          # postgres uid in the alpine image
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: postgres-password } }
+            - name: APP_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: app-password } }
+            - name: PAYMENT_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: payment-password } }
+            - name: NOTIFICATION_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: notification-password } }
+          ports: [{ containerPort: 5432 }]
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres"] }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres"] }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources: {{ .Values.postgres.resources | toYaml | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
+      volumes:
+        - name: init
+          configMap: { name: postgres-init, defaultMode: 0555 }
+  # volumeClaimTemplate PVCs are RETAINED on scale-down/uninstall (k8s
+  # default) — deleting them is always a separate, deliberate act.
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: {{ .Values.postgres.storage }} } }
+{{- end }}

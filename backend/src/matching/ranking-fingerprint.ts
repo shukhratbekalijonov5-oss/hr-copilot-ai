@@ -104,6 +104,9 @@ export function vacancyRankingFingerprint(rows: RankingVacancyRow[]): string {
       [...row.domainExperience].sort(),
       row.organization.name,
       row.requirements.map((req) => [req.text, req.required]),
+      [...row.languages]
+        .sort((a, b) => a.languageCode.localeCompare(b.languageCode))
+        .map((lang) => [lang.languageCode, lang.level, lang.required]),
     ]);
   return sha256({ v: 1, rows: canonical });
 }

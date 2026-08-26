@@ -87,6 +87,7 @@ function createPrismaMock() {
         };
         const job = {
           id: `job-${state.jobs.size + 1}`,
+          status: (data.status as string) ?? 'ACTIVE',
           externalCompanyId: 'company-1',
           canonicalUrl: data.canonicalUrl,
           countryCode: data.countryCode,
@@ -108,7 +109,26 @@ function createPrismaMock() {
         state.jobs.set(data.dedupeFingerprint, job);
         return Promise.resolve({ id: job.id });
       }),
-      update: jest.fn().mockResolvedValue({}),
+      update: jest.fn(
+        ({
+          where,
+          data,
+        }: {
+          where: { id?: string };
+          data: Record<string, unknown>;
+        }) => {
+          // Keep the fake's status in step, the way the row would be.
+          const job = where.id ? byId().get(where.id) : undefined;
+          if (job && typeof data.status === 'string') job.status = data.status;
+          return Promise.resolve({});
+        },
+      ),
+      delete: jest.fn(({ where }: { where: { id: string } }) => {
+        for (const [key, job] of state.jobs) {
+          if (job.id === where.id) state.jobs.delete(key);
+        }
+        return Promise.resolve({});
+      }),
     },
     externalJobSource: {
       /**
@@ -408,16 +428,22 @@ describe('what is stored', () => {
     expect(source.payloadFingerprint).toEqual(expect.any(String));
   });
 
-  it('marks a posting the source says is closed', async () => {
+  it('a posting the source explicitly says is closed is hard-deleted, not archived', async () => {
     const { service, prisma } = build();
 
-    await service.ingestBatch([input({ closedAtSource: true })]);
+    const outcome = await service.ingestBatch([
+      input({ closedAtSource: true }),
+    ]);
 
     const { data } = prisma.externalJob.create.mock.calls[0][0] as unknown as {
       data: Record<string, unknown>;
     };
     expect(data.status).toBe('CLOSED');
     expect(data.closedAt).toBeInstanceOf(Date);
+    // Positive, authoritative closure → live-only lifecycle deletes the row
+    // immediately (no CLOSED archive) and reports the id for Qdrant.
+    expect(prisma.externalJob.delete).toHaveBeenCalledTimes(1);
+    expect(outcome.deletedJobIds).toHaveLength(1);
   });
 });
 
@@ -450,6 +476,7 @@ describe('markAbsent', () => {
       externalJob: {
         findUnique: jest.fn(() => Promise.resolve({ status: statusAfter })),
         update: jest.fn().mockResolvedValue({}),
+        delete: jest.fn().mockResolvedValue({}),
       },
     };
     const service = new ExternalIngestionService(
@@ -482,6 +509,42 @@ describe('markAbsent', () => {
     expect(data.status).toBe('GONE');
   });
 
+  it('HARD-DELETES a job whose every claim departed — no UNAVAILABLE archive row', async () => {
+    const { service, prisma } = absenceMock(SOURCES, 'UNAVAILABLE');
+
+    const result = await service.markAbsent({
+      provider: 'GREENHOUSE',
+      scopeKey: 'acme',
+      observedSourceKeys: new Set(['acme:1']),
+      runSucceeded: true,
+      absenceImpliesClosed: true,
+    });
+
+    // job-2's only source vanished from a complete successful listing → the
+    // canonical row is deleted (FK CASCADE takes sources/saved/trackers),
+    // and the id is handed back so Qdrant follows PostgreSQL.
+    expect(prisma.externalJob.delete).toHaveBeenCalledWith({
+      where: { id: 'job-2' },
+    });
+    expect(result.jobsClosed).toBe(1);
+    expect(result.deletedJobIds).toEqual(['job-2']);
+  });
+
+  it('a job that stays ACTIVE through another live source is NOT deleted', async () => {
+    const { service, prisma } = absenceMock(SOURCES, 'ACTIVE');
+
+    const result = await service.markAbsent({
+      provider: 'GREENHOUSE',
+      scopeKey: 'acme',
+      observedSourceKeys: new Set(['acme:1']),
+      runSucceeded: true,
+      absenceImpliesClosed: true,
+    });
+
+    expect(prisma.externalJob.delete).not.toHaveBeenCalled();
+    expect(result.deletedJobIds).toEqual([]);
+  });
+
   it('retires nothing when the run failed', async () => {
     const { service, prisma } = absenceMock(SOURCES);
 
@@ -493,9 +556,15 @@ describe('markAbsent', () => {
       absenceImpliesClosed: true,
     });
 
-    expect(result).toEqual({ sourcesRetired: 0, jobsClosed: 0 });
-    // It does not even look: a failed run is not evidence of anything.
+    expect(result).toEqual({
+      sourcesRetired: 0,
+      jobsClosed: 0,
+      deletedJobIds: [],
+    });
+    // It does not even look: a failed run is not evidence of anything —
+    // and under the live-only lifecycle that also means it DELETES nothing.
     expect(prisma.externalJobSource.findMany).not.toHaveBeenCalled();
+    expect(prisma.externalJob.delete).not.toHaveBeenCalled();
   });
 
   it('retires nothing for a provider whose listings are not complete', async () => {

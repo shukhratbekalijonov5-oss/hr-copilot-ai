@@ -10,9 +10,13 @@ import {
 export interface RevalidateOutcome {
   /** ACTIVE jobs whose last observation is beyond the staleness window. */
   staled: number;
-  /** Jobs whose employer-stated deadline has passed. */
+  /** Jobs hard-deleted because their employer-stated deadline has passed. */
   expired: number;
-  /** Batches executed across both passes (bounded). */
+  /** Legacy non-current rows (CLOSED/EXPIRED/UNAVAILABLE) hard-deleted. */
+  purged: number;
+  /** Every job id this run hard-deleted — Qdrant reconciliation follows. */
+  removedJobIds: string[];
+  /** Batches executed across the passes (bounded). */
   batches: number;
   /** True when a pass hit its batch ceiling — the next run continues. */
   truncated: boolean;
@@ -85,21 +89,23 @@ export class ExternalRevalidateService {
 
     let batches = 0;
     let expired = 0;
+    let purged = 0;
     let staled = 0;
     let truncated = false;
+    const removedJobIds: string[] = [];
 
     /*
-     * EXPIRED first: it outranks staleness in `resolveJobStatus` (a passed
-     * deadline hides a job regardless of freshness), so processing it first
-     * keeps a row that qualifies for both from spending an hour as STALE.
+     * EXPIRED first — and under the live-only lifecycle it is a HARD DELETE,
+     * not a status change: a deadline the employer themselves published is
+     * authoritative closure, and closed external jobs are not history this
+     * product keeps. DB-local, no provider call involved, so a provider
+     * outage can never influence this pass; FK CASCADE removes the job's
+     * sources, saved rows and application trackers atomically with the row.
      */
     while (batches < REVALIDATE_MAX_BATCHES) {
       batches += 1;
-      const changed = await this.prisma.$executeRaw`
-        UPDATE external_jobs
-        SET status = 'EXPIRED',
-            "closedAt" = COALESCE("closedAt", ${now}),
-            "searchableUpdatedAt" = ${now}
+      const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+        DELETE FROM external_jobs
         WHERE id IN (
           SELECT id FROM external_jobs
           WHERE status IN ('ACTIVE', 'STALE')
@@ -109,10 +115,39 @@ export class ExternalRevalidateService {
           LIMIT ${REVALIDATE_BATCH_SIZE}
           FOR UPDATE SKIP LOCKED
         )
-          AND status IN ('ACTIVE', 'STALE')
+        RETURNING id
       `;
-      expired += changed;
-      if (changed < REVALIDATE_BATCH_SIZE) break;
+      expired += rows.length;
+      removedJobIds.push(...rows.map((row) => row.id));
+      if (rows.length < REVALIDATE_BATCH_SIZE) break;
+    }
+
+    /*
+     * Legacy purge: rows that already carry a non-current status
+     * (CLOSED / EXPIRED / UNAVAILABLE) predate the live-only lifecycle —
+     * each status was itself assigned by an authoritative signal (a source
+     * that said closed, a passed deadline, or a successful complete
+     * enumeration that stopped listing it), so their absence from the live
+     * universe is already proven. Steady-state this pass deletes nothing;
+     * it exists so the catalogue self-heals to zero retained history.
+     * STALE is NOT purged — it is a current, searchable status.
+     */
+    while (batches < REVALIDATE_MAX_BATCHES) {
+      batches += 1;
+      const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+        DELETE FROM external_jobs
+        WHERE id IN (
+          SELECT id FROM external_jobs
+          WHERE status IN ('CLOSED', 'EXPIRED', 'UNAVAILABLE')
+            ${restriction}
+          LIMIT ${REVALIDATE_BATCH_SIZE}
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id
+      `;
+      purged += rows.length;
+      removedJobIds.push(...rows.map((row) => row.id));
+      if (rows.length < REVALIDATE_BATCH_SIZE) break;
     }
 
     while (batches < REVALIDATE_MAX_BATCHES) {
@@ -138,14 +173,14 @@ export class ExternalRevalidateService {
     // monotone, so the next hourly run simply continues where this stopped.
     if (batches >= REVALIDATE_MAX_BATCHES) truncated = true;
 
-    if (expired > 0 || staled > 0 || truncated) {
+    if (expired > 0 || purged > 0 || staled > 0 || truncated) {
       this.logger.log(
-        `External lifecycle revalidation: ${expired} expired, ` +
-          `${staled} staled, ${batches} batch(es)` +
+        `External lifecycle revalidation: ${expired} expired-deleted, ` +
+          `${purged} legacy purged, ${staled} staled, ${batches} batch(es)` +
           (truncated ? '; ceiling reached, next run continues' : ''),
       );
     }
-    return { staled, expired, batches, truncated };
+    return { staled, expired, purged, removedJobIds, batches, truncated };
   }
 }
 

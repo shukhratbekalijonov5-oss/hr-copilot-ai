@@ -5,14 +5,22 @@ import { DevEnvironmentGuard } from './dev-environment.guard';
 
 /**
  * The production lockdown for the QA plan switch: NODE_ENV === 'production'
- * → 404, no flag, no override. (And behind it, the Java endpoint's bean
- * does not exist under the prod Spring profile — two independent locks.)
+ * → 404 — unless the EXPLICIT portfolio-demo flag re-enables it for a demo
+ * deployment. The Java service applies the same gate independently, so a
+ * production switch still requires both deployments to opt in.
  */
 
-function guardFor(nodeEnv: string): DevEnvironmentGuard {
+function guardFor(
+  nodeEnv: string,
+  portfolioDemoMode = false,
+): DevEnvironmentGuard {
   const config = {
     get: (key: string, fallback: unknown) =>
-      key === 'app.nodeEnv' ? nodeEnv : fallback,
+      key === 'app.nodeEnv'
+        ? nodeEnv
+        : key === 'app.portfolioDemoMode'
+          ? portfolioDemoMode
+          : fallback,
   } as unknown as ConfigService;
   return new DevEnvironmentGuard(config);
 }
@@ -47,12 +55,20 @@ describe('DevEnvironmentGuard', () => {
     );
   });
 
-  it('has no override: nothing in configuration can re-enable it in production', () => {
-    // The guard reads ONE key. Even a config that answers `true`/'enabled'
-    // for everything else still refuses when nodeEnv is production.
+  it('the ONLY production override is the explicit portfolio-demo flag', () => {
+    expect(guardFor('production', true).canActivate(httpContext())).toBe(true);
+  });
+
+  it('a truthy-but-not-true flag value does not open the gate', () => {
+    // configuration.ts only ever yields booleans (env === 'true'), and the
+    // guard itself demands strict `true` — a sloppy value stays closed.
     const config = {
       get: (key: string, fallback: unknown) =>
-        key === 'app.nodeEnv' ? 'production' : (fallback ?? true),
+        key === 'app.nodeEnv'
+          ? 'production'
+          : key === 'app.portfolioDemoMode'
+            ? 'enabled'
+            : fallback,
     } as unknown as ConfigService;
     const guard = new DevEnvironmentGuard(config);
     expect(() => guard.canActivate(httpContext())).toThrow(NotFoundException);

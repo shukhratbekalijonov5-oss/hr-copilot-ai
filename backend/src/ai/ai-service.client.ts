@@ -355,6 +355,39 @@ export interface AiMatchEvidence {
   sourceUrl?: string | null;
 }
 
+/** Mapping status vocabulary shared with the recruiter evidence map. */
+export type AiMappingStatus =
+  'EVIDENCE_FOUND' | 'NO_EVIDENCE_FOUND' | 'NEEDS_HUMAN_REVIEW';
+
+export interface AiRequirementInsightEvidence {
+  /** `"profile"` marks the pseudo-source built from the profile form. */
+  documentId: string;
+  fileName: string | null;
+  pageNumber: number | null;
+  section: string | null;
+  text: string;
+  sourceType?: EvidenceSourceType;
+  sourceUrl?: string | null;
+}
+
+/**
+ * Per-requirement classification depth for the advanced match contract — a
+ * PARALLEL view of the same classification behind the three frozen
+ * supported/unsupported/unclear arrays (which are also sent BACK on the
+ * explanation path and therefore must not grow).
+ */
+export interface AiRequirementInsight {
+  text: string;
+  required: boolean;
+  status: AiMappingStatus;
+  reason: string;
+  matchedTerms: string[];
+  missingTerms: string[];
+  /** Distinct non-profile sources; repetition in one source counts once. */
+  distinctEvidenceSources: number;
+  evidence: AiRequirementInsightEvidence[];
+}
+
 export interface AiJobMatch {
   vacancyId: string;
   organizationId: string;
@@ -377,6 +410,8 @@ export interface AiJobMatch {
   unsupportedRequirements: AiRequirementCheck[];
   unclearRequirements: AiRequirementCheck[];
   evidence: AiMatchEvidence[];
+  /** Absent on responses from an ai-service that predates the advanced match. */
+  requirementInsights?: AiRequirementInsight[];
 }
 
 export interface AiJobMatchResult {

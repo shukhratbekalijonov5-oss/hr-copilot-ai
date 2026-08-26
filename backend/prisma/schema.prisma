@@ -1393,6 +1393,16 @@ model CandidateJobMatchEntry {
   /// apart, when the ranking itself is locale-independent (it compares evidence
   /// to requirements, not words to words).
   explanations            Json?
+  /// The advanced-match payload (advanced-match-v1): eligibility gate,
+  /// weighted dimensions, requirement matrix, transferable skills,
+  /// contradictions, career trajectory, evidence confidence, improvement
+  /// suggestions, and scoreChange. Computed deterministically at run time
+  /// from CURRENT data only; `scoreChange.previous` is the single historical
+  /// value anywhere — comparison metadata captured when the prior run was
+  /// replaced, never an input to scoring or retrieval (Rule N1). Null on
+  /// index-gap entries (no capability analysis exists → nothing is invented)
+  /// and on pre-v4 rows, which can never be served again anyway.
+  insight                 Json?
 
   run CandidateJobMatchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 

@@ -91,6 +91,8 @@ export class ExternalIngestionService {
     merged: number;
     failed: number;
     unmerged: number;
+    /** Jobs hard-deleted because they resolved out of the live universe. */
+    deletedJobIds: string[];
   }> {
     const counters = {
       created: 0,
@@ -99,10 +101,11 @@ export class ExternalIngestionService {
       failed: 0,
       unmerged: 0,
     };
+    const deletedJobIds: string[] = [];
 
     for (const job of jobs) {
       try {
-        const outcome = await this.ingestOne(job, scopeKey, now);
+        const outcome = await this.ingestOne(job, scopeKey, now, deletedJobIds);
         counters[outcome] += 1;
       } catch (error) {
         // Isolation: this posting is lost, the rest of the page is not. The
@@ -116,7 +119,7 @@ export class ExternalIngestionService {
         );
       }
     }
-    return counters;
+    return { ...counters, deletedJobIds };
   }
 
   /**
@@ -130,6 +133,7 @@ export class ExternalIngestionService {
     input: NormalizedExternalJobInput,
     scopeKey: string | null,
     now: Date,
+    deletedJobIds: string[],
   ): Promise<'created' | 'updated' | 'merged' | 'unmerged'> {
     const fingerprint = fingerprintOf(input);
     const sourceKey = sourceKeyOf(input);
@@ -178,6 +182,7 @@ export class ExternalIngestionService {
        * Found the first time a provider actually populated `expiresAt`.
        */
       await this.reconcileJob(createdId, now);
+      await this.enforceLiveOnly(createdId, deletedJobIds);
       return 'created';
     }
 
@@ -253,6 +258,7 @@ export class ExternalIngestionService {
          * two full syncs while their own source rows carried the date.
          */
         await this.reconcileJob(already.id, now);
+        await this.enforceLiveOnly(already.id, deletedJobIds);
         return 'updated';
       }
       const unmergedId = await this.createJob(
@@ -265,6 +271,7 @@ export class ExternalIngestionService {
         verdict,
       );
       await this.reconcileJob(unmergedId, now);
+      await this.enforceLiveOnly(unmergedId, deletedJobIds);
       this.logger.debug(
         `Ambiguous external duplicate kept separate (${input.provider} ` +
           `${sourceKey}): ${verdict.reason}`,
@@ -286,6 +293,7 @@ export class ExternalIngestionService {
     );
     await this.enrichCompany(existing.externalCompanyId, input, now);
     await this.reconcileJob(existing.id, now);
+    await this.enforceLiveOnly(existing.id, deletedJobIds);
     return isNewSource ? 'merged' : 'updated';
   }
 
@@ -693,10 +701,18 @@ export class ExternalIngestionService {
    * nothing about board B, and a global diff would empty every other board the
    * first time one was synced by itself.
    *
-   * Sources are marked GONE, never deleted. GONE says "the source stopped
-   * listing it", which `resolveJobStatus` deliberately distinguishes from
-   * CLOSED ("the employer said so") — and keeping the row is what lets a later
-   * sweep notice the posting came back.
+   * ## Live-only lifecycle
+   *
+   * External jobs are LIVE DATA. A job whose every source has authoritatively
+   * departed is HARD-DELETED — no UNAVAILABLE/GONE/CLOSED archive rows are
+   * retained. The completeness gate above is therefore also the deletion
+   * gate: absence from a FAILED or PARTIAL fetch retires nothing and deletes
+   * nothing, and a successful board never authorizes deletions for any other
+   * board. A posting that comes back later is simply ingested again as new.
+   *
+   * Deletion cascades through the FK graph (sources, saved rows, application
+   * trackers) in one statement per job — PostgreSQL first, always; Qdrant
+   * point removal follows via the ids returned here.
    */
   async markAbsent(input: {
     provider: ExternalProvider;
@@ -705,7 +721,11 @@ export class ExternalIngestionService {
     runSucceeded: boolean;
     absenceImpliesClosed: boolean;
     now?: Date;
-  }): Promise<{ sourcesRetired: number; jobsClosed: number }> {
+  }): Promise<{
+    sourcesRetired: number;
+    jobsClosed: number;
+    deletedJobIds: string[];
+  }> {
     const now = input.now ?? new Date();
     const verdict = absenceVerdict({
       runSucceeded: input.runSucceeded,
@@ -717,7 +737,7 @@ export class ExternalIngestionService {
           `(runSucceeded=${input.runSucceeded}, ` +
           `absenceImpliesClosed=${input.absenceImpliesClosed}); nothing retired`,
       );
-      return { sourcesRetired: 0, jobsClosed: 0 };
+      return { sourcesRetired: 0, jobsClosed: 0, deletedJobIds: [] };
     }
 
     const missing: { id: string; externalJobId: string }[] = [];
@@ -747,7 +767,9 @@ export class ExternalIngestionService {
       cursor = batch[batch.length - 1].id;
     }
 
-    if (missing.length === 0) return { sourcesRetired: 0, jobsClosed: 0 };
+    if (missing.length === 0) {
+      return { sourcesRetired: 0, jobsClosed: 0, deletedJobIds: [] };
+    }
 
     for (let i = 0; i < missing.length; i += ABSENCE_UPDATE_BATCH) {
       const chunk = missing.slice(i, i + ABSENCE_UPDATE_BATCH);
@@ -759,26 +781,68 @@ export class ExternalIngestionService {
 
     // Re-derive each affected job. A job with another live source stays
     // ACTIVE: one board dropping a posting proves nothing while another still
-    // lists it.
-    let jobsClosed = 0;
+    // lists it. A job with NO remaining live claim has authoritatively left
+    // the catalogue and is hard-deleted (live-only lifecycle).
+    const deletedJobIds: string[] = [];
     const affected = [
       ...new Set(missing.map((source) => source.externalJobId)),
     ];
     for (const jobId of affected) {
       await this.reconcileJob(jobId, now);
-      const after = await this.prisma.externalJob.findUnique({
-        where: { id: jobId },
-        select: { status: true },
-      });
-      if (after && !isCurrentlySearchable(after.status)) jobsClosed += 1;
+      await this.enforceLiveOnly(jobId, deletedJobIds);
     }
 
     this.logger.log(
       `Absence sweep ${input.provider}/${input.scopeKey}: ` +
-        `${missing.length} source(s) retired, ${jobsClosed} job(s) left the ` +
-        `current universe`,
+        `${missing.length} source(s) retired, ${deletedJobIds.length} job(s) ` +
+        `hard-deleted from the current universe`,
     );
-    return { sourcesRetired: missing.length, jobsClosed };
+    return {
+      sourcesRetired: missing.length,
+      jobsClosed: deletedJobIds.length,
+      deletedJobIds,
+    };
+  }
+
+  /**
+   * THE live-only enforcement point: a job whose re-derived status has left
+   * the searchable universe (CLOSED / EXPIRED / UNAVAILABLE) is hard-deleted,
+   * dependents included — never retained as history.
+   *
+   * Every route to a non-current status is already authoritative by
+   * construction: GONE sources exist only behind `absenceVerdict` (successful
+   * complete enumeration), CLOSED requires a source that positively said so,
+   * EXPIRED is the employer's own stated deadline. STALE stays — "unobserved
+   * for a while" is not departure, and it is what protects the catalogue
+   * through a prolonged provider outage.
+   *
+   * The delete is one statement; sources, saved rows and application trackers
+   * go with it via FK CASCADE, atomically. PostgreSQL is deleted FIRST; the
+   * caller propagates the id so Qdrant follows.
+   */
+  private async enforceLiveOnly(
+    jobId: string,
+    deletedJobIds: string[],
+  ): Promise<void> {
+    const job = await this.prisma.externalJob.findUnique({
+      where: { id: jobId },
+      select: { status: true },
+    });
+    if (!job || isCurrentlySearchable(job.status)) return;
+    try {
+      await this.prisma.externalJob.delete({ where: { id: jobId } });
+      deletedJobIds.push(jobId);
+      this.logger.log(
+        `External job ${jobId} hard-deleted (resolved ${job.status}; live-only lifecycle)`,
+      );
+    } catch (error) {
+      // A concurrent actor already removed it — same end state, not a failure.
+      if ((error as { code?: string }).code === 'P2025') {
+        deletedJobIds.push(jobId);
+        return;
+      }
+      throw error;
+    }
   }
 
   /** Re-export so callers do not reach into the merge module directly. */

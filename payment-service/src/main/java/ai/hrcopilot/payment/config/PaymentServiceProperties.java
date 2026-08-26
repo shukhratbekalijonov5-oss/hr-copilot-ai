@@ -13,6 +13,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param outboxPollMs      publisher poll interval
  * @param outboxBatchSize   events attempted per poll
  * @param publishEnabled    master switch for the Kafka publisher loop
+ * @param portfolioDemoMode EXPLICIT portfolio-demo gate: re-enables the
+ *                          plan-switch endpoint on a demo deployment.
+ *                          Nothing else in the service reads it.
  */
 @ConfigurationProperties(prefix = "payment")
 public record PaymentServiceProperties(
@@ -21,7 +24,8 @@ public record PaymentServiceProperties(
         String mockWebhookSecret,
         long outboxPollMs,
         int outboxBatchSize,
-        boolean publishEnabled) {
+        boolean publishEnabled,
+        boolean portfolioDemoMode) {
 
     public PaymentServiceProperties {
         if (provider == null) {

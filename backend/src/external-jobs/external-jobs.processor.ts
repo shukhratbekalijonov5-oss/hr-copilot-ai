@@ -1,9 +1,10 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import type { Job } from 'bullmq';
+import { Queue, type Job } from 'bullmq';
 import {
   EXTERNAL_JOBS_QUEUE,
   EXTERNAL_JOB_INDEX_JOB,
+  type ExternalJobIndexJobData,
   EXTERNAL_JOB_REVALIDATE_JOB,
   EXTERNAL_PROVIDER_SYNC_JOB,
   type ExternalJobRevalidateJobData,
@@ -50,8 +51,30 @@ export class ExternalJobsProcessor extends WorkerHost {
     private readonly sync: ExternalSyncService,
     private readonly revalidate: ExternalRevalidateService,
     private readonly index: ExternalIndexService,
+    @InjectQueue(EXTERNAL_JOBS_QUEUE) private readonly queue: Queue,
   ) {
     super();
+  }
+
+  /**
+   * ONE bounded reconciliation job per completed run — never one per job.
+   * The removed ids travel in the job data, so BullMQ's retry/backoff is the
+   * recovery path for a temporarily unreachable Qdrant; reconciliation is
+   * idempotent, so retries and overlaps are safe. Best-effort: a full queue
+   * must not turn a good sync into a failed one — the deletes are already
+   * committed in PostgreSQL, and search revalidates against PostgreSQL, so
+   * the worst case of a lost reconcile is stale accelerator points that can
+   * never surface.
+   */
+  private async enqueueReconcile(removedIds: string[]): Promise<void> {
+    try {
+      const data: ExternalJobIndexJobData = { removedIds };
+      await this.queue.add(EXTERNAL_JOB_INDEX_JOB, data);
+    } catch (error) {
+      this.logger.warn(
+        `Could not enqueue index reconciliation: ${(error as Error).message}`,
+      );
+    }
   }
 
   async process(job: Job): Promise<unknown> {
@@ -70,25 +93,38 @@ export class ExternalJobsProcessor extends WorkerHost {
         const outcome = await this.revalidate.revalidate({
           jobIds: data.jobIds,
         });
-        return { handled: true, ...outcome };
+        // Hard deletions (expired / legacy purge) must reach the semantic
+        // index; STALE flips are picked up by the same pass through their
+        // searchableUpdatedAt bump.
+        if (outcome.removedJobIds.length > 0 || outcome.staled > 0) {
+          await this.enqueueReconcile(outcome.removedJobIds);
+        }
+        const { removedJobIds, ...counts } = outcome;
+        return { handled: true, ...counts, removed: removedJobIds.length };
       }
       case EXTERNAL_JOB_INDEX_JOB:
         /*
          * Deliberately separate from the sync job. Ingestion must succeed when
          * the embedding model is down: jobs land in Postgres, they are
          * searchable through the lexical index immediately, and they acquire
-         * vectors whenever this catches up.
+         * vectors whenever this catches up. A throw here is intentional —
+         * BullMQ's bounded retries are the recovery path for a Qdrant blip.
          */
-        return this.index.indexPending();
+        return this.index.reconcile(
+          (job.data ?? {}) as ExternalJobIndexJobData,
+        );
       default:
         this.logger.warn(`Unhandled external job type: ${job.name}`);
         return { handled: false };
     }
   }
 
-  private async runSync(
-    data: ExternalProviderSyncJobData,
-  ): Promise<{ handled: boolean; status?: string; runId?: string }> {
+  private async runSync(data: ExternalProviderSyncJobData): Promise<{
+    handled: boolean;
+    status?: string;
+    runId?: string;
+    deleted?: number;
+  }> {
     const provider = data?.provider as ExternalProvider | undefined;
     if (!provider) {
       this.logger.warn('External sync job carried no provider name');
@@ -96,10 +132,16 @@ export class ExternalJobsProcessor extends WorkerHost {
     }
     const outcome = await this.sync.syncProvider(provider);
     if (!outcome) return { handled: false };
+    // One reconciliation per sweep, whatever its status: newly ingested jobs
+    // get vectors, and any hard-deleted job's point follows its committed
+    // PostgreSQL deletion. A FAILED/PARTIAL fetch deleted nothing, so its
+    // reconcile carries no removals — it only indexes what WAS stored.
+    await this.enqueueReconcile(outcome.deletedJobIds);
     return {
       handled: true,
       status: outcome.status,
       runId: outcome.runId,
+      deleted: outcome.deletedJobIds.length,
     };
   }
 }

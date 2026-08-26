@@ -70,7 +70,7 @@ export interface IntentAlignment {
  * logic (what the evidence shows), while this compares two TITLES (what the
  * candidate asked for vs what the job is called).
  */
-const ROLE_FAMILY_TITLES: Record<string, readonly string[]> = {
+export const ROLE_FAMILY_TITLES: Record<string, readonly string[]> = {
   frontend: [
     'frontend',
     'front-end',
@@ -129,7 +129,7 @@ const ROLE_FAMILY_TITLES: Record<string, readonly string[]> = {
 };
 
 /** Adjacent family pairs share real ground; mirrors ranking.py. */
-const ADJACENT_FAMILIES: ReadonlySet<string> = new Set(
+export const ADJACENT_FAMILIES: ReadonlySet<string> = new Set(
   [
     ['frontend', 'fullstack'],
     ['backend', 'fullstack'],
@@ -450,7 +450,7 @@ export function alignEmployment(
  * rungs, but a deterministic adjacency needs one sequence, and this one is
  * how the product already presents the levels.
  */
-const SENIORITY_ORDER: readonly SeniorityLevel[] = [
+export const SENIORITY_ORDER: readonly SeniorityLevel[] = [
   'INTERN',
   'JUNIOR',
   'MID',

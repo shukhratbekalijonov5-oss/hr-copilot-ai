@@ -45,6 +45,35 @@ export class ExternalIndexService {
   ) {}
 
   /**
+   * One reconciliation pass for a completed run: drop the points of jobs the
+   * run HARD-DELETED from PostgreSQL, then run the ordinary bounded catch-up.
+   *
+   * Qdrant strictly follows committed PostgreSQL deletions — the ids arrive
+   * here only after the delete transaction committed, so a failed/partial
+   * provider fetch (which deletes nothing) can never erase points. A Qdrant
+   * hiccup THROWS: the BullMQ job retries with backoff, and deleting an
+   * already-absent point is a no-op, so retries are idempotent.
+   */
+  async reconcile(
+    input: { removedIds?: string[] } = {},
+  ): Promise<ExternalIndexOutcome & { pointsDeleted: number }> {
+    const removedIds = [...new Set(input.removedIds ?? [])];
+    let pointsDeleted = 0;
+    if (this.ai.enabled && removedIds.length > 0) {
+      for (let i = 0; i < removedIds.length; i += DELETE_BATCH) {
+        const chunk = removedIds.slice(i, i + DELETE_BATCH);
+        await this.ai.deleteExternalJobIndex(chunk);
+        pointsDeleted += chunk.length;
+      }
+      this.logger.log(
+        `Semantic index: ${pointsDeleted} point(s) removed for hard-deleted jobs`,
+      );
+    }
+    const pass = await this.indexPending();
+    return { ...pass, pointsDeleted };
+  }
+
+  /**
    * One bounded pass: index what changed, forget what left.
    *
    * Selection is `searchIndexedAt IS NULL OR searchIndexedAt < searchableUpdatedAt`
@@ -95,19 +124,29 @@ export class ExternalIndexService {
       return { indexed: 0, removed, pending: 0, skipped: false };
     }
 
+    /*
+     * Clipped to the AI service's declared field limits BEFORE the call.
+     * Providers publish arbitrarily long postings (a 20k+ description is
+     * real), and one over-limit row would 422 the whole batch — found live
+     * when the first automatic reconciliation met a 21k Lever description.
+     * Loss-free in practice: the index text builder embeds only the first
+     * ~1200 characters anyway.
+     */
+    const clip = (value: string | null | undefined, max: number) =>
+      value == null ? null : value.slice(0, max);
     const indexed = await this.ai.indexExternalJobs(
       stale.map((row) => ({
         externalJobId: row.id,
         status: row.status,
-        title: row.title,
-        companyName: row.companyName,
-        description: row.description,
-        countryCode: row.countryCode,
-        region: row.region,
-        city: row.city,
-        workMode: row.workMode,
-        employmentType: row.employmentType,
-        seniorityLevel: row.seniorityLevel,
+        title: clip(row.title, 300) as string,
+        companyName: clip(row.companyName, 300),
+        description: clip(row.description, 20_000),
+        countryCode: clip(row.countryCode, 2),
+        region: clip(row.region, 200),
+        city: clip(row.city, 200),
+        workMode: clip(row.workMode, 20),
+        employmentType: clip(row.employmentType, 30),
+        seniorityLevel: clip(row.seniorityLevel, 30),
       })),
     );
 

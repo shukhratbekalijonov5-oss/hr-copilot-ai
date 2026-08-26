@@ -17,6 +17,11 @@ export interface AppConfiguration {
     frontendUrl: string;
     globalPrefix: string;
     /**
+     * EXPLICIT portfolio-demo gate: re-enables the QA plan-switch route on
+     * a demo deployment (see DevEnvironmentGuard). Default off.
+     */
+    portfolioDemoMode: boolean;
+    /**
      * Express `trust proxy` setting; empty string = disabled. Set to the
      * number of reverse-proxy hops (usually "1") in production so req.ip is
      * the real client for throttling/lockout, and X-Forwarded-Proto is
@@ -205,6 +210,7 @@ export default (): AppConfiguration => ({
     port: toInt(process.env.PORT, 3001),
     frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:3000',
     globalPrefix: process.env.API_PREFIX ?? 'api',
+    portfolioDemoMode: process.env.PORTFOLIO_DEMO_MODE === 'true',
     trustProxy: process.env.TRUST_PROXY ?? '',
     publicBaseUrl:
       process.env.API_PUBLIC_BASE_URL ??

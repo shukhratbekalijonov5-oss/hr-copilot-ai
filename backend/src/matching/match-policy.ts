@@ -20,8 +20,17 @@ import type { IntentAlignment, IntentDimension } from './intent-alignment';
  *     legitimately produce a different salary verdict than v2 did. That is an
  *     algorithm change even though no weight moved, so the version bumps and
  *     every v2 snapshot recomputes.
+ *   - v4 (advanced explainable match): the canonical formula is UNCHANGED
+ *     (still 0.8 capability + 0.2 intent), but every entry now carries the
+ *     advanced insight payload (eligibility gate, weighted dimensions,
+ *     requirement matrix, transferable skills, contradictions, trajectory,
+ *     evidence confidence, score change), vacancy language requirements
+ *     joined the ranking-relevant state, and the previous canonical score is
+ *     captured as comparison metadata when a run is replaced. Stored v3 runs
+ *     lack all of that, so they recompute. (v4.1: the profile pseudo-source
+ *     no longer counts toward evidence-confidence sources.)
  */
-export const MATCH_ALGORITHM_VERSION = 'v3';
+export const MATCH_ALGORITHM_VERSION = 'v4.1';
 
 /**
  * How much of the canonical score capability keeps when intent exists at all.

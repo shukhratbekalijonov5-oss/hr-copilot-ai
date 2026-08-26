@@ -1,0 +1,162 @@
+# Production overlay (Phase 4). NO SECRET VALUES here — secrets are
+# referenced via envFrom/secretKeyRef and created out-of-band on the VPS.
+extras:
+  enabled: true
+  backendStorageSize: 20Gi
+
+ingress:
+  enabled: true
+  tls: true
+  clusterIssuer: letsencrypt-prod
+
+apps:
+  ai-service:
+    enabled: true
+    image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-ai-service
+    tag: "9f69276-match1" # advanced explainable match v4.1 (2026-08-26)
+    port: 8000
+    replicas: 1
+    imagePullSecret: regcred
+    dataAccess: { qdrant: true }
+    envFrom: [{ secretRef: { name: ai-secrets } }]
+    env:
+      - { name: ENVIRONMENT, value: production }
+      - { name: AI_SERVICE_HOST, value: 0.0.0.0 }
+      - { name: AI_SERVICE_PORT, value: "8000" }
+      - { name: QDRANT_URL, value: http://qdrant:6333 }
+      - { name: PROGRESS_CALLBACK_URL, value: http://backend:3001 }
+    probes:
+      readiness: { httpGet: { path: /health/live, port: 8000 }, initialDelaySeconds: 10, periodSeconds: 10 }
+      liveness: { httpGet: { path: /health/live, port: 8000 }, initialDelaySeconds: 60, periodSeconds: 20 }
+    resources:
+      requests: { cpu: 250m, memory: 768Mi }
+      limits: { cpu: "2", memory: 2Gi }
+
+  payment-service:
+    enabled: true
+    image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-payment-service
+    tag: "691ca26-demo1"
+    port: 8081
+    replicas: 1
+    imagePullSecret: regcred
+    dataAccess: { postgres: true, kafka: true }
+    envFrom: [{ secretRef: { name: payment-secrets } }]
+    env:
+      - { name: PAYMENT_DB_URL, value: "jdbc:postgresql://postgres:5432/hr_copilot_payments" }
+      - { name: PAYMENT_DB_USER, value: hrcopilot_payment }
+      - { name: KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
+      - { name: PAYMENT_PROVIDER, value: TOSS }
+      # EXPLICIT portfolio-demo gate: re-enables ONLY the plan switch.
+      - { name: PORTFOLIO_DEMO_MODE, value: "true" }
+      - { name: PAYMENT_OUTBOX_PUBLISH_ENABLED, value: "true" }
+      - { name: TOSS_PAYMENTS_METHOD, value: CARD }
+      - { name: TOSS_PAYMENTS_SUCCESS_URL, value: "https://api.hrcopilot.cloud/callbacks/toss/success" }
+      - { name: TOSS_PAYMENTS_FAIL_URL, value: "https://api.hrcopilot.cloud/callbacks/toss/fail" }
+      - { name: TOSS_PAYMENTS_BROWSER_SUCCESS_URL, value: "https://hrcopilot.cloud/plans?checkout=success" }
+      - { name: TOSS_PAYMENTS_BROWSER_FAIL_URL, value: "https://hrcopilot.cloud/plans" }
+      - { name: JAVA_TOOL_OPTIONS, value: "-Xmx512m -Xms128m" }
+    probes:
+      readiness: { httpGet: { path: /actuator/health/readiness, port: 8081 }, initialDelaySeconds: 20, periodSeconds: 10 }
+      liveness: { httpGet: { path: /actuator/health/liveness, port: 8081 }, initialDelaySeconds: 90, periodSeconds: 20 }
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: "1", memory: 896Mi }
+
+  notification-service:
+    enabled: true
+    image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-notification-service
+    tag: "691ca26"
+    port: 8082
+    replicas: 1
+    imagePullSecret: regcred
+    dataAccess: { postgres: true, kafka: true }
+    envFrom: [{ secretRef: { name: notification-secrets } }]
+    env:
+      - { name: NOTIFICATION_DB_URL, value: "jdbc:postgresql://postgres:5432/hr_copilot_notifications" }
+      - { name: NOTIFICATION_DB_USER, value: hrcopilot_notification }
+      - { name: KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
+      - { name: BACKEND_BASE_URL, value: "http://backend:3001/api" }
+      - { name: PAYMENT_SERVICE_URL, value: "http://payment-service:8081" }
+      - { name: NOTIFICATION_OUTBOX_PUBLISH_ENABLED, value: "true" }
+      # INTERIM SMTP: in-cluster Mailpit until production SMTP exists.
+      - { name: EMAIL_PROVIDER, value: SMTP }
+      - { name: SMTP_HOST, value: mailpit }
+      - { name: SMTP_PORT, value: "1025" }
+      - { name: SMTP_AUTH_ENABLED, value: "false" }
+      - { name: SMTP_TLS_ENABLED, value: "false" }
+      - { name: SMTP_FROM_EMAIL, value: "no-reply@hrcopilot.cloud" }
+      - { name: SMTP_FROM_NAME, value: "HR Copilot AI" }
+      - { name: JAVA_TOOL_OPTIONS, value: "-Xmx512m -Xms128m" }
+    probes:
+      readiness: { httpGet: { path: /actuator/health/readiness, port: 8082 }, initialDelaySeconds: 20, periodSeconds: 10 }
+      liveness: { httpGet: { path: /actuator/health/liveness, port: 8082 }, initialDelaySeconds: 90, periodSeconds: 20 }
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: "1", memory: 896Mi }
+
+  backend:
+    enabled: true
+    image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-backend
+    tag: "9f69276-live2" # hourly live-only external lifecycle (2026-08-26)
+    port: 3001
+    replicas: 1   # HARD limit: in-process BullMQ + socket.io without Redis adapter
+    imagePullSecret: regcred
+    dataAccess: { postgres: true, redis: true, kafka: true }
+    envFrom: [{ secretRef: { name: backend-secrets } }]
+    env:
+      - { name: NODE_ENV, value: production }
+      - { name: PORT, value: "3001" }
+      - { name: API_PREFIX, value: api }
+      - { name: REDIS_URL, value: "redis://redis:6379" }
+      - { name: FRONTEND_URL, value: "https://hrcopilot.cloud" }
+      - { name: API_PUBLIC_BASE_URL, value: "https://api.hrcopilot.cloud/api" }
+      - { name: TRUST_PROXY, value: "1" }
+      - { name: PORTFOLIO_DEMO_MODE, value: "true" }
+      - { name: ENTITLEMENTS_SOURCE, value: payment-service }
+      - { name: ENTITLEMENTS_KAFKA_BROKERS, value: "kafka:9092" }
+      - { name: NOTIFICATIONS_KAFKA_BROKERS, value: "kafka:9092" }
+      - { name: AI_SERVICE_URL, value: "http://ai-service:8000" }
+      - { name: PAYMENT_SERVICE_URL, value: "http://payment-service:8081" }
+      - { name: NOTIFICATION_SERVICE_URL, value: "http://notification-service:8082" }
+      - { name: EXCHANGE_RATE_API_URL, value: "https://v6.exchangerate-api.com/v6/{key}/latest/{base}" }
+      # External job ingestion (portfolio demo corpus): existing providers,
+      # public boards only, trimmed to a representative set.
+      - { name: EXTERNAL_SYNC_ENABLED, value: "true" }
+      # Hourly provider sweeps (code default is 6h). External jobs are
+      # live-only data: each complete sweep refreshes content and hard-
+      # deletes provider-confirmed departures.
+      - { name: EXTERNAL_SYNC_INTERVAL_MS, value: "3600000" }
+      - { name: EXTERNAL_GREENHOUSE_BOARDS, value: "vercel:Vercel,gitlab:GitLab,discord:Discord,figma:Figma" }
+      - { name: EXTERNAL_LEVER_SITES, value: "matchgroup:Match Group,ro:Ro,gopuff:Gopuff" }
+      - { name: EXTERNAL_ASHBY_BOARDS, value: "ashby:Ashby,ramp:Ramp,vanta:Vanta,linear:Linear" }
+      # INTERIM storage: local driver on PVC until R2 credentials exist.
+      - { name: STORAGE_DRIVER, value: local }
+      - { name: STORAGE_LOCAL_ROOT, value: /data/storage }
+    volumeMounts: [{ name: storage, mountPath: /data/storage }]
+    volumes: [{ name: storage, persistentVolumeClaim: { claimName: backend-storage } }]
+    probes:
+      readiness: { httpGet: { path: /health/ready, port: 3001 }, initialDelaySeconds: 10, periodSeconds: 10 }
+      liveness: { httpGet: { path: /health/live, port: 3001 }, initialDelaySeconds: 30, periodSeconds: 20 }
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: "2", memory: 1536Mi }
+
+  frontend:
+    enabled: true
+    image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-frontend
+    tag: "9f69276"   # frontend demo-mode build (patched live 2026-08-26, reconciled here)
+    port: 3000
+    replicas: 1
+    imagePullSecret: regcred
+    env:
+      - { name: PORT, value: "3000" }
+      - { name: HOSTNAME, value: 0.0.0.0 }
+      # Read server-side at request time by the plans page: shows the
+      # Portfolio Demo plan switch on this demo deployment.
+      - { name: NEXT_PUBLIC_PORTFOLIO_DEMO_MODE, value: "true" }
+    probes:
+      readiness: { httpGet: { path: /manifest.webmanifest, port: 3000 }, initialDelaySeconds: 5, periodSeconds: 10 }
+      liveness: { httpGet: { path: /manifest.webmanifest, port: 3000 }, initialDelaySeconds: 20, periodSeconds: 20 }
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 768Mi }

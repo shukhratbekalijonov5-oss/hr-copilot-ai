@@ -1,0 +1,22 @@
+# Secret boundary first: `COPY . .` would otherwise place the local .env into
+# a build layer, where it stays readable in image history.
+.env
+.env.*
+!.env.example
+
+node_modules
+dist
+build
+
+.git
+.gitignore
+.github
+
+# Test and verification scaffolding — not part of a release image.
+test
+coverage
+*.spec.ts
+*.log
+.DS_Store
+Dockerfile
+.dockerignore

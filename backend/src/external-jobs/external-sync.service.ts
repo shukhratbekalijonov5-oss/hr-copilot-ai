@@ -21,6 +21,8 @@ export interface SyncOutcome {
   merged: number;
   unmerged: number;
   closed: number;
+  /** Canonical jobs hard-deleted this run; Qdrant reconciliation follows them. */
+  deletedJobIds: string[];
   failed: number;
   durationMs: number;
 }
@@ -82,6 +84,8 @@ export class ExternalSyncService {
     };
     /** Source keys seen, per scope. */
     const observed = new Map<string, Set<string>>();
+    /** Every job hard-deleted this run (explicit closure or confirmed absence). */
+    const deletedJobIds: string[] = [];
     /** Scopes every page of which reported a complete listing. */
     const complete = new Set<string>();
     /** Scopes disqualified by any partial page. Sticky on purpose. */
@@ -116,6 +120,11 @@ export class ExternalSyncService {
         counters.merged += outcome.merged;
         counters.unmerged += outcome.unmerged;
         counters.failed += outcome.failed;
+        // Explicit authoritative closure observed IN the fetch (a source that
+        // positively said closed, or an already-passed employer deadline) —
+        // positive evidence, valid regardless of enumeration completeness.
+        deletedJobIds.push(...outcome.deletedJobIds);
+        counters.closed += outcome.deletedJobIds.length;
 
         if (scope) {
           const keys = observed.get(scope) ?? new Set<string>();
@@ -159,6 +168,7 @@ export class ExternalSyncService {
           now,
         });
         counters.closed += retired.jobsClosed;
+        deletedJobIds.push(...retired.deletedJobIds);
       } catch (error) {
         // A failed retirement must not turn a good ingestion into a failed
         // run: the jobs were stored, and anything stale is caught next sweep.
@@ -209,6 +219,7 @@ export class ExternalSyncService {
       status,
       durationMs,
       ...counters,
+      deletedJobIds,
     };
   }
 

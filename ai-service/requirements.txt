@@ -1,7 +1,12 @@
 # --- API -------------------------------------------------------------------
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-pydantic==2.10.4
+# 2.13.4, not 2.10.4: `google-genai` 2.18 requires a pydantic newer than the
+# old pin, so the two could not resolve together. The venv this service
+# actually runs on has been on 2.13.4 for some time — the pin had simply
+# drifted from reality, and a container build was the first thing to resolve
+# the file from scratch and notice.
+pydantic==2.13.4
 pydantic-settings==2.7.0
 python-multipart==0.0.20
 

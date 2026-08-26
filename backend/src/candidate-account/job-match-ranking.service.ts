@@ -36,6 +36,14 @@ import {
 } from '../matching/ranking-fingerprint';
 import { FxRateService } from '../fx/fx-rate.service';
 import type { RateTable } from '../fx/money';
+import { buildMatchInsight } from '../matching/advanced/build-insight';
+import { countIndependentEvidenceSources } from '../matching/advanced/evidence-confidence';
+import type { MatchInsight } from '../matching/advanced/advanced-match.types';
+import type { ProfileFacts } from '../matching/advanced/profile-facts';
+import {
+  requirementStatusesOf,
+  type PreviousEntryMeta,
+} from '../matching/advanced/score-change';
 
 /**
  * How many missing vacancies one ranking run will queue for re-indexing.
@@ -94,6 +102,12 @@ interface CombinedEntry {
   capabilityScore: number;
   intentScore: number | null;
   canonicalScore: number;
+  /**
+   * False for an index-gap vacancy ranked with zero capability signal. Such
+   * an entry gets NO advanced insight: analysis that never ran is reported as
+   * absent, never invented.
+   */
+  indexed: boolean;
 }
 
 /** Requirement rows come back from Json columns as `unknown`. */
@@ -295,6 +309,7 @@ export class JobMatchRankingService {
   async computeRun(input: {
     candidateAccountId: string;
     profile: AiCandidateProfile;
+    profileFacts: ProfileFacts;
     locale: SupportedLocale;
     evidenceRevision: number;
     allowedSourceIds: string[];
@@ -330,6 +345,7 @@ export class JobMatchRankingService {
   private async computeRunUncoordinated(input: {
     candidateAccountId: string;
     profile: AiCandidateProfile;
+    profileFacts: ProfileFacts;
     locale: SupportedLocale;
     evidenceRevision: number;
     allowedSourceIds: string[];
@@ -384,6 +400,66 @@ export class JobMatchRankingService {
     );
 
     /*
+     * SCORE-CHANGE CAPTURE. Before the outgoing run is replaced, its
+     * per-vacancy canonical scores and requirement statuses are read so each
+     * new entry can carry `scoreChange` (previous → current, with
+     * requirement-level reasons). This is comparison METADATA only: no
+     * evidence text survives the replacement, and nothing here feeds the new
+     * scores (Rule N1 — the previous score can be displayed, never used).
+     */
+    const previousEntries = await this.prisma.candidateJobMatchEntry.findMany({
+      where: { run: { candidateAccountId: input.candidateAccountId } },
+      select: { vacancyId: true, score: true, insight: true },
+    });
+    const previousByVacancy = new Map<string, PreviousEntryMeta>(
+      previousEntries.map((entry) => [
+        entry.vacancyId,
+        {
+          score: entry.score,
+          requirementStatuses: requirementStatusesOf(
+            (entry.insight as MatchInsight | null)?.requirementMatrix,
+          ),
+        },
+      ]),
+    );
+
+    // THE ADVANCED INSIGHT — one deterministic engine call per ranked entry,
+    // pure arithmetic over data already in memory (no extra AI calls).
+    const capability = result.capability ?? {};
+    const capabilitySkills = Array.isArray(capability.skills)
+      ? (capability.skills as string[])
+      : [];
+    const evidenceSourceCount = countIndependentEvidenceSources(
+      capability.evidenceSources,
+    );
+    const evidenceChars =
+      typeof capability.evidenceChars === 'number'
+        ? capability.evidenceChars
+        : 0;
+    const currentYear = new Date().getUTCFullYear();
+    const rowById = new Map(input.universe.rows.map((row) => [row.id, row]));
+    const insights: (MatchInsight | null)[] = ranked.map((entry) => {
+      const row = rowById.get(entry.match.vacancyId);
+      if (!entry.indexed || !row) return null;
+      return buildMatchInsight({
+        context: 'CANDIDATE',
+        match: entry.match,
+        canonicalScore: entry.canonicalScore,
+        vacancyTitle: row.title,
+        vacancySeniority: row.seniorityLevel,
+        vacancyLanguages: row.languages,
+        alignments: entry.alignments,
+        intent: input.intent,
+        profile: input.profileFacts,
+        capabilitySkills,
+        evidenceSourceCount,
+        evidenceChars,
+        previous: previousByVacancy.get(entry.match.vacancyId) ?? null,
+        currentYear,
+      });
+    });
+
+    /*
      * Replace this candidate's run.
      *
      * The in-flight map above serializes this process, but a second API
@@ -425,7 +501,13 @@ export class JobMatchRankingService {
         if (ranked.length > 0) {
           await tx.candidateJobMatchEntry.createMany({
             data: ranked.map((entry, index) =>
-              this.toEntry(run.id, entry, index + 1, input.locale),
+              this.toEntry(
+                run.id,
+                entry,
+                index + 1,
+                input.locale,
+                insights[index],
+              ),
             ),
           });
         }
@@ -514,6 +596,7 @@ export class JobMatchRankingService {
         capabilityScore: match.score,
         intentScore,
         canonicalScore: canonicalScore(match.score, intentScore),
+        indexed: true,
       });
     }
 
@@ -545,6 +628,7 @@ export class JobMatchRankingService {
         capabilityScore: 0,
         intentScore,
         canonicalScore: canonicalScore(0, intentScore),
+        indexed: false,
       });
     }
 
@@ -590,6 +674,7 @@ export class JobMatchRankingService {
     entry: CombinedEntry,
     rank: number,
     locale: SupportedLocale,
+    insight: MatchInsight | null,
   ): Prisma.CandidateJobMatchEntryCreateManyInput {
     const match = entry.match;
     return {
@@ -618,6 +703,9 @@ export class JobMatchRankingService {
       // when a reader pages to it.
       explanations: match.explanation
         ? { [locale]: match.explanation }
+        : Prisma.DbNull,
+      insight: insight
+        ? (insight as unknown as Prisma.InputJsonValue)
         : Prisma.DbNull,
     };
   }
@@ -816,10 +904,22 @@ export class JobMatchRankingService {
     };
   }
 
-  /** Discards a candidate's ranking. Used when their evidence changes. */
+  /**
+   * Makes a candidate's stored ranking unusable without erasing it.
+   *
+   * Nulling `algorithmVersion` fails `currentRun`'s reuse check exactly like
+   * a deletion did (a profile edit is not fingerprinted, so this explicit
+   * stamp is the invalidation), but the stranded entries survive until the
+   * recompute REPLACES them — which is what lets the next run report
+   * `scoreChange` across a profile edit. The stale rows are unreachable in
+   * the meantime: every page read goes through `currentRun` first (Rule N1).
+   */
   async invalidate(candidateAccountId: string): Promise<void> {
     await this.prisma.candidateJobMatchRun
-      .deleteMany({ where: { candidateAccountId } })
+      .updateMany({
+        where: { candidateAccountId },
+        data: { algorithmVersion: null },
+      })
       .catch((error: unknown) => {
         this.logger.warn(
           `Could not invalidate the job-match ranking for ${candidateAccountId}: ` +

@@ -1,0 +1,76 @@
+# One-shot Prisma migration Job (Phase 4) — applied manually, NOT part of
+# the Helm release, so a migration is always an explicit, logged act.
+# The runtime image deliberately ships no prisma CLI/npm; an initContainer
+# copies the schema+migrations out of the immutable image and a stock node
+# image runs `prisma migrate deploy` (never dev/reset/push).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: backend-migrate-9f69276-match1
+  namespace: hrcopilot
+  labels: { app: backend-migrate }
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app: backend-migrate
+        hrcopilot.dev/postgres-client: "true"
+    spec:
+      restartPolicy: Never
+      imagePullSecrets: [{ name: regcred }]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      initContainers:
+        - name: schema
+          image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-backend:9f69276-match1
+          command: ["sh", "-c", "cp -r /app/prisma /work/ && ls /work/prisma/migrations | wc -l"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts: [{ name: work, mountPath: /work }]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+      containers:
+        - name: migrate
+          image: node:22-alpine3.22
+          workingDir: /work
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              # k3s netpol admits new pods after ~10-20s; wait, don't fail.
+              i=0; until nc -z postgres 5432; do i=$((i+1)); [ $i -ge 18 ] && echo "postgres unreachable" && exit 1; sleep 5; done
+              npm install --no-save prisma@7.9.1 >/dev/null 2>&1
+              # Prisma 7 reads the migrate URL from prisma.config.ts, not the
+              # schema. The repo's config imports dotenv; this minimal config
+              # reads the same env var without extra dependencies.
+              cat > prisma.config.ts <<'CFG'
+              import { defineConfig, env } from 'prisma/config';
+              export default defineConfig({
+                schema: 'prisma/schema.prisma',
+                migrations: { path: 'prisma/migrations' },
+                datasource: { url: env('DATABASE_URL') },
+              });
+              CFG
+              sed -i 's/^              //' prisma.config.ts
+              ./node_modules/.bin/prisma migrate deploy
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: backend-secrets, key: DATABASE_URL } }
+            - { name: npm_config_cache, value: /work/.npm }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts: [{ name: work, mountPath: /work }]
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 768Mi }
+      volumes:
+        - name: work
+          emptyDir: {}

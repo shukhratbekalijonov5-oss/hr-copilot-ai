@@ -1,0 +1,102 @@
+{{- if .Values.ingress.enabled }}
+# Public routing (Phase 5). Traefik does NOT limit request body size by
+# default (streams to the backend), so the 50MB upload limit stays
+# app-enforced — no buffering middleware, which would also break websocket
+# upgrades. Traefik is the single trusted hop for TRUST_PROXY=1.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+spec:
+  redirectScheme: { scheme: https, permanent: true }
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-www
+spec:
+  redirectRegex:
+    regex: "^https?://www\\.hrcopilot\\.cloud/(.*)"
+    replacement: "https://hrcopilot.cloud/${1}"
+    permanent: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-redirect-https@kubernetescrd
+    {{- if .Values.ingress.tls }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+    {{- end }}
+spec:
+  ingressClassName: traefik
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts: [hrcopilot.cloud, www.hrcopilot.cloud]
+      secretName: hrcopilot-cloud-tls
+  {{- end }}
+  rules:
+    - host: hrcopilot.cloud
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: frontend, port: { number: 3000 } } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-www
+  annotations:
+    # Canonical redirect: www always lands on the apex.
+    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-redirect-https@kubernetescrd,{{ .Release.Namespace }}-redirect-www@kubernetescrd
+    {{- if .Values.ingress.tls }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+    {{- end }}
+spec:
+  ingressClassName: traefik
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts: [hrcopilot.cloud, www.hrcopilot.cloud]
+      secretName: hrcopilot-cloud-tls
+  {{- end }}
+  rules:
+    - host: www.hrcopilot.cloud
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: frontend, port: { number: 3000 } } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-redirect-https@kubernetescrd
+    {{- if .Values.ingress.tls }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+    {{- end }}
+spec:
+  ingressClassName: traefik
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts: [api.hrcopilot.cloud]
+      secretName: api-hrcopilot-cloud-tls
+  {{- end }}
+  rules:
+    - host: api.hrcopilot.cloud
+      http:
+        paths:
+          # Toss browser callbacks go DIRECTLY to the Java payment service —
+          # never through NestJS. Longest-prefix wins in Traefik, so this
+          # out-specifies the catch-all below.
+          - path: /callbacks/toss
+            pathType: Prefix
+            backend: { service: { name: payment-service, port: { number: 8081 } } }
+          # Everything else (REST under /api, websocket /socket.io/) → NestJS.
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: backend, port: { number: 3001 } } }
+{{- end }}

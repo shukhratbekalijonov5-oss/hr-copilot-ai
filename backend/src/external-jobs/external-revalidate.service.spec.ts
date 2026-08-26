@@ -15,56 +15,77 @@ import type { PrismaService } from '../prisma/prisma.service';
  */
 
 function build(batchResults: number[]) {
-  const calls: unknown[][] = [];
   let index = 0;
-  const $executeRaw = jest.fn(() => {
-    calls.push([]);
+  const next = () => {
     const result = batchResults[Math.min(index, batchResults.length - 1)];
     index += 1;
-    return Promise.resolve(result);
-  });
-  const prisma = { $executeRaw } as unknown as PrismaService;
-  return { service: new ExternalRevalidateService(prisma), $executeRaw };
+    return result;
+  };
+  // Delete passes return id rows; the stale pass returns an affected count.
+  const $queryRaw = jest.fn(() =>
+    Promise.resolve(
+      Array.from({ length: next() }, (_, i) => ({ id: `job-${index}-${i}` })),
+    ),
+  );
+  const $executeRaw = jest.fn(() => Promise.resolve(next()));
+  const prisma = { $queryRaw, $executeRaw } as unknown as PrismaService;
+  return {
+    service: new ExternalRevalidateService(prisma),
+    $queryRaw,
+    $executeRaw,
+  };
 }
 
 describe('bounded batching', () => {
   it('stops each pass at the first non-full batch', async () => {
-    // Expired pass: 500, then 120 (done). Stale pass: 40 (done).
-    const { service, $executeRaw } = build([REVALIDATE_BATCH_SIZE, 120, 40]);
+    // Expired delete: 500 then 120 (done). Legacy purge: 3 (done).
+    // Stale pass: 40 (done).
+    const { service, $queryRaw, $executeRaw } = build([
+      REVALIDATE_BATCH_SIZE,
+      120,
+      3,
+      40,
+    ]);
     const outcome = await service.revalidate();
 
     expect(outcome.expired).toBe(REVALIDATE_BATCH_SIZE + 120);
+    expect(outcome.purged).toBe(3);
     expect(outcome.staled).toBe(40);
-    expect(outcome.batches).toBe(3);
+    expect(outcome.removedJobIds).toHaveLength(REVALIDATE_BATCH_SIZE + 120 + 3);
+    expect(outcome.batches).toBe(4);
     expect(outcome.truncated).toBe(false);
-    expect($executeRaw).toHaveBeenCalledTimes(3);
+    expect($queryRaw).toHaveBeenCalledTimes(3);
+    expect($executeRaw).toHaveBeenCalledTimes(1);
   });
 
   it('never exceeds the batch ceiling, and says so', async () => {
     // Every batch comes back full: a 1M-row backlog. The run must stop at
     // the ceiling and report truncation instead of holding the worker.
-    const { service, $executeRaw } = build(
+    const { service, $queryRaw } = build(
       Array.from({ length: 100 }, () => REVALIDATE_BATCH_SIZE),
     );
     const outcome = await service.revalidate();
 
     expect(outcome.batches).toBe(REVALIDATE_MAX_BATCHES);
-    expect($executeRaw).toHaveBeenCalledTimes(REVALIDATE_MAX_BATCHES);
+    expect($queryRaw).toHaveBeenCalledTimes(REVALIDATE_MAX_BATCHES);
     expect(outcome.truncated).toBe(true);
     // The next hourly run continues; nothing is lost by stopping here.
   });
 
-  it('a quiet catalogue costs exactly two indexed queries', async () => {
-    const { service, $executeRaw } = build([0, 0]);
+  it('a quiet catalogue costs exactly three indexed queries', async () => {
+    const { service, $queryRaw, $executeRaw } = build([0, 0, 0]);
     const outcome = await service.revalidate();
 
     expect(outcome).toEqual({
       staled: 0,
       expired: 0,
-      batches: 2,
+      purged: 0,
+      removedJobIds: [],
+      batches: 3,
       truncated: false,
     });
-    expect($executeRaw).toHaveBeenCalledTimes(2);
+    expect($queryRaw).toHaveBeenCalledTimes(2);
+    expect($executeRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -98,17 +119,18 @@ describe('what the pass is structurally unable to do', () => {
     }
   });
 
-  it('emits only the two allowed transitions — never CLOSED, never a delete', () => {
+  it('writes only STALE; departures are hard deletes, never archive statuses', () => {
     const source = readFileSync(
       join(__dirname, 'external-revalidate.service.ts'),
       'utf8',
     );
-    // The only statuses ever WRITTEN are STALE and EXPIRED.
+    // The only status ever WRITTEN is STALE (live-only lifecycle: expired
+    // and legacy non-current rows are deleted, not marked).
     expect(source).toContain(`SET status = 'STALE'`);
-    expect(source).toContain(`SET status = 'EXPIRED'`);
+    expect(source).not.toContain(`SET status = 'EXPIRED'`);
     expect(source).not.toContain(`SET status = 'CLOSED'`);
     expect(source).not.toContain(`SET status = 'UNAVAILABLE'`);
     expect(source).not.toContain(`SET status = 'ACTIVE'`);
-    expect(source).not.toMatch(/DELETE\s+FROM/i);
+    expect(source).toMatch(/DELETE FROM external_jobs/);
   });
 });

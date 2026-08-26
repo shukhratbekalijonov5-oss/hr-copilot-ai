@@ -1,0 +1,48 @@
+# On-demand restore-validation Job — NOT part of the Helm chart. Apply
+# manually when you want to PROVE the newest hr_copilot dump restores.
+# It only ever touches the scratch database `restore_check`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pg-restore-validation
+  namespace: hrcopilot
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: validate
+          image: postgres:16-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          env:
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-credentials, key: postgres-password } }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              latest=$(ls -1t /backups/hr_copilot-*.sql.gz | head -1)
+              echo "validating restore of: $latest"
+              dropdb  -h postgres -U postgres --if-exists restore_check
+              createdb -h postgres -U postgres restore_check
+              gunzip -c "$latest" | psql -q -h postgres -U postgres -d restore_check
+              tables=$(psql -h postgres -U postgres -d restore_check -tAc "select count(*) from information_schema.tables where table_schema='public'")
+              echo "restored tables: $tables"
+              dropdb -h postgres -U postgres restore_check
+              [ "$tables" -gt 0 ] && echo RESTORE-VALIDATION-OK
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          volumeMounts: [{ name: backups, mountPath: /backups, readOnly: true }]
+      volumes:
+        - name: backups
+          persistentVolumeClaim: { claimName: postgres-backups }

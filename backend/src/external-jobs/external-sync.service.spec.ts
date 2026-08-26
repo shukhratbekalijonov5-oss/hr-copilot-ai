@@ -116,11 +116,14 @@ function build(pages: (ProviderFetchPage | Error)[]) {
         merged: 0,
         failed: 0,
         unmerged: 0,
+        deletedJobIds: [],
       }),
     ),
-    markAbsent: jest
-      .fn()
-      .mockResolvedValue({ sourcesRetired: 0, jobsClosed: 0 }),
+    markAbsent: jest.fn().mockResolvedValue({
+      sourcesRetired: 0,
+      jobsClosed: 0,
+      deletedJobIds: [],
+    }),
   } as unknown as jest.Mocked<ExternalIngestionService>;
 
   const provider = new FakeProvider(pages);
@@ -200,6 +203,8 @@ describe('ExternalSyncService', () => {
         merged: 0,
         failed: 0,
         unmerged: 0,
+
+        deletedJobIds: [],
       });
       await service.syncProvider('GREENHOUSE');
       expect(runs[0]).toMatchObject({ jobsCreated: 0, jobsUpdated: 2 });

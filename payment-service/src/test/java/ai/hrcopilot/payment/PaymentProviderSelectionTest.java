@@ -22,6 +22,7 @@ class PaymentProviderSelectionTest {
                     "secret",
                     2000,
                     50,
+                    false,
                     false);
             MockEnvironment env = new MockEnvironment();
             env.setActiveProfiles(profile);

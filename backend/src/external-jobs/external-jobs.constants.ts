@@ -46,7 +46,14 @@ export interface ExternalJobRevalidateJobData {
 }
 
 export interface ExternalJobIndexJobData {
-  externalJobId: string;
+  /**
+   * Canonical jobs hard-deleted from PostgreSQL by the run that enqueued this
+   * reconciliation; their Qdrant points must go too. Qdrant deletion always
+   * FOLLOWS a committed PostgreSQL deletion (never the reverse), so a failed
+   * or partial provider fetch — which deletes nothing in PostgreSQL — can
+   * never erase semantic search data.
+   */
+  removedIds?: string[];
 }
 
 /**

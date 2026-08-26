@@ -1,0 +1,24 @@
+# Accepted vulnerabilities, each with a reason and a review date.
+#
+# An entry here suppresses a FIXABLE finding, which means it is a deliberate
+# decision to ship known risk. Every one needs all three lines. An entry with
+# no expiry is a hole nobody revisits, so `exp:` is mandatory — Trivy drops
+# the suppression once that date passes, and the build fails again until
+# somebody looks.
+
+# ---------------------------------------------------------------------------
+# torch 2.5.1 → 2.6.0 (ai-service)
+#
+# CVE-2025-32434 is a deserialization flaw in `torch.load`. This service never
+# calls it on untrusted input: the only weights it loads come from the
+# sentence-transformers model it downloads at boot from a pinned repository,
+# and no user-supplied file reaches torch at any point — uploads are parsed by
+# pdfminer/pypdf/python-docx and only ever become text before embedding.
+#
+# The fix is a MINOR version bump of the inference engine underneath both the
+# bi-encoder and the cross-encoder. That changes model numerics and is not
+# something to do inside a containerization change without re-running the
+# retrieval quality checks. Scheduled deliberately, not skipped.
+#
+# Review: bump to 2.6.0 and re-run the ai-service retrieval suite.
+CVE-2025-32434 exp:2026-11-30

@@ -22,6 +22,8 @@ import { JobMatchRankingService } from './job-match-ranking.service';
 import { CandidatePreferencesService } from '../candidate-preferences/candidate-preferences.service';
 import { emptyJobIntent } from '../candidate-preferences/candidate-job-intent';
 import { matchBand } from '../matching/match-policy';
+import { buildProfileFacts } from '../matching/advanced/profile-facts';
+import type { MatchInsight } from '../matching/advanced/advanced-match.types';
 import { normalizeSalary } from '../fx/money';
 import { CandidateEvidenceLifecycleService } from '../candidate-evidence/candidate-evidence.service';
 import { NO_CANDIDATE_EVIDENCE } from '../candidate-evidence/evidence-policy';
@@ -768,6 +770,7 @@ export class CandidateAccountService {
       computed = await this.ranking.computeRun({
         candidateAccountId: account.id,
         profile,
+        profileFacts: buildProfileFacts(account),
         locale,
         evidenceRevision: generatedFromRevision,
         allowedSourceIds,
@@ -915,6 +918,11 @@ export class CandidateAccountService {
           evidence: entry.evidence as unknown[],
           saved: saved.has(entry.vacancyId),
           applicationState: applicationByVacancy.get(entry.vacancyId) ?? null,
+          // --- ADVANCED MATCH (advanced-match-v1) -------------------------
+          // Deterministic, computed at run time by the one shared engine
+          // (matching/advanced). All nullable: an index-gap entry has no
+          // analysis, and absence is reported as absence — never invented.
+          ...advancedFields(entry.insight as MatchInsight | null),
         },
       ];
     });
@@ -1180,7 +1188,30 @@ function toAccountData(dto: UpsertCandidateAccountDto) {
  * experience/education JSON is DTO-validated at write time; reading stays
  * defensive anyway because JSON columns make no promises.
  */
-function buildAiProfile(account: CandidateAccount): AiCandidateProfile {
+/**
+ * The advanced-match fields of one response item, flattened from the stored
+ * insight. Every field is part of the typed contract in
+ * matching/advanced/advanced-match.types.ts; `null`/`[]` means "no analysis
+ * exists for this entry" (index-gap vacancy), never "analysis said zero".
+ */
+function advancedFields(insight: MatchInsight | null) {
+  return {
+    insightVersion: insight?.version ?? null,
+    eligibility: insight?.eligibility ?? null,
+    eligibilityReasons: insight?.eligibilityReasons ?? [],
+    evidenceConfidence: insight?.evidenceConfidence ?? null,
+    evidenceConfidenceBreakdown: insight?.evidenceConfidenceBreakdown ?? null,
+    dimensions: insight?.dimensions ?? [],
+    requirementMatrix: insight?.requirementMatrix ?? [],
+    transferableSkills: insight?.transferableSkills ?? [],
+    contradictions: insight?.contradictions ?? [],
+    careerTrajectory: insight?.careerTrajectory ?? null,
+    scoreChange: insight?.scoreChange ?? null,
+    improvementSuggestions: insight?.improvementSuggestions ?? [],
+  };
+}
+
+export function buildAiProfile(account: CandidateAccount): AiCandidateProfile {
   const experience = (
     Array.isArray(account.experience) ? account.experience : []
   ).flatMap((entry) => {

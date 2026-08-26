@@ -7,19 +7,19 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 /**
- * Makes a route exist only OUTSIDE production.
+ * Makes the plan-switch route exist only outside production — with ONE
+ * deliberate, owner-requested exception: `PORTFOLIO_DEMO_MODE=true`
+ * re-enables it on a demo deployment so visitors can experience paid
+ * tiers without a charge. The flag gates ONLY this route, is explicit
+ * (never inferred), and the Java payment service applies the same gate
+ * independently — a demo switch still requires BOTH deployments to opt
+ * in, and every switch is audited there as source=PORTFOLIO_DEMO.
  *
- * The rule is one comparison with no override: `NODE_ENV === 'production'`
- * → 404. Deliberately NOT a feature flag — a flag can be set by mistake,
- * and the whole point of a QA-only plan switch is that no configuration
- * combination re-enables it where money is real. The 404 is shaped exactly
- * like Nest's answer for a route that was never registered, so production
- * does not even confirm the path exists.
- *
- * This is also only the FIRST lock: the Java endpoint the guarded route
- * calls is itself absent in a production payment service (Spring
- * `@Profile({"dev","test"})` — the bean does not exist), so a production
- * plan switch would need BOTH deployments to be misbuilt at once.
+ * Everywhere else the 404 is shaped exactly like Nest's answer for a
+ * route that was never registered, so production does not even confirm
+ * the path exists. The route itself remains authenticated and
+ * candidate-scoped, and only ever acts on the CALLER'S own account (the
+ * DTO rejects any smuggled userId).
  */
 @Injectable()
 export class DevEnvironmentGuard implements CanActivate {
@@ -28,6 +28,9 @@ export class DevEnvironmentGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const nodeEnv = this.config.get<string>('app.nodeEnv', 'development');
     if (nodeEnv !== 'production') return true;
+    if (this.config.get<boolean>('app.portfolioDemoMode', false) === true) {
+      return true;
+    }
 
     const request = context
       .switchToHttp()

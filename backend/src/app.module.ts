@@ -32,6 +32,7 @@ import { ApplicationsModule } from './applications/applications.module';
 import { DocumentsModule } from './documents/documents.module';
 import { SearchModule } from './search/search.module';
 import { EvidenceMapModule } from './evidence-map/evidence-map.module';
+import { MatchInsightModule } from './match-insight/match-insight.module';
 import { ProcessingModule } from './processing/processing.module';
 import { QueueModule } from './queue/queue.module';
 import { ChatModule } from './chat/chat.module';
@@ -103,6 +104,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     DocumentsModule,
     SearchModule,
     EvidenceMapModule,
+    MatchInsightModule,
     ProcessingModule,
     QueueModule,
     ChatModule,

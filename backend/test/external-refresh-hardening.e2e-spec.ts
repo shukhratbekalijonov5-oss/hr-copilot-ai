@@ -313,7 +313,7 @@ describe('External refresh production hardening (e2e)', () => {
       expect(await status(id)).toBe('STALE');
     });
 
-    it('a passed employer deadline becomes EXPIRED, from ACTIVE or STALE', async () => {
+    it('a passed employer deadline is HARD-DELETED — live-only, no EXPIRED archive', async () => {
       const fromActive = await makeJob('expire-a', {
         lastSeenAt: daysAgo(1),
         expiresAt: daysAgo(1),
@@ -327,21 +327,32 @@ describe('External refresh production hardening (e2e)', () => {
         lastSeenAt: daysAgo(1),
         expiresAt: new Date(Date.now() + 30 * DAY),
       });
-      await revalidate.revalidate({
+      const outcome = await revalidate.revalidate({
         jobIds: [fromActive, fromStale, future],
       });
 
-      expect(await status(fromActive)).toBe('EXPIRED');
-      expect(await status(fromStale)).toBe('EXPIRED');
+      // The employer's own stated deadline is authoritative closure: the rows
+      // are gone entirely (FK cascade takes their sources with them), and the
+      // ids are reported so the Qdrant reconciliation can follow PostgreSQL.
+      expect(
+        await prisma.externalJob.findUnique({ where: { id: fromActive } }),
+      ).toBeNull();
+      expect(
+        await prisma.externalJob.findUnique({ where: { id: fromStale } }),
+      ).toBeNull();
       expect(await status(future)).toBe('ACTIVE');
-      const expired = await prisma.externalJob.findUniqueOrThrow({
-        where: { id: fromActive },
-        select: { closedAt: true },
-      });
-      expect(expired.closedAt).not.toBeNull();
+      expect(outcome.expired).toBe(2);
+      expect(outcome.removedJobIds).toEqual(
+        expect.arrayContaining([fromActive, fromStale]),
+      );
+      expect(
+        await prisma.externalJobSource.count({
+          where: { externalJobId: { in: [fromActive, fromStale] } },
+        }),
+      ).toBe(0);
     });
 
-    it('CLOSED, EXPIRED and UNAVAILABLE rows are never touched', async () => {
+    it('legacy CLOSED/UNAVAILABLE rows are PURGED — zero retained history', async () => {
       const closed = await makeJob('closed', {
         status: 'CLOSED',
         lastSeenAt: daysAgo(40),
@@ -351,9 +362,18 @@ describe('External refresh production hardening (e2e)', () => {
         status: 'UNAVAILABLE',
         lastSeenAt: daysAgo(40),
       });
-      await revalidate.revalidate({ jobIds: [closed, unavailable] });
-      expect(await status(closed)).toBe('CLOSED');
-      expect(await status(unavailable)).toBe('UNAVAILABLE');
+      const outcome = await revalidate.revalidate({
+        jobIds: [closed, unavailable],
+      });
+      // Their statuses were assigned by authoritative signals when the old
+      // lifecycle marked them; the live-only lifecycle removes the archive.
+      expect(
+        await prisma.externalJob.findUnique({ where: { id: closed } }),
+      ).toBeNull();
+      expect(
+        await prisma.externalJob.findUnique({ where: { id: unavailable } }),
+      ).toBeNull();
+      expect(outcome.purged).toBe(2);
     });
 
     it('the candidate universe: STALE visible, EXPIRED/CLOSED/UNAVAILABLE hidden', async () => {
@@ -380,24 +400,26 @@ describe('External refresh production hardening (e2e)', () => {
       await detail(unavailable).expect(404);
     });
 
-    it('ageing deletes nothing — job and source rows all survive', async () => {
-      const jobsBefore = await prisma.externalJob.count({
-        where: { externalCompanyId: companyId },
+    it('CURRENT (ACTIVE/STALE) rows all survive a full pass — only departures are deleted', async () => {
+      const current = {
+        externalCompanyId: companyId,
+        status: { in: ['ACTIVE', 'STALE'] as ('ACTIVE' | 'STALE')[] },
+      };
+      const currentWithoutDeadline = {
+        ...current,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      };
+      const before = await prisma.externalJob.count({
+        where: currentWithoutDeadline,
       });
-      const sourcesBefore = await prisma.externalJobSource.count({
-        where: { sourceKey: { startsWith: `${MARKER}:` } },
-      });
+      expect(before).toBeGreaterThan(0);
       await revalidate.revalidate();
+      // Age alone deletes nothing: STALE flips are the only writes the pass
+      // makes to current rows, and every fixture without a passed deadline is
+      // still here.
       expect(
-        await prisma.externalJob.count({
-          where: { externalCompanyId: companyId },
-        }),
-      ).toBe(jobsBefore);
-      expect(
-        await prisma.externalJobSource.count({
-          where: { sourceKey: { startsWith: `${MARKER}:` } },
-        }),
-      ).toBe(sourcesBefore);
+        await prisma.externalJob.count({ where: currentWithoutDeadline }),
+      ).toBe(before);
     });
 
     it('a re-observed STALE job returns to ACTIVE through normal ingestion', async () => {

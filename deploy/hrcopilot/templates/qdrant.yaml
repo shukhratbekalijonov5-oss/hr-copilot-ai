@@ -1,0 +1,62 @@
+{{- if .Values.qdrant.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  labels: { app: qdrant }
+spec:
+  type: ClusterIP
+  selector: { app: qdrant }
+  ports:
+    - { name: http, port: 6333, targetPort: 6333 }
+    - { name: grpc, port: 6334, targetPort: 6334 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  labels: { app: qdrant }
+spec:
+  serviceName: qdrant
+  replicas: 1
+  selector: { matchLabels: { app: qdrant } }
+  template:
+    metadata:
+      labels: { app: qdrant }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: qdrant
+          image: {{ .Values.qdrant.image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          env:
+            # Default snapshot path (/qdrant/snapshots) is root-owned in the
+            # image; keep snapshots INSIDE the PVC so non-root works and
+            # snapshots persist with the data volume.
+            - { name: QDRANT__STORAGE__SNAPSHOTS_PATH, value: "/qdrant/storage/snapshots" }
+          ports:
+            - { containerPort: 6333 }
+            - { containerPort: 6334 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 6333 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /livez, port: 6333 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources: {{ .Values.qdrant.resources | toYaml | nindent 12 }}
+          volumeMounts: [{ name: data, mountPath: /qdrant/storage }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: {{ .Values.qdrant.storage }} } }
+{{- end }}

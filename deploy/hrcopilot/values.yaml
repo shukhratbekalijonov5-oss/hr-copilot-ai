@@ -1,0 +1,113 @@
+# Shared conventions:
+# - every workload declares requests/limits (BASELINE.md, shared KVM4 node)
+# - data services are ClusterIP ONLY, never NodePort/LoadBalancer
+# - StatefulSet volumeClaimTemplates keep PVCs on uninstall (k8s default
+#   retention Retain) — see PVC-SAFETY notes in templates/backup-pg.yaml
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  storage: 20Gi
+  # Superuser + three per-service owners; values come from the pre-created
+  # secret 'postgres-credentials' (never from this file).
+  databases:
+    - { name: hr_copilot, owner: hrcopilot_app, passwordKey: app-password }
+    - { name: hr_copilot_payments, owner: hrcopilot_payment, passwordKey: payment-password }
+    - { name: hr_copilot_notifications, owner: hrcopilot_notification, passwordKey: notification-password }
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1536Mi }
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  storage: 5Gi
+  # noeviction: BullMQ job state must never be silently evicted. Memory is
+  # bounded instead; hitting the bound surfaces as write errors (visible),
+  # not vanished jobs (invisible).
+  maxmemory: 768mb
+  maxmemoryPolicy: noeviction
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+
+kafka:
+  enabled: true
+  image: apache/kafka:3.9.1
+  storage: 10Gi
+  clusterId: "tBGsuoDdRtax1FgmcHcG6A"
+  heapOpts: "-Xmx512m -Xms256m"
+  resources:
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { cpu: "1", memory: 1280Mi }
+
+qdrant:
+  enabled: true
+  image: qdrant/qdrant:v1.12.4
+  storage: 10Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+backup:
+  enabled: true
+  image: postgres:16-alpine
+  schedule: "30 2 * * *"
+  retentionDays: 14
+  storage: 10Gi
+  # R2 offsite step: prepared, OFF until production credentials exist as
+  # secret 'backup-r2' (rclone.conf). Local PVC backups run either way.
+  r2:
+    enabled: false
+    remote: "r2:hrcopilot-backups/postgres"
+
+qdrantBackup:
+  # Snapshot CronJob — disabled until collections exist in production.
+  enabled: false
+  schedule: "45 2 * * *"
+
+networkPolicy:
+  enabled: true
+
+extras:
+  enabled: false
+
+ingress:
+  enabled: false
+  tls: false
+  clusterIssuer: letsencrypt-prod
+  backendStorageSize: 20Gi
+
+# App services (Phase 4): the SAME chart deploys them; all disabled here.
+# Each entry renders a Deployment + ClusterIP Service via app-services.yaml.
+apps:
+  frontend:
+    enabled: false
+    image: ghcr.io/OWNER/hrcopilot-frontend
+    tag: ""
+    port: 3000
+    replicas: 1
+  backend:
+    enabled: false
+    image: ghcr.io/OWNER/hrcopilot-backend
+    tag: ""
+    port: 3001
+    replicas: 1   # HARD single-replica: in-proc BullMQ + socket.io
+  ai-service:
+    enabled: false
+    image: ghcr.io/OWNER/hrcopilot-ai-service
+    tag: ""
+    port: 8000
+    replicas: 1
+  payment-service:
+    enabled: false
+    image: ghcr.io/OWNER/hrcopilot-payment-service
+    tag: ""
+    port: 8081
+    replicas: 1
+  notification-service:
+    enabled: false
+    image: ghcr.io/OWNER/hrcopilot-notification-service
+    tag: ""
+    port: 8082
+    replicas: 1

@@ -1,4 +1,5 @@
 import { JobMatchRankingService } from './job-match-ranking.service';
+import { buildProfileFacts } from '../matching/advanced/profile-facts';
 import { emptyJobIntent } from '../candidate-preferences/candidate-job-intent';
 import type { CandidateJobIntent } from '../candidate-preferences/candidate-job-intent';
 import { MATCH_ALGORITHM_VERSION } from '../matching/match-policy';
@@ -38,6 +39,7 @@ function vacRow(index: number, overrides: Record<string, unknown> = {}) {
     seniorityLevel: null,
     benefits: [],
     domainExperience: [],
+    languages: [],
     organization: { name: `Org ${index}` },
     requirements: [],
     ...overrides,
@@ -55,6 +57,7 @@ function createPrismaMock(overrides: Record<string, unknown> = {}) {
       findUnique: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ id: 'run-1' }),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     candidateJobMatchEntry: {
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -145,6 +148,15 @@ async function computeInput(
   return {
     candidateAccountId: ACCOUNT,
     profile: {} as never,
+    profileFacts: buildProfileFacts({
+      headline: null,
+      summary: null,
+      location: null,
+      skills: [],
+      languages: [],
+      experience: [],
+      education: [],
+    }),
     locale: 'en' as const,
     evidenceRevision: 3,
     allowedSourceIds: ['doc-1'],
@@ -815,5 +827,109 @@ describe('JobMatchRankingService', () => {
       expect(prose.size).toBe(0);
       expect(pending).toBe(true);
     });
+  });
+});
+
+describe('advanced insight persistence (algorithm v4)', () => {
+  it('stores a deterministic insight payload on every indexed entry', async () => {
+    const { service, prisma } = build();
+
+    await service.computeRun(await computeInput(service));
+
+    const data = prisma.candidateJobMatchEntry.createMany.mock.calls[0][0]
+      .data as Array<{ vacancyId: string; insight: unknown }>;
+    const withInsight = data.filter(
+      (d) => d.insight && typeof d.insight === 'object',
+    );
+    // Every ai-ranked entry carries an insight; the fixture ranks all 57.
+    expect(withInsight.length).toBe(57);
+    const insight = withInsight[0].insight as {
+      version: string;
+      eligibility: string;
+      dimensions: unknown[];
+      requirementMatrix: unknown[];
+      evidenceConfidence: number;
+    };
+    expect(insight.version).toBe('advanced-match-v1');
+    expect(['ELIGIBLE', 'PARTIAL', 'BLOCKED']).toContain(insight.eligibility);
+    expect(Array.isArray(insight.dimensions)).toBe(true);
+    expect(typeof insight.evidenceConfidence).toBe('number');
+  });
+
+  it('an index-gap entry stores NO insight — analysis that never ran is not invented', async () => {
+    const { service, prisma, ai } = build();
+    // Rank only the first 10; the remaining eligible ids become gap entries.
+    ai.candidateJobMatches.mockResolvedValue({
+      matches: Array.from({ length: 10 }, (_, i) => aiMatch(i)),
+      locale: 'en',
+      vacanciesConsidered: 10,
+      eligibleConsidered: 57,
+      generated: false,
+      capability: { skills: [] },
+      durationMs: 100,
+    });
+
+    await service.computeRun(await computeInput(service));
+
+    const data = prisma.candidateJobMatchEntry.createMany.mock.calls[0][0]
+      .data as Array<{ insight: { version?: string } | null }>;
+    // Gap entries store DbNull, not an insight payload.
+    const withPayload = data.filter(
+      (d) => d.insight?.version === 'advanced-match-v1',
+    );
+    expect(withPayload.length).toBe(10);
+    expect(data.length).toBe(57);
+  });
+
+  it('captures the outgoing run scores as scoreChange metadata on replacement', async () => {
+    const { service, prisma } = build();
+    prisma.candidateJobMatchEntry.findMany.mockResolvedValueOnce([
+      {
+        vacancyId: 'vac-0',
+        score: 40,
+        insight: {
+          requirementMatrix: [
+            { text: 'React', status: 'MISSING', priority: 'MUST_HAVE' },
+          ],
+        },
+      },
+    ]);
+
+    await service.computeRun(await computeInput(service));
+
+    const data = prisma.candidateJobMatchEntry.createMany.mock.calls[0][0]
+      .data as Array<{
+      vacancyId: string;
+      score: number;
+      insight: {
+        scoreChange: {
+          previous: number;
+          current: number;
+          delta: number;
+        } | null;
+      };
+    }>;
+    const replaced = data.find((d) => d.vacancyId === 'vac-0')!;
+    expect(replaced.insight.scoreChange).toMatchObject({
+      previous: 40,
+      current: replaced.score,
+      delta: replaced.score - 40,
+    });
+    // A vacancy with no previous entry has no fabricated history.
+    const fresh = data.find((d) => d.vacancyId === 'vac-1')!;
+    expect(fresh.insight.scoreChange).toBeNull();
+  });
+
+  it('invalidate() strands the run (algorithmVersion null) instead of deleting it', async () => {
+    const { service, prisma } = build();
+
+    await service.invalidate('acct-1');
+
+    expect(prisma.candidateJobMatchRun.updateMany).toHaveBeenCalledWith({
+      where: { candidateAccountId: 'acct-1' },
+      data: { algorithmVersion: null },
+    });
+    // A null version can never satisfy the reuse check, so the stale rows are
+    // unreachable — but they survive to feed scoreChange on the next run.
   });
 });

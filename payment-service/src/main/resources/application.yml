@@ -38,6 +38,8 @@ payment:
   outbox-poll-ms: ${PAYMENT_OUTBOX_POLL_MS:2000}
   outbox-batch-size: ${PAYMENT_OUTBOX_BATCH_SIZE:50}
   publish-enabled: ${PAYMENT_OUTBOX_PUBLISH_ENABLED:true}
+  # Portfolio demo deployments only. Default OFF everywhere.
+  portfolio-demo-mode: ${PORTFOLIO_DEMO_MODE:false}
   toss:
     base-url: ${TOSS_PAYMENTS_BASE_URL:https://api.tosspayments.com}
     client-key: ${TOSS_PAYMENTS_CLIENT_KEY:}

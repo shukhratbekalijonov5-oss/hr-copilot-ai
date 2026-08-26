@@ -1,0 +1,73 @@
+{{- range $name, $app := .Values.apps }}
+{{- if $app.enabled }}
+---
+# Generic application workload (Phase 4+): image/tag/resources/probes/env
+# all come from values; single-replica enforced for backend by values.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: { app: {{ $name }} }
+spec:
+  type: ClusterIP
+  selector: { app: {{ $name }} }
+  ports: [{ name: http, port: {{ $app.port }}, targetPort: {{ $app.port }} }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: { app: {{ $name }} }
+spec:
+  replicas: {{ $app.replicas | default 1 }}
+  selector: { matchLabels: { app: {{ $name }} } }
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+        {{- range $k, $v := $app.dataAccess | default dict }}
+        hrcopilot.dev/{{ $k }}-client: "true"
+        {{- end }}
+    spec:
+      {{- if $app.imagePullSecret }}
+      imagePullSecrets: [{ name: {{ $app.imagePullSecret }} }]
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        # All five app images create their runtime user with uid 10001; the
+        # numeric id is REQUIRED — a name-only USER cannot be verified by the
+        # kubelet under runAsNonRoot and fails CreateContainerConfig.
+        runAsUser: {{ $app.runAsUser | default 10001 }}
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: {{ $name }}
+          image: "{{ $app.image }}:{{ $app.tag | default "latest" }}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          ports: [{ containerPort: {{ $app.port }} }]
+          {{- with $app.env }}
+          env: {{ . | toYaml | nindent 12 }}
+          {{- end }}
+          {{- with $app.envFrom }}
+          envFrom: {{ . | toYaml | nindent 12 }}
+          {{- end }}
+          {{- with $app.probes }}
+          {{- with .readiness }}
+          readinessProbe: {{ . | toYaml | nindent 12 }}
+          {{- end }}
+          {{- with .liveness }}
+          livenessProbe: {{ . | toYaml | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- with $app.resources }}
+          resources: {{ . | toYaml | nindent 12 }}
+          {{- end }}
+          {{- with $app.volumeMounts }}
+          volumeMounts: {{ . | toYaml | nindent 12 }}
+          {{- end }}
+      {{- with $app.volumes }}
+      volumes: {{ . | toYaml | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

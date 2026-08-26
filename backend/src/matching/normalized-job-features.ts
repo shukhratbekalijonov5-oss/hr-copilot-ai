@@ -1,5 +1,6 @@
 import type {
   JobBenefit,
+  LanguageProficiency,
   PayPeriod,
   SeniorityLevel,
   WorkMode,
@@ -115,6 +116,13 @@ export const RANKING_VACANCY_SELECT = {
     select: { text: true, required: true },
     orderBy: { id: 'asc' as const },
   },
+  // Language requirements became a scoring input with the advanced match
+  // (languageFit dimension + eligibility) in algorithm v4, so an edit to them
+  // must invalidate stored rankings like any other ranking-relevant change.
+  languages: {
+    select: { languageCode: true, level: true, required: true },
+    orderBy: { languageCode: 'asc' as const },
+  },
 } as const;
 
 /** One row of the ranking universe, as `RANKING_VACANCY_SELECT` returns it. */
@@ -137,6 +145,11 @@ export interface RankingVacancyRow {
   domainExperience: string[];
   organization: { name: string };
   requirements: { text: string; required: boolean }[];
+  languages: {
+    languageCode: string;
+    level: LanguageProficiency;
+    required: boolean;
+  }[];
 }
 
 /**
@@ -150,7 +163,7 @@ export interface RankingVacancyRow {
  */
 export type JobFeatureColumns = Omit<
   RankingVacancyRow,
-  'description' | 'requirements'
+  'description' | 'requirements' | 'languages'
 >;
 
 /** The narrow select matching `JobFeatureColumns`. A subset of RANKING_VACANCY_SELECT. */

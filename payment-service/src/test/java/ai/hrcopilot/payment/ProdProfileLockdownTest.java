@@ -19,11 +19,11 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * PRODUCTION MUST NEVER allow direct plan switching — proven by booting the
- * application with the `prod` profile and observing that the dev switch
- * does not exist: no bean in the context, 404 on the route even WITH a
- * valid service credential. There is no flag that could re-enable it,
- * because there is nothing there to enable.
+ * A DEFAULT production boot must not allow direct plan switching: without
+ * the explicit PORTFOLIO_DEMO_MODE flag the route answers 404 even WITH a
+ * valid service credential. (The flag itself is an owner-requested,
+ * loudly-logged demo gate — see PortfolioDemoModeTest; enabling it changes
+ * ONLY this endpoint.)
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -62,8 +62,13 @@ class ProdProfileLockdownTest {
     private TestRestTemplate http;
 
     @Test
-    void theDevSwitchBeanDoesNotExistInProd() {
-        assertThat(context.getBeanNamesForType(DevPlanSwitchController.class)).isEmpty();
+    void theSwitchIsStructurallyDisabledInADefaultProdBoot() {
+        // The controller bean exists (it hosts the runtime gate), but demo
+        // mode defaults OFF — the property must be false unless explicitly
+        // set by the deployment.
+        assertThat(context.getBeanNamesForType(DevPlanSwitchController.class)).hasSize(1);
+        assertThat(context.getBean(ai.hrcopilot.payment.config.PaymentServiceProperties.class)
+                .portfolioDemoMode()).isFalse();
     }
 
     @Test

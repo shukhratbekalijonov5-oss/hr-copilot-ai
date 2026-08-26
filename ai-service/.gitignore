@@ -9,6 +9,8 @@ venv/
 *.egg-info/
 .coverage
 htmlcov/
-# Hugging Face model cache, if pointed here
+# Hugging Face model cache, if pointed here — anchored to the service root:
+# the bare `models/` pattern also swallowed `app/models/` (the Pydantic
+# schemas package), which silently kept schemas.py out of the repository.
 .cache/
-models/
+/models/

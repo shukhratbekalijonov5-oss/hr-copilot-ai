@@ -139,9 +139,10 @@ describe('compareRanked', () => {
 });
 
 describe('MATCH_ALGORITHM_VERSION', () => {
-  it('is v3 — cross-currency salary. Changing the policy means bumping this', () => {
-    // v2 → v3 because salary comparison itself changed (currencies and
-    // ranges), even though no weight moved. Every v2 snapshot recomputes.
-    expect(MATCH_ALGORITHM_VERSION).toBe('v3');
+  it('is v4.1 — advanced explainable match. Changing the policy means bumping this', () => {
+    // v3 → v4: the canonical formula is unchanged, but entries now carry the
+    // advanced insight payload and vacancy languages joined the
+    // ranking-relevant state, so every v3 snapshot must recompute.
+    expect(MATCH_ALGORITHM_VERSION).toBe('v4.1');
   });
 });

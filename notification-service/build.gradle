@@ -13,6 +13,19 @@ java {
     }
 }
 
+/*
+ * Patched embedded Tomcat.
+ *
+ * Spring Boot 3.5.5 manages tomcat-embed-core 10.1.44, which carries three
+ * CRITICAL CVEs (CVE-2026-41293, -43512, -43515) fixed in 10.1.55. Overriding
+ * the managed property keeps us on Boot 3.5.5 — a patch-level bump inside the
+ * same 10.1.x line, which is API-compatible — rather than moving the whole
+ * framework to chase one transitive dependency.
+ *
+ * Remove this when the Boot version we track manages 10.1.55 or later.
+ */
+ext['tomcat.version'] = '10.1.55'
+
 repositories {
     mavenCentral()
 }

@@ -1,0 +1,407 @@
+name: Build & publish images
+
+# ---------------------------------------------------------------------------
+# Test → build → scan → push, per service, only for services that changed.
+#
+# ## Path filters, not a monorepo-wide rebuild
+#
+# A frontend copy-edit must not rebuild a 1.7GB ai-service image. Each job is
+# gated on a `dorny/paths-filter` output, so an unrelated service is skipped
+# rather than rebuilt and re-pushed under a new tag it does not deserve.
+#
+# ## It does not deploy
+#
+# Publishing to GHCR is the last step. Rollout is GitOps' job (Argo CD, later);
+# a pipeline that both builds and deploys is one that cannot promote an image
+# it has already tested.
+#
+# ## Auth is the built-in token
+#
+# `packages: write` on GITHUB_TOKEN is enough to push to ghcr.io under this
+# repository's owner. No PAT is required, and none should be added — a PAT is
+# a long-lived credential where a per-run token already works.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # A newer push supersedes an in-flight run on the same ref.
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  # Lower-cased at use time: GHCR rejects an upper-case path segment, and
+  # GitHub owners may contain capitals.
+  OWNER: ${{ github.repository_owner }}
+
+permissions:
+  contents: read
+
+jobs:
+  # -------------------------------------------------------------------------
+  changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+      ai-service: ${{ steps.filter.outputs.ai-service }}
+      payment-service: ${{ steps.filter.outputs.payment-service }}
+      notification-service: ${{ steps.filter.outputs.notification-service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/build-images.yml'
+            backend:
+              - 'backend/**'
+              - '.github/workflows/build-images.yml'
+            ai-service:
+              - 'ai-service/**'
+              - '.github/workflows/build-images.yml'
+            payment-service:
+              - 'payment-service/**'
+              - '.github/workflows/build-images.yml'
+            notification-service:
+              - 'notification-service/**'
+              - '.github/workflows/build-images.yml'
+
+  # -------------------------------------------------------------------------
+  # Repository-wide dependency and IaC scan. Runs once, not per service.
+  repo-scan:
+    name: Trivy — repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan dependencies and Dockerfiles
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          # `config` covers Dockerfile misconfiguration (root user, missing
+          # USER, ADD-over-COPY) alongside the dependency scan.
+          scanners: vuln,secret,config
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          trivy-config: trivy.yaml
+
+  # -------------------------------------------------------------------------
+  frontend:
+    name: frontend
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Typecheck, lint, test
+        working-directory: frontend
+        run: |
+          yarn typecheck
+          yarn lint
+          yarn test
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lower-case owner
+        id: owner
+        run: echo "value=${OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          # Loaded locally first so Trivy scans the EXACT image that would be
+          # pushed, rather than a second build of the same Dockerfile.
+          load: true
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-frontend:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Trivy — image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-frontend:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          trivy-config: trivy.yaml
+
+      - name: Trivy — report HIGH (non-blocking)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-frontend:${{ github.sha }}
+          severity: HIGH
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-frontend
+          docker push "$IMAGE:${{ github.sha }}"
+          # `latest` is a convenience pointer for humans. Kubernetes manifests
+          # must reference the immutable SHA tag, never this.
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+
+  # -------------------------------------------------------------------------
+  backend:
+    name: backend
+    needs: [changes]
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        working-directory: backend
+        run: npm ci
+
+      - name: Unit tests
+        working-directory: backend
+        # Unit tests only. The e2e suite needs Postgres, Redis and Qdrant; it
+        # belongs in an integration workflow with services, not in the path
+        # that produces a release image.
+        run: npm test
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lower-case owner
+        id: owner
+        run: echo "value=${OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          load: true
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-backend:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Trivy — image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-backend:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          trivy-config: trivy.yaml
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-backend
+          docker push "$IMAGE:${{ github.sha }}"
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+
+  # -------------------------------------------------------------------------
+  ai-service:
+    name: ai-service
+    needs: [changes]
+    if: needs.changes.outputs.ai-service == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install
+        working-directory: ai-service
+        run: |
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Tests
+        working-directory: ai-service
+        run: pytest -q
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lower-case owner
+        id: owner
+        run: echo "value=${OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ai-service
+          file: ai-service/Dockerfile
+          load: true
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-ai-service:${{ github.sha }}
+          cache-from: type=gha,scope=ai-service
+          cache-to: type=gha,mode=max,scope=ai-service
+
+      - name: Trivy — image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-ai-service:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          trivy-config: trivy.yaml
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-ai-service
+          docker push "$IMAGE:${{ github.sha }}"
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+
+  # -------------------------------------------------------------------------
+  java:
+    name: ${{ matrix.service }}
+    needs: [changes]
+    # One job definition for two services with an identical toolchain. Each is
+    # skipped independently by its own filter output.
+    if: needs.changes.outputs.payment-service == 'true' || needs.changes.outputs.notification-service == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [payment-service, notification-service]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip if this service did not change
+        id: gate
+        run: |
+          CHANGED=${{ matrix.service == 'payment-service' && needs.changes.outputs.payment-service || needs.changes.outputs.notification-service }}
+          echo "run=$CHANGED" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        if: steps.gate.outputs.run == 'true'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Tests
+        if: steps.gate.outputs.run == 'true'
+        working-directory: ${{ matrix.service }}
+        # Runs on the host, where a Docker daemon exists for Testcontainers —
+        # which is exactly why the Dockerfile build stage skips tests.
+        run: ./gradlew test --no-daemon
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.gate.outputs.run == 'true'
+
+      - name: Log in to GHCR
+        if: steps.gate.outputs.run == 'true' && github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lower-case owner
+        if: steps.gate.outputs.run == 'true'
+        id: owner
+        run: echo "value=${OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        if: steps.gate.outputs.run == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service }}
+          file: ${{ matrix.service }}/Dockerfile
+          load: true
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Trivy — image
+        if: steps.gate.outputs.run == 'true'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-${{ matrix.service }}:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          trivy-config: trivy.yaml
+
+      - name: Push
+        if: steps.gate.outputs.run == 'true' && github.event_name != 'pull_request'
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ steps.owner.outputs.value }}/hrcopilot-${{ matrix.service }}
+          docker push "$IMAGE:${{ github.sha }}"
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
