@@ -6,20 +6,15 @@ One job produces one consistent, checksummed, self-describing set.
 
 ---
 
-## ⚠️ Current status: backups are ON-SERVER ONLY
+## Status: off-server backups are LIVE
 
-Everything below works and has been restore-tested, with one gap that matters
-more than all the rest:
+Every nightly backup is uploaded to a **private Cloudflare R2 bucket**
+(`hrcopilot-backups`), verified there with `rclone check`, and pruned on a
+14-day schedule. A total loss of the VPS disk no longer loses the backups.
 
-> **No Cloudflare R2 credentials exist, so every backup currently lives only
-> on the node it is meant to protect. If that disk is lost, the backups are
-> lost with it.**
-
-The off-server step is written, wired and proven against an S3-compatible
-endpoint — it is switched off, not unwritten. Closing the gap is two steps and
-no code change; see [Enabling off-server backups](#enabling-off-server-backups).
-
----
+Proven on 2026-08-26 against real R2: upload of all 10 artefacts, `rclone
+check` 0 differences, a full download round-trip with every SHA256 digest
+matching the source, and unsigned public access refused.
 
 ## What is backed up
 
@@ -181,32 +176,40 @@ storage.
 
 ---
 
-## Enabling off-server backups
+## The R2 credential
 
-1. In the Cloudflare dashboard, create:
-   * an R2 bucket named **`hrcopilot-backups`**, kept **private** — no public
-     access, no custom domain, no r2.dev public development URL;
-   * an R2 API token scoped to **Object Read & Write on that bucket only**.
-     Do not reuse the application's media credentials.
-2. On the node, create the secret from an rclone config (never commit it):
+The job reads one Kubernetes Secret, `backup-r2`, holding an `rclone.conf`.
+It is created out-of-band on the cluster and exists nowhere else — not in
+this repository, not in any values file:
 
-   ```sh
-   cat > /tmp/rclone.conf <<'EOF'
-   [r2]
-   type = s3
-   provider = Cloudflare
-   access_key_id = <ACCESS_KEY_ID>
-   secret_access_key = <SECRET_ACCESS_KEY>
-   endpoint = https://<ACCOUNT_ID>.r2.cloudflarestorage.com
-   acl = private
-   EOF
-   kubectl -n hrcopilot create secret generic backup-r2 --from-file=rclone.conf=/tmp/rclone.conf
-   shred -u /tmp/rclone.conf
-   ```
-3. Set `backup.r2.enabled: true` in `values-prod.yaml` and upgrade the release.
+```sh
+umask 077
+cat > /dev/shm/rclone.conf <<'EOF'
+[r2]
+type = s3
+provider = Cloudflare
+access_key_id = <ACCESS_KEY_ID>
+secret_access_key = <SECRET_ACCESS_KEY>
+endpoint = https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+acl = private
+no_check_bucket = true
+EOF
+kubectl -n hrcopilot create secret generic backup-r2 \
+  --from-file=rclone.conf=/dev/shm/rclone.conf \
+  --dry-run=client -o yaml | kubectl apply -f -
+shred -u /dev/shm/rclone.conf
+```
 
-The job then uploads, runs `rclone check` against the remote, compares object
-counts, and fails loudly if anything differs.
+`no_check_bucket = true` is **required**, not cosmetic. The token is scoped
+to Object Read & Write on this one bucket, so it cannot call `ListBuckets`
+or `CreateBucket`; without this flag rclone runs a bucket-existence check
+first and every operation fails with `AccessDenied`. That narrow scope is
+deliberate — it is also why a mistaken command cannot reach any other
+bucket in the account.
+
+The bucket must already exist and must stay **private**: no public access,
+no r2.dev development URL, no custom domain. Rotate the token by repeating
+the command above; nothing else changes.
 
 ## Secret recovery
 

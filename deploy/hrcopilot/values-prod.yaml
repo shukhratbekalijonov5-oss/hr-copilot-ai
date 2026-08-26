@@ -1,5 +1,19 @@
 # Production overlay (Phase 4). NO SECRET VALUES here — secrets are
 # referenced via envFrom/secretKeyRef and created out-of-band on the VPS.
+
+# Off-server disaster-recovery backups to Cloudflare R2.
+#
+# Credentials are NOT here and never will be: the job reads the Secret
+# `backup-r2` (an rclone.conf) created out-of-band on the cluster. That
+# config carries `no_check_bucket = true`, because the R2 token is scoped to
+# object read/write on this one bucket and so cannot call ListBuckets or
+# CreateBucket — which is exactly the least privilege wanted for a backup
+# credential. Schedule, retention, databases and collection discovery all
+# stay as the base values define them.
+backup:
+  r2:
+    enabled: true
+
 extras:
   enabled: true
   backendStorageSize: 20Gi
