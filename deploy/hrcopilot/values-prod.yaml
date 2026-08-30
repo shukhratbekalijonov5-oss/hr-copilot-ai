@@ -92,14 +92,14 @@ apps:
       - { name: BACKEND_BASE_URL, value: "http://backend:3001/api" }
       - { name: PAYMENT_SERVICE_URL, value: "http://payment-service:8081" }
       - { name: NOTIFICATION_OUTBOX_PUBLISH_ENABLED, value: "true" }
-      # INTERIM SMTP: in-cluster Mailpit until production SMTP exists.
-      - { name: EMAIL_PROVIDER, value: SMTP }
-      - { name: SMTP_HOST, value: mailpit }
-      - { name: SMTP_PORT, value: "1025" }
-      - { name: SMTP_AUTH_ENABLED, value: "false" }
-      - { name: SMTP_TLS_ENABLED, value: "false" }
-      - { name: SMTP_FROM_EMAIL, value: "no-reply@hrcopilot.cloud" }
-      - { name: SMTP_FROM_NAME, value: "HR Copilot AI" }
+      # PRODUCTION EMAIL: Resend over HTTPS. RESEND_API_KEY is NOT here —
+      # it arrives from the notification-secrets Secret via envFrom, is
+      # never committed, and never appears in any values file.
+      # (Mailpit stays deployed for Alertmanager; this service no longer
+      # uses it.)
+      - { name: EMAIL_PROVIDER, value: RESEND }
+      - { name: EMAIL_FROM, value: "HR Copilot AI <no-reply@hrcopilot.cloud>" }
+      - { name: APP_PUBLIC_URL, value: "https://hrcopilot.cloud" }
       - { name: JAVA_TOOL_OPTIONS, value: "-Xmx512m -Xms128m" }
     probes:
       readiness: { httpGet: { path: /actuator/health/readiness, port: 8082 }, initialDelaySeconds: 20, periodSeconds: 10 }

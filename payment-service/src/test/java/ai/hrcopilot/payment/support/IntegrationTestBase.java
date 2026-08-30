@@ -14,21 +14,38 @@ import org.testcontainers.containers.PostgreSQLContainer;
  *
  * The container is a singleton across every test class: containers are the
  * expensive part, contexts are cached by Spring, and each class works in
- * its own userIds so isolation comes from data, not from re-provisioning.
+ * its own userIds so isolation comes from data, not from re-provisioning. *
+ * ## Running without a local Docker daemon
+ *
+ * Pass -Dtest.jdbc.url (plus -Dtest.jdbc.username / -Dtest.jdbc.password)
+ * and NO container is started — the suite runs against that database
+ * instead, Flyway and all. Testcontainers remains the default.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 public abstract class IntegrationTestBase {
 
+    private static final String EXTERNAL_URL = System.getProperty("test.jdbc.url");
+
     protected static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16-alpine");
+            EXTERNAL_URL == null ? new PostgreSQLContainer<>("postgres:16-alpine") : null;
 
     static {
-        POSTGRES.start();
+        if (POSTGRES != null) {
+            POSTGRES.start();
+        }
     }
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
+        if (POSTGRES == null) {
+            registry.add("spring.datasource.url", () -> EXTERNAL_URL);
+            registry.add("spring.datasource.username",
+                    () -> System.getProperty("test.jdbc.username", "postgres"));
+            registry.add("spring.datasource.password",
+                    () -> System.getProperty("test.jdbc.password", "postgres"));
+            return;
+        }
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);

@@ -415,6 +415,87 @@ describe('AuthService', () => {
     });
   });
 
+  /**
+   * THE WELCOME-EMAIL TRIGGER, at its producer.
+   *
+   * ACCOUNT_CREATED is the only one of the product's three emails that
+   * originates in this service, and everything about when it may be sent is
+   * decided here: exactly one event per account, written INSIDE the
+   * registration transaction (so a rolled-back signup emails nobody), and
+   * never again for any later authentication activity.
+   */
+  describe('ACCOUNT_CREATED welcome event', () => {
+    const candidateDto = {
+      fullName: 'Jasur Toshmatov',
+      email: 'Jasur@Example.test',
+      password: 'CorrectHorseBattery1',
+      preferredLocale: Locale.uz,
+    };
+
+    it('a candidate registration writes exactly ONE event, in the same transaction', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      const { createOutboxEvent, createUser } = mockCandidateRegisterTransaction();
+
+      await service.registerCandidate(candidateDto);
+
+      expect(createOutboxEvent).toHaveBeenCalledTimes(1);
+      const row = createOutboxEvent.mock.calls[0][0].data;
+      expect(row.eventType).toBe('ACCOUNT_CREATED');
+      expect(row.recipientUserId).toBe('user-9');
+      // Same tx client as the user row: the event cannot outlive a rollback.
+      expect(createUser).toHaveBeenCalledTimes(1);
+    });
+
+    it('an organization registration writes exactly ONE event too', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.organization.findUnique.mockResolvedValue(null);
+      const { createOutboxEvent } = mockOrgRegisterTransaction();
+
+      await service.registerOrganization(registerOrgDto);
+
+      expect(createOutboxEvent).toHaveBeenCalledTimes(1);
+      expect(createOutboxEvent.mock.calls[0][0].data.eventType).toBe(
+        'ACCOUNT_CREATED',
+      );
+    });
+
+    it('a REJECTED registration writes no event at all', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        accountType: AccountType.CANDIDATE,
+      });
+      const { createOutboxEvent } = mockCandidateRegisterTransaction();
+
+      await expect(service.registerCandidate(candidateDto)).rejects.toThrow();
+
+      expect(createOutboxEvent).not.toHaveBeenCalled();
+    });
+
+    it('logging in never produces a welcome event, however many times', async () => {
+      const { createOutboxEvent } = mockCandidateRegisterTransaction();
+      createOutboxEvent.mockClear();
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-9',
+        email: 'jasur@example.test',
+        passwordHash: await bcrypt.hash('Str0ngPass!', 4),
+        fullName: 'Jasur Toshmatov',
+        accountType: AccountType.CANDIDATE,
+        preferredLocale: Locale.uz,
+        memberships: [],
+      });
+
+      await service.login({
+        email: 'jasur@example.test',
+        password: 'Str0ngPass!',
+      } as never);
+      await service.login({
+        email: 'jasur@example.test',
+        password: 'Str0ngPass!',
+      } as never);
+
+      expect(createOutboxEvent).not.toHaveBeenCalled();
+    });
+  });
+
   describe('login', () => {
     const storedUser = async (
       memberships: { organizationId: string; role: Role; createdAt: Date }[],

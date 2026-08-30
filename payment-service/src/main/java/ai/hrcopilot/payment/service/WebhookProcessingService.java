@@ -179,13 +179,27 @@ public class WebhookProcessingService {
                 "PAYMENT_SUCCEEDED",
                 event.userId(),
                 Map.of("plan", plan.name(), "amountCents", event.amountCents(), "currency", event.currency()));
+                /*
+                 * The activation FACTS the Notification Service renders into
+                 * the "subscription activated" email. Every value here is
+                 * authoritative billing state that was just committed — the
+                 * period the subscription actually holds and the amount the
+                 * provider actually settled. Nothing downstream may invent
+                 * these, so they travel with the event or not at all.
+                 */
         outbox.append(
                 BillingTopics.SUBSCRIPTION_EVENTS,
                 "subscription",
                 subscriptionId,
                 "SUBSCRIPTION_ACTIVATED",
                 event.userId(),
-                Map.of("plan", plan.name(), "status", SubscriptionStatus.ACTIVE.name()));
+                Map.of(
+                        "plan", plan.name(),
+                        "status", SubscriptionStatus.ACTIVE.name(),
+                        "periodStart", subscription.getCurrentPeriodStart().toString(),
+                        "periodEnd", subscription.getCurrentPeriodEnd().toString(),
+                        "amountMinor", event.amountCents(),
+                        "currency", event.currency()));
         outbox.append(
                 BillingTopics.ENTITLEMENT_EVENTS,
                 "subscription",

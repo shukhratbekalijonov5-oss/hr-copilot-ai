@@ -5,7 +5,17 @@ notification:
   payment-base-url: ""
   payment-token: ""
   email-provider: LOG
-  email-poll-ms: 200
+  # Any Resend test points this at its own local fake; the default is a
+  # deliberately unroutable address so no test can reach the real API.
+  resend-api-url: http://127.0.0.1:1/emails
+  resend-api-key: test-key-not-a-real-credential
+  app-public-url: https://hrcopilot.test
+  # The email worker is driven EXPLICITLY by the tests (worker.deliverDue()).
+  # Left at its normal cadence the @Scheduled tick races those calls — it
+  # claims the very row under test on a background thread, and the assertion
+  # then reads a half-finished state. Pushed out of the way; the other two
+  # schedulers are switched off just below for the same reason.
+  email-poll-ms: 3600000
   outbox-poll-ms: 200
   publish-enabled: false
   expiry-enabled: false

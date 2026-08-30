@@ -51,10 +51,22 @@ notification:
   # The Payment Service internal API — the expiring-subscriptions read.
   payment-base-url: ${PAYMENT_SERVICE_URL:}
   payment-token: ${PAYMENT_INTERNAL_TOKEN:}
-  # SMTP is the real provider; LOG is a local fallback, refused in prod.
+  # RESEND is the production provider; SMTP is the local/relay path
+  # (Mailpit in dev); LOG is a local fallback and is refused in prod.
   email-provider: ${EMAIL_PROVIDER:SMTP}
+  # Never defaulted, never logged, never returned by any endpoint. A blank
+  # value with EMAIL_PROVIDER=RESEND refuses to boot rather than queueing
+  # real emails it cannot send.
+  resend-api-key: ${RESEND_API_KEY:}
+  # Overridable so tests point at a local fake and never reach the internet.
+  resend-api-url: ${RESEND_API_URL:https://api.resend.com/emails}
+  # Full "Name <address>" From header. Wins over from-name/from-email.
+  from-address: ${EMAIL_FROM:}
   from-email: ${SMTP_FROM_EMAIL:no-reply@hrcopilot.local}
   from-name: ${SMTP_FROM_NAME:HR Copilot AI}
+  # Public web origin behind each email's single call-to-action link.
+  app-public-url: ${APP_PUBLIC_URL:https://hrcopilot.cloud}
+  email-send-timeout-ms: ${NOTIFICATION_EMAIL_SEND_TIMEOUT_MS:10000}
   email-poll-ms: ${NOTIFICATION_EMAIL_POLL_MS:2000}
   email-batch-size: ${NOTIFICATION_EMAIL_BATCH_SIZE:10}
   outbox-poll-ms: ${NOTIFICATION_OUTBOX_POLL_MS:500}

@@ -1,6 +1,7 @@
 package ai.hrcopilot.notification.email;
 
 import ai.hrcopilot.notification.domain.ChannelPolicy;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -11,9 +12,18 @@ import java.util.Map;
  *
  * Every {placeholder} value is HTML-escaped before it enters the HTML
  * body, and CR/LF-stripped before it enters ANY part (subject header
- * injection dies here). Templates contain no user-authored markup, no
- * links to user-controlled URLs, and no secrets. Design is deliberately
- * simple — the full brand redesign is the next phase.
+ * injection dies here). Templates contain no user-authored markup and no
+ * secrets, and the ONE link each mail carries is built from service
+ * configuration (APP_PUBLIC_URL) and scheme-checked — never from event
+ * data. Design is deliberately simple — the full brand redesign is the
+ * next phase.
+ *
+ * ## Authoritative facts only
+ *
+ * The optional `detail.*` values (plan, status, start, renewal, amount)
+ * render one labelled row EACH, and only when the caller actually supplied
+ * them. A fact the Payment Service did not state produces no row at all —
+ * these emails never guess a price, a date or a status.
  *
  * Locale fallback is `en`; an unknown template type has NO entry, and the
  * caller treats that as a permanent (not retryable) condition.
@@ -29,7 +39,8 @@ public final class EmailTemplates {
         }
     }
 
-    private record Strings(String subject, String heading, String body, String footer) {
+    private record Strings(
+            String subject, String heading, String body, String cta, String footer) {
     }
 
     private static final Family ACCOUNT_CREATED = new Family(Map.of(
@@ -37,21 +48,25 @@ public final class EmailTemplates {
                     "Welcome to HR Copilot AI",
                     "Welcome, {name}!",
                     "Your HR Copilot AI account has been created. You can now sign in and start using the platform.",
+                    "Open HR Copilot AI",
                     "You are receiving this because an account was created with this email address."),
             "ko", new Strings(
                     "HR Copilot AI에 오신 것을 환영합니다",
                     "{name}님, 환영합니다!",
                     "HR Copilot AI 계정이 생성되었습니다. 이제 로그인하여 플랫폼을 사용하실 수 있습니다.",
+                    "HR Copilot AI 열기",
                     "이 이메일 주소로 계정이 생성되어 발송된 메일입니다."),
             "ru", new Strings(
                     "Добро пожаловать в HR Copilot AI",
                     "Добро пожаловать, {name}!",
                     "Ваш аккаунт HR Copilot AI создан. Теперь вы можете войти и начать пользоваться платформой.",
+                    "Открыть HR Copilot AI",
                     "Вы получили это письмо, потому что на этот адрес был создан аккаунт."),
             "uz", new Strings(
                     "HR Copilot AI ga xush kelibsiz",
                     "Xush kelibsiz, {name}!",
                     "HR Copilot AI hisobingiz yaratildi. Endi tizimga kirib, platformadan foydalanishingiz mumkin.",
+                    "HR Copilot AI ni ochish",
                     "Ushbu elektron pochta manzili bilan hisob yaratilgani uchun bu xatni oldingiz.")));
 
     private static final Family SUBSCRIPTION_ACTIVATED = new Family(Map.of(
@@ -59,21 +74,25 @@ public final class EmailTemplates {
                     "Your {plan} plan is active",
                     "{name}, your {plan} plan is now active",
                     "Your payment was confirmed and your {plan} subscription is active. Enjoy your premium features!",
+                    "View your subscription",
                     "You are receiving this because a subscription was activated on your account."),
             "ko", new Strings(
                     "{plan} 플랜이 활성화되었습니다",
                     "{name}님, {plan} 플랜이 활성화되었습니다",
                     "결제가 확인되어 {plan} 구독이 활성화되었습니다. 프리미엄 기능을 이용해 보세요!",
+                    "구독 확인하기",
                     "회원님의 계정에서 구독이 활성화되어 발송된 메일입니다."),
             "ru", new Strings(
                     "Ваш план {plan} активирован",
                     "{name}, ваш план {plan} активирован",
                     "Платёж подтверждён, подписка {plan} активна. Пользуйтесь премиум-функциями!",
+                    "Посмотреть подписку",
                     "Вы получили это письмо, потому что на вашем аккаунте была активирована подписка."),
             "uz", new Strings(
                     "{plan} tarifingiz faollashtirildi",
                     "{name}, {plan} tarifingiz faollashtirildi",
                     "To'lovingiz tasdiqlandi va {plan} obunangiz faol. Premium imkoniyatlardan bahramand bo'ling!",
+                    "Obunani ko'rish",
                     "Hisobingizda obuna faollashtirilgani uchun bu xatni oldingiz.")));
 
     private static final Family SUBSCRIPTION_EXPIRES = new Family(Map.of(
@@ -81,22 +100,44 @@ public final class EmailTemplates {
                     "Your {plan} plan expires in 3 days",
                     "{name}, your {plan} plan expires soon",
                     "Your {plan} subscription ends on {date}. Renew to keep your premium features without interruption.",
+                    "Renew your plan",
                     "You are receiving this because your subscription period is ending."),
             "ko", new Strings(
                     "{plan} 플랜이 3일 후 만료됩니다",
                     "{name}님, {plan} 플랜이 곧 만료됩니다",
                     "{plan} 구독이 {date}에 종료됩니다. 프리미엄 기능을 계속 이용하려면 갱신해 주세요.",
+                    "플랜 갱신하기",
                     "구독 기간이 종료되어 가고 있어 발송된 메일입니다."),
             "ru", new Strings(
                     "Ваш план {plan} истекает через 3 дня",
                     "{name}, ваш план {plan} скоро истекает",
                     "Подписка {plan} заканчивается {date}. Продлите её, чтобы сохранить премиум-функции без перерыва.",
+                    "Продлить план",
                     "Вы получили это письмо, потому что срок вашей подписки подходит к концу."),
             "uz", new Strings(
                     "{plan} tarifingiz 3 kundan so'ng tugaydi",
                     "{name}, {plan} tarifingiz tez orada tugaydi",
                     "{plan} obunangiz {date} sanasida tugaydi. Premium imkoniyatlarni uzluksiz saqlash uchun uni yangilang.",
+                    "Tarifni yangilash",
                     "Obuna muddatingiz tugayotgani uchun bu xatni oldingiz.")));
+
+    /** Ordered detail rows; a key absent from `values` renders nothing. */
+    private static final List<String> DETAIL_KEYS =
+            List.of("detail.plan", "detail.status", "detail.start", "detail.end", "detail.amount");
+
+    private static final Map<String, Map<String, String>> DETAIL_LABELS = Map.of(
+            "en", Map.of("detail.plan", "Plan", "detail.status", "Status",
+                    "detail.start", "Started", "detail.end", "Renews / expires",
+                    "detail.amount", "Amount"),
+            "ko", Map.of("detail.plan", "플랜", "detail.status", "상태",
+                    "detail.start", "시작일", "detail.end", "갱신/만료일",
+                    "detail.amount", "금액"),
+            "ru", Map.of("detail.plan", "План", "detail.status", "Статус",
+                    "detail.start", "Начало", "detail.end", "Продление / окончание",
+                    "detail.amount", "Сумма"),
+            "uz", Map.of("detail.plan", "Tarif", "detail.status", "Holat",
+                    "detail.start", "Boshlangan", "detail.end", "Yangilanish / tugash",
+                    "detail.amount", "Summa"));
 
     private static final Map<String, Family> FAMILIES = Map.of(
             ChannelPolicy.ACCOUNT_CREATED, ACCOUNT_CREATED,
@@ -121,12 +162,48 @@ public final class EmailTemplates {
         if (family == null) {
             throw new IllegalArgumentException("No template family for " + emailType);
         }
-        Strings strings = family.of(locale == null ? "en" : locale);
+        String resolvedLocale = (locale == null || !DETAIL_LABELS.containsKey(locale)) ? "en" : locale;
+        Strings strings = family.of(resolvedLocale);
 
         String subject = substitute(strings.subject(), values, false);
         String heading = substitute(strings.heading(), values, true);
         String body = substitute(strings.body(), values, true);
         String footer = substitute(strings.footer(), values, true);
+
+        // The single CTA. Its URL comes from SERVICE CONFIGURATION
+        // (APP_PUBLIC_URL), never from event data or user input, and it is
+        // still scheme-checked before it can become an href — a template
+        // that cannot prove its link is safe simply renders no link.
+        String url = values.getOrDefault("url", "");
+        boolean linked = isSafeUrl(url);
+        String ctaHtml = linked
+                ? """
+                    <p style="margin:24px 0 0;">
+                      <a href="%s" style="display:inline-block;background:#1a1a2e;color:#ffffff;\
+text-decoration:none;padding:11px 20px;border-radius:6px;font-size:14px;">%s</a>
+                    </p>""".formatted(htmlEscape(url), htmlEscape(strings.cta()))
+                : "";
+
+        Map<String, String> labels =
+                DETAIL_LABELS.getOrDefault(resolvedLocale, DETAIL_LABELS.get("en"));
+        StringBuilder detailsHtml = new StringBuilder();
+        StringBuilder detailsText = new StringBuilder();
+        for (String key : DETAIL_KEYS) {
+            String value = sanitizeHeader(values.get(key));
+            if (value.isBlank()) {
+                continue; // Never state a fact the producer did not state.
+            }
+            detailsHtml.append("""
+                    <tr><td style="padding:4px 16px 4px 0;color:#8a8f98;">%s</td>\
+<td style="padding:4px 0;color:#1a1a2e;">%s</td></tr>"""
+                    .formatted(htmlEscape(labels.get(key)), htmlEscape(value)));
+            detailsText.append("\n").append(labels.get(key)).append(": ").append(value);
+        }
+        String detailsBlock = detailsHtml.isEmpty() ? "" :
+                """
+
+                    <table style="margin:20px 0 0;border-collapse:collapse;font-size:13px;">%s</table>"""
+                        .formatted(detailsHtml);
 
         String html = """
                 <!doctype html>
@@ -135,17 +212,20 @@ public final class EmailTemplates {
                   <div style="background:#ffffff;border-radius:8px;padding:32px;border:1px solid #e3e5e8;">
                     <p style="margin:0 0 24px;font-size:15px;font-weight:bold;color:#1a1a2e;">HR Copilot AI</p>
                     <h1 style="margin:0 0 16px;font-size:20px;color:#1a1a2e;">%s</h1>
-                    <p style="margin:0;font-size:14px;line-height:1.6;color:#3c3f46;">%s</p>
+                    <p style="margin:0;font-size:14px;line-height:1.6;color:#3c3f46;">%s</p>%s%s
                   </div>
                   <p style="margin:16px 8px 0;font-size:11px;line-height:1.5;color:#8a8f98;">%s</p>
                 </div>
                 </body></html>
-                """.formatted(heading, body, footer);
+                """.formatted(heading, body, detailsBlock, ctaHtml, footer);
 
         String textHeading = substitute(strings.heading(), values, false);
         String textBody = substitute(strings.body(), values, false);
         String textFooter = substitute(strings.footer(), values, false);
-        String text = "HR Copilot AI\n\n" + textHeading + "\n\n" + textBody + "\n\n--\n" + textFooter + "\n";
+        String textCta = linked ? "\n\n" + strings.cta() + ": " + url : "";
+        String text = "HR Copilot AI\n\n" + textHeading + "\n\n" + textBody
+                + detailsText + textCta
+                + "\n\n--\n" + textFooter + "\n";
 
         return new Rendered(subject, html, text);
     }
@@ -160,6 +240,18 @@ public final class EmailTemplates {
             result = result.replace("{" + entry.getKey() + "}", value);
         }
         return result;
+    }
+
+    /**
+     * A CTA href must be an absolute http(s) URL and nothing else — no
+     * javascript:, no data:, no relative path that a mail client would
+     * resolve against something unexpected.
+     */
+    private static boolean isSafeUrl(String url) {
+        return url != null
+                && (url.startsWith("https://") || url.startsWith("http://"))
+                && url.length() <= 300
+                && !url.matches(".*[\\s\"'<>].*");
     }
 
     /** CR/LF (and other control chars) can never reach any part or header. */

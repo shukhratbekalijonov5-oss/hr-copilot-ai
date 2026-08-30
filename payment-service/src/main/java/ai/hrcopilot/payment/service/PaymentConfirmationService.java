@@ -143,13 +143,27 @@ public class PaymentConfirmationService {
                 "PAYMENT_SUCCEEDED",
                 account.getUserId(),
                 Map.of("plan", plan.name(), "amountCents", payment.getAmountCents(), "currency", payment.getCurrency()));
+        /*
+         * The activation FACTS the Notification Service renders into the
+         * "subscription activated" email. Every value here is authoritative
+         * billing state that was just committed — the period the
+         * subscription actually holds and the amount the provider actually
+         * settled. Nothing downstream may invent these, so they travel with
+         * the event or not at all.
+         */
         outbox.append(
                 BillingTopics.SUBSCRIPTION_EVENTS,
                 "subscription",
                 subscriptionId,
                 "SUBSCRIPTION_ACTIVATED",
                 account.getUserId(),
-                Map.of("plan", plan.name(), "status", SubscriptionStatus.ACTIVE.name()));
+                Map.of(
+                        "plan", plan.name(),
+                        "status", SubscriptionStatus.ACTIVE.name(),
+                        "periodStart", subscription.getCurrentPeriodStart().toString(),
+                        "periodEnd", subscription.getCurrentPeriodEnd().toString(),
+                        "amountMinor", payment.getAmountCents(),
+                        "currency", payment.getCurrency()));
         outbox.append(
                 BillingTopics.ENTITLEMENT_EVENTS,
                 "subscription",

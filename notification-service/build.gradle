@@ -68,5 +68,12 @@ tasks.named('test') {
     useJUnitPlatform()
     // Testcontainers + a Spring context per test class: give the forked JVM room.
     maxHeapSize = '1g'
+    // Opt-in escape hatch: point the suite at an existing PostgreSQL instead
+    // of starting a container (see IntegrationTestBase). Unset = containers.
+    ['test.jdbc.url', 'test.jdbc.username', 'test.jdbc.password'].each { key ->
+        if (System.getProperty(key) != null) {
+            systemProperty key, System.getProperty(key)
+        }
+    }
 }
 

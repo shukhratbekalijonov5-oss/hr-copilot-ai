@@ -70,6 +70,18 @@ public class EmailDelivery {
     @Column(name = "sent_at")
     private Instant sentAt;
 
+    /** Which provider carried it ("RESEND" / "SMTP" / "LOG"); null pre-receipt. */
+    @Column(name = "provider", length = 32)
+    private String provider;
+
+    /**
+     * The provider's own message id — the join key into its delivery logs.
+     * Null is legitimate: SMTP issues none, and rows predating the receipt
+     * columns have none. It never means "not sent"; sentAt says that.
+     */
+    @Column(name = "provider_message_id", length = 200)
+    private String providerMessageId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -133,16 +145,40 @@ public class EmailDelivery {
         return sentAt;
     }
 
+    public String getProvider() {
+        return provider;
+    }
+
+    public String getProviderMessageId() {
+        return providerMessageId;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void markSent() {
+    /**
+     * Settle as sent, recording WHO carried it and the id they issued. The
+     * id is clipped to the column width and stripped of anything that is
+     * not id-shaped: it is provider-supplied text landing in our database.
+     */
+    public void markSent(String provider, String providerMessageId) {
         this.status = Status.SENT.name();
         this.sentAt = Instant.now();
         this.updatedAt = this.sentAt;
         this.lastError = null;
         this.nextAttemptAt = null;
+        this.provider = clip(provider, 32);
+        this.providerMessageId = providerMessageId == null
+                ? null
+                : clip(providerMessageId.replaceAll("[^A-Za-z0-9_.:-]", ""), 200);
+    }
+
+    private static String clip(String value, int max) {
+        if (value == null) {
+            return null;
+        }
+        return value.length() > max ? value.substring(0, max) : value;
     }
 
     /**

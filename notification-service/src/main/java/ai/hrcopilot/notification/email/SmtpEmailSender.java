@@ -27,16 +27,18 @@ public class SmtpEmailSender implements EmailSender {
     }
 
     @Override
-    public void send(RenderedEmail email) {
+    public Receipt send(RenderedEmail email) {
         try {
             MimeMessage message = mail.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setFrom(new InternetAddress(
-                    properties.fromEmail(), properties.fromName(), "UTF-8"));
+                    properties.senderEmail(), properties.senderName(), "UTF-8"));
             helper.setTo(email.toEmail());
             helper.setSubject(email.subject());
             helper.setText(email.text(), email.html());
             mail.send(message);
+            // SMTP issues no durable provider id; the receipt is anonymous.
+            return Receipt.none();
         } catch (Exception failure) {
             // Normalized so the worker's retry ladder sees one failure shape.
             throw new IllegalStateException(

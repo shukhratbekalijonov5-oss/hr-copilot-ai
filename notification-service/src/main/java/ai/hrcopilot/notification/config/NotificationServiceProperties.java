@@ -12,9 +12,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param backendToken      credential for the backend user-lookup endpoint
  * @param paymentBaseUrl    Payment Service base URL — expiring-subscriptions read
  * @param paymentToken      credential for the Payment Service internal API
- * @param emailProvider     SMTP (real sending) or LOG (local fallback; refused in prod)
+ * @param emailProvider     RESEND (production), SMTP, or LOG (refused in prod)
+ * @param resendApiKey      Resend credential; required when provider=RESEND, never logged
+ * @param resendApiUrl      Resend send endpoint (overridable so tests never call the internet)
+ * @param fromAddress       full "Name <address>" From header; wins over fromName/fromEmail
  * @param fromEmail         From address for every product email
  * @param fromName          From display name
+ * @param appPublicUrl      public web origin used for the emails' single CTA link
+ * @param emailSendTimeoutMs per-request timeout for the provider API call
  * @param emailPollMs       email delivery worker poll interval
  * @param emailBatchSize    deliveries attempted per worker tick
  * @param outboxPollMs      created-echo outbox publisher interval
@@ -33,8 +38,13 @@ public record NotificationServiceProperties(
         String paymentBaseUrl,
         String paymentToken,
         Provider emailProvider,
+        String resendApiKey,
+        String resendApiUrl,
+        String fromAddress,
         String fromEmail,
         String fromName,
+        String appPublicUrl,
+        int emailSendTimeoutMs,
         long emailPollMs,
         int emailBatchSize,
         long outboxPollMs,
@@ -54,6 +64,17 @@ public record NotificationServiceProperties(
         }
         if (fromName == null || fromName.isBlank()) {
             fromName = "HR Copilot AI";
+        }
+        if (resendApiUrl == null || resendApiUrl.isBlank()) {
+            resendApiUrl = "https://api.resend.com/emails";
+        }
+        if (appPublicUrl == null || appPublicUrl.isBlank()) {
+            appPublicUrl = "https://hrcopilot.cloud";
+        }
+        // Trailing slashes would double up in every rendered link.
+        appPublicUrl = appPublicUrl.replaceAll("/+$", "");
+        if (emailSendTimeoutMs <= 0) {
+            emailSendTimeoutMs = 10_000;
         }
         if (emailPollMs <= 0) {
             emailPollMs = 2_000;
@@ -78,7 +99,46 @@ public record NotificationServiceProperties(
         }
     }
 
+    /**
+     * The From header every provider uses. An explicit EMAIL_FROM
+     * ("HR Copilot AI <no-reply@hrcopilot.cloud>") wins outright; otherwise
+     * it is composed from the name/address pair. CR/LF can never survive —
+     * a From header is still a header.
+     */
+    public String fromHeader() {
+        String composed = (fromAddress != null && !fromAddress.isBlank())
+                ? fromAddress
+                : fromName + " <" + fromEmail + ">";
+        return composed.replaceAll("[\\r\\n]", " ").trim();
+    }
+
+    /** The bare address, parsed out of fromAddress when that form is used. */
+    public String senderEmail() {
+        if (fromAddress == null || fromAddress.isBlank()) {
+            return fromEmail;
+        }
+        int open = fromAddress.lastIndexOf('<');
+        int close = fromAddress.lastIndexOf('>');
+        if (open >= 0 && close > open) {
+            return fromAddress.substring(open + 1, close).trim();
+        }
+        return fromAddress.trim();
+    }
+
+    /** The display name, parsed out of fromAddress when that form is used. */
+    public String senderName() {
+        if (fromAddress == null || fromAddress.isBlank()) {
+            return fromName;
+        }
+        int open = fromAddress.lastIndexOf('<');
+        if (open > 0) {
+            return fromAddress.substring(0, open).trim().replaceAll("^\"|\"$", "");
+        }
+        return fromName;
+    }
+
     public enum Provider {
+        RESEND,
         SMTP,
         LOG
     }

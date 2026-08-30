@@ -19,7 +19,8 @@ public class LogEmailSender implements EmailSender {
     }
 
     @Override
-    public void send(RenderedEmail email) {
+    public Receipt send(RenderedEmail email) {
         log.info("LOG email provider: would send ({} chars subject)", email.subject().length());
+        return Receipt.none();
     }
 }

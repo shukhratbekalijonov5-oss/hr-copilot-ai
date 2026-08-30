@@ -3,7 +3,7 @@ package ai.hrcopilot.notification;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,6 +46,24 @@ class EmailDeliveryWorkerTest extends IntegrationTestBase {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @org.junit.jupiter.api.BeforeEach
+    void nameTheProvider() {
+        org.mockito.Mockito.lenient().when(sender.name()).thenReturn("TESTPROVIDER");
+        quiescePreexistingDeliveries();
+    }
+
+    /**
+     * The database is shared across test classes, so a delivery another
+     * class enqueued and never sent would be picked up by THIS class's
+     * worker run and pollute an "exactly N sends" assertion. Settling them
+     * first makes every count below mean strictly what this test did.
+     */
+    private void quiescePreexistingDeliveries() {
+        jdbc.update("UPDATE email_deliveries SET status = 'SENT', sent_at = now(), "
+                + "next_attempt_at = NULL WHERE status IN ('PENDING', 'FAILED_RETRYABLE')");
+    }
+
+
     private RecipientDirectory.Resolution found(String userId, String email) {
         return RecipientDirectory.Resolution.found(
                 new RecipientDirectory.Recipient(userId, email, "Jasur T", "en"));
@@ -71,7 +89,7 @@ class EmailDeliveryWorkerTest extends IntegrationTestBase {
         String user = deliveries.findByEventIdAndEmailType(eventId, "SUBSCRIPTION_ACTIVATED")
                 .orElseThrow().getRecipientUserId();
         when(recipients.resolve(user)).thenReturn(found(user, "current@example.test"));
-        doNothing().when(sender).send(any());
+        doReturn(new EmailSender.Receipt("msg_abc123")).when(sender).send(any());
 
         worker.deliverDue();
 
@@ -83,6 +101,13 @@ class EmailDeliveryWorkerTest extends IntegrationTestBase {
         var settled = deliveries.findByEventIdAndEmailType(eventId, "SUBSCRIPTION_ACTIVATED").orElseThrow();
         assertThat(settled.getStatus()).isEqualTo("SENT");
         assertThat(settled.getSentAt()).isNotNull();
+        // The provider's receipt is persisted: which provider carried it and
+        // the id it issued, the join key into the provider's own logs.
+        assertThat(settled.getProvider()).isEqualTo("TESTPROVIDER");
+        assertThat(settled.getProviderMessageId()).isEqualTo("msg_abc123");
+        // Every send carries the delivery row id as its idempotency key, so a
+        // retry after a lost response cannot deliver a second copy.
+        assertThat(email.getValue().deliveryId()).isEqualTo(settled.getId().toString());
     }
 
     @Test
@@ -108,7 +133,7 @@ class EmailDeliveryWorkerTest extends IntegrationTestBase {
 
         // The user changes their address to B; the backoff elapses; SMTP is back.
         when(recipients.resolve(user)).thenReturn(found(user, "new-b@example.test"));
-        doNothing().when(sender).send(any());
+        doReturn(new EmailSender.Receipt("msg_abc123")).when(sender).send(any());
         makeDue(eventId);
         worker.deliverDue();
 

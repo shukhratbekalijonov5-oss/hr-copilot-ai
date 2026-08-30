@@ -63,11 +63,23 @@ public class BillingSubscriptionEventsConsumer {
             log.error("SUBSCRIPTION_ACTIVATED event missing eventId/userId; skipped");
             return;
         }
-        String plan = root.path("plan").asText("");
-
         ObjectNode context = MAPPER.createObjectNode();
         context.put("audience", "CANDIDATE");
-        context.put("plan", plan);
+        context.put("plan", root.path("plan").asText(""));
+
+        /*
+         * Authoritative billing facts, copied ONLY when the Payment Service
+         * actually stated them. A field the event did not carry stays absent
+         * all the way to the template, which then renders no row for it —
+         * the email never guesses a price, a period or a status.
+         */
+        copyText(root, context, "status");
+        copyText(root, context, "periodStart");
+        copyText(root, context, "periodEnd");
+        copyText(root, context, "currency");
+        if (root.path("amountMinor").isNumber()) {
+            context.put("amountMinor", root.path("amountMinor").asLong());
+        }
 
         ingest.ingest(new NotificationIngestService.IngestRequest(
                 "billing:" + eventId,
@@ -76,5 +88,11 @@ public class BillingSubscriptionEventsConsumer {
                 null,
                 "CANDIDATE",
                 context.toString()));
+    }
+
+    private static void copyText(JsonNode source, ObjectNode target, String field) {
+        if (source.path(field).isTextual() && !source.path(field).asText().isBlank()) {
+            target.put(field, source.path(field).asText());
+        }
     }
 }
