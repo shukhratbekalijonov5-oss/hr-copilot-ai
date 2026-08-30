@@ -49,7 +49,7 @@ apps:
   payment-service:
     enabled: true
     image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-payment-service
-    tag: "691ca26-demo1"
+    tag: "a904c1730a07db2359b95960c335e015559809ca" # Resend provider + enriched activation facts (2026-08-31)
     port: 8081
     replicas: 1
     imagePullSecret: regcred
@@ -79,7 +79,7 @@ apps:
   notification-service:
     enabled: true
     image: ghcr.io/shukhratbekalijonov5-oss/hrcopilot-notification-service
-    tag: "691ca26"
+    tag: "a904c1730a07db2359b95960c335e015559809ca" # Resend email delivery (2026-08-31)
     port: 8082
     replicas: 1
     imagePullSecret: regcred
