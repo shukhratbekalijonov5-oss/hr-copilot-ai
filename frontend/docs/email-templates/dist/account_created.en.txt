@@ -1,0 +1,14 @@
+HR Copilot AI
+
+Welcome to HR Copilot AI
+
+Hello {fullName},
+
+Your HR Copilot AI account has been created successfully.
+
+You can now access your workspace and start using the features available to your account.
+
+Open HR Copilot AI: {appUrl}
+
+--
+This is an automated transactional email from HR Copilot AI.

@@ -1,0 +1,19 @@
+HR Copilot AI
+
+Obunangiz 3 kundan keyin tugaydi
+
+Hurmatli {fullName},
+
+Joriy HR Copilot AI obunangizning muddati 3 kundan keyin tugaydi.
+
+Tugash sanasigacha yangilasangiz, foydalanish uzluksiz davom etadi.
+
+Obuna ma'lumotlari
+
+[row:plan]Tarif: {planName}[/row:plan]
+[row:expiresAt]Tugash sanasi: {expiresAt}[/row:expiresAt]
+
+Obunani ko'rish: {billingUrl}
+
+--
+Bu HR Copilot AI tomonidan yuborilgan avtomatik xizmat xati.

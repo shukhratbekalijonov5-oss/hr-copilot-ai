@@ -1,0 +1,19 @@
+HR Copilot AI
+
+구독이 3일 후 만료됩니다
+
+{name}님, 안녕하세요.
+
+현재 이용 중인 HR Copilot AI 구독이 3일 후 만료됩니다.
+
+만료일 전에 갱신하시면 중단 없이 계속 이용하실 수 있습니다.
+
+구독 정보
+
+[row:plan]플랜: {detail.plan}[/row:plan]
+[row:expiresAt]만료일: {detail.end}[/row:expiresAt]
+
+구독 확인: {url}
+
+--
+본 메일은 HR Copilot AI에서 자동으로 발송된 안내 메일입니다.

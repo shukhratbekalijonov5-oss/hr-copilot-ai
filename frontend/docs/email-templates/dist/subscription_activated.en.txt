@@ -1,0 +1,21 @@
+HR Copilot AI
+
+Your subscription is active
+
+Hello {fullName},
+
+Your HR Copilot AI subscription is now active.
+
+Subscription details
+
+[row:plan]Plan: {planName}[/row:plan]
+[row:status]Status: {subStatus}[/row:status]
+[row:startDate]Start date: {startDate}[/row:startDate]
+[row:expiresAt]Renewal date: {expiresAt}[/row:expiresAt]
+[row:amount]Amount: {amount}[/row:amount]
+[row:currency]Currency: {currency}[/row:currency]
+
+Manage subscription: {billingUrl}
+
+--
+This is an automated transactional email from HR Copilot AI.

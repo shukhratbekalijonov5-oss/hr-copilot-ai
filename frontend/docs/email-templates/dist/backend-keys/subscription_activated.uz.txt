@@ -1,0 +1,20 @@
+HR Copilot AI
+
+Obunangiz faol
+
+Hurmatli {name},
+
+HR Copilot AI obunangiz faollashtirildi.
+
+Obuna ma'lumotlari
+
+[row:plan]Tarif: {detail.plan}[/row:plan]
+[row:status]Holat: {detail.status}[/row:status]
+[row:startDate]Boshlanish sanasi: {detail.start}[/row:startDate]
+[row:expiresAt]Yangilanish sanasi: {detail.end}[/row:expiresAt]
+[row:amount]Summa: {detail.amount}[/row:amount]
+
+Obunani boshqarish: {url}
+
+--
+Bu HR Copilot AI tomonidan yuborilgan avtomatik xizmat xati.

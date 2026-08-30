@@ -1,0 +1,19 @@
+HR Copilot AI
+
+Your subscription expires in 3 days
+
+Hello {fullName},
+
+Your current HR Copilot AI subscription will expire in 3 days.
+
+If you renew before the expiration date, your access continues without interruption.
+
+Subscription details
+
+[row:plan]Plan: {planName}[/row:plan]
+[row:expiresAt]Expiration date: {expiresAt}[/row:expiresAt]
+
+View subscription: {billingUrl}
+
+--
+This is an automated transactional email from HR Copilot AI.

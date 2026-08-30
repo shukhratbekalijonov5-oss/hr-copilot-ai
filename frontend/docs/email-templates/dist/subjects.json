@@ -1,0 +1,20 @@
+{
+  "account_created": {
+    "en": "Welcome to HR Copilot AI",
+    "ko": "HR Copilot AI에 오신 것을 환영합니다",
+    "ru": "Добро пожаловать в HR Copilot AI",
+    "uz": "HR Copilot AI ga xush kelibsiz"
+  },
+  "subscription_activated": {
+    "en": "Subscription activated — HR Copilot AI",
+    "ko": "구독이 활성화되었습니다 — HR Copilot AI",
+    "ru": "Подписка активирована — HR Copilot AI",
+    "uz": "Obuna faollashtirildi — HR Copilot AI"
+  },
+  "subscription_expiring": {
+    "en": "Your HR Copilot AI subscription expires in 3 days",
+    "ko": "HR Copilot AI 구독이 3일 후 만료됩니다",
+    "ru": "Ваша подписка HR Copilot AI истекает через 3 дня",
+    "uz": "HR Copilot AI obunangiz 3 kundan keyin tugaydi"
+  }
+}

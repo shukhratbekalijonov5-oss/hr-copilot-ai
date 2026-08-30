@@ -1,0 +1,183 @@
+{
+  "$comment": "Copy deck for the 3 HR Copilot AI transactional emails, in en/ko/ru/uz. Placeholders are {curly} and are substituted by the notification service. Translations are natural, not word-for-word. 'HR Copilot AI' is never translated.",
+
+  "shared": {
+    "en": {
+      "logoAlt": "",
+      "wordmark": "HR Copilot AI",
+      "footerAutomated": "This is an automated transactional email from HR Copilot AI.",
+      "linkFallback": "If the button above does not work, copy and paste this link into your browser:"
+    },
+    "ko": {
+      "logoAlt": "",
+      "wordmark": "HR Copilot AI",
+      "footerAutomated": "본 메일은 HR Copilot AI에서 자동으로 발송된 안내 메일입니다.",
+      "linkFallback": "위 버튼이 동작하지 않으면 아래 주소를 복사해 브라우저에 붙여넣어 주세요:"
+    },
+    "ru": {
+      "logoAlt": "",
+      "wordmark": "HR Copilot AI",
+      "footerAutomated": "Это автоматическое сервисное письмо от HR Copilot AI.",
+      "linkFallback": "Если кнопка выше не работает, скопируйте эту ссылку и откройте её в браузере:"
+    },
+    "uz": {
+      "logoAlt": "",
+      "wordmark": "HR Copilot AI",
+      "footerAutomated": "Bu HR Copilot AI tomonidan yuborilgan avtomatik xizmat xati.",
+      "linkFallback": "Agar yuqoridagi tugma ishlamasa, quyidagi havolani nusxalab brauzeringizga joylashtiring:"
+    }
+  },
+
+  "account_created": {
+    "en": {
+      "subject": "Welcome to HR Copilot AI",
+      "preheader": "Your account is ready — open your workspace to get started.",
+      "heading": "Welcome to HR Copilot AI",
+      "greeting": "Hello {fullName},",
+      "body1": "Your HR Copilot AI account has been created successfully.",
+      "body2": "You can now access your workspace and start using the features available to your account.",
+      "cta": "Open HR Copilot AI"
+    },
+    "ko": {
+      "subject": "HR Copilot AI에 오신 것을 환영합니다",
+      "preheader": "계정이 준비되었습니다. 워크스페이스를 열고 시작해 보세요.",
+      "heading": "HR Copilot AI에 오신 것을 환영합니다",
+      "greeting": "{fullName}님, 안녕하세요.",
+      "body1": "HR Copilot AI 계정이 정상적으로 생성되었습니다.",
+      "body2": "이제 워크스페이스에 접속하여 계정에서 이용 가능한 기능을 사용하실 수 있습니다.",
+      "cta": "HR Copilot AI 열기"
+    },
+    "ru": {
+      "subject": "Добро пожаловать в HR Copilot AI",
+      "preheader": "Аккаунт готов — откройте рабочее пространство, чтобы начать.",
+      "heading": "Добро пожаловать в HR Copilot AI",
+      "greeting": "Здравствуйте, {fullName}!",
+      "body1": "Ваш аккаунт HR Copilot AI успешно создан.",
+      "body2": "Теперь вы можете войти в рабочее пространство и пользоваться функциями, доступными для вашего аккаунта.",
+      "cta": "Открыть HR Copilot AI"
+    },
+    "uz": {
+      "subject": "HR Copilot AI ga xush kelibsiz",
+      "preheader": "Hisobingiz tayyor — boshlash uchun ish maydonini oching.",
+      "heading": "HR Copilot AI ga xush kelibsiz",
+      "greeting": "Hurmatli {fullName},",
+      "body1": "HR Copilot AI hisobingiz muvaffaqiyatli yaratildi.",
+      "body2": "Endi ish maydoningizga kirib, hisobingiz uchun mavjud imkoniyatlardan foydalanishingiz mumkin.",
+      "cta": "HR Copilot AI ni ochish"
+    }
+  },
+
+  "subscription_activated": {
+    "en": {
+      "subject": "Subscription activated — HR Copilot AI",
+      "preheader": "Your subscription is active. Here are the details.",
+      "heading": "Your subscription is active",
+      "greeting": "Hello {fullName},",
+      "body1": "Your HR Copilot AI subscription is now active.",
+      "detailsTitle": "Subscription details",
+      "labelPlan": "Plan",
+      "labelStatus": "Status",
+      "labelStartDate": "Start date",
+      "labelExpiresAt": "Renewal date",
+      "labelAmount": "Amount",
+      "labelCurrency": "Currency",
+      "cta": "Manage subscription"
+    },
+    "ko": {
+      "subject": "구독이 활성화되었습니다 — HR Copilot AI",
+      "preheader": "구독이 활성화되었습니다. 상세 내역을 확인하세요.",
+      "heading": "구독이 활성화되었습니다",
+      "greeting": "{fullName}님, 안녕하세요.",
+      "body1": "HR Copilot AI 구독이 현재 활성 상태입니다.",
+      "detailsTitle": "구독 정보",
+      "labelPlan": "플랜",
+      "labelStatus": "상태",
+      "labelStartDate": "시작일",
+      "labelExpiresAt": "갱신일",
+      "labelAmount": "결제 금액",
+      "labelCurrency": "통화",
+      "cta": "구독 관리"
+    },
+    "ru": {
+      "subject": "Подписка активирована — HR Copilot AI",
+      "preheader": "Ваша подписка активна. Детали — в письме.",
+      "heading": "Ваша подписка активна",
+      "greeting": "Здравствуйте, {fullName}!",
+      "body1": "Ваша подписка HR Copilot AI активирована.",
+      "detailsTitle": "Детали подписки",
+      "labelPlan": "Тариф",
+      "labelStatus": "Статус",
+      "labelStartDate": "Дата начала",
+      "labelExpiresAt": "Дата продления",
+      "labelAmount": "Сумма",
+      "labelCurrency": "Валюта",
+      "cta": "Управление подпиской"
+    },
+    "uz": {
+      "subject": "Obuna faollashtirildi — HR Copilot AI",
+      "preheader": "Obunangiz faol. Tafsilotlar xatda.",
+      "heading": "Obunangiz faol",
+      "greeting": "Hurmatli {fullName},",
+      "body1": "HR Copilot AI obunangiz faollashtirildi.",
+      "detailsTitle": "Obuna ma'lumotlari",
+      "labelPlan": "Tarif",
+      "labelStatus": "Holat",
+      "labelStartDate": "Boshlanish sanasi",
+      "labelExpiresAt": "Yangilanish sanasi",
+      "labelAmount": "Summa",
+      "labelCurrency": "Valyuta",
+      "cta": "Obunani boshqarish"
+    }
+  },
+
+  "subscription_expiring": {
+    "en": {
+      "subject": "Your HR Copilot AI subscription expires in 3 days",
+      "preheader": "Your plan ends soon — renew any time before the expiration date.",
+      "heading": "Your subscription expires in 3 days",
+      "greeting": "Hello {fullName},",
+      "body1": "Your current HR Copilot AI subscription will expire in 3 days.",
+      "body2": "If you renew before the expiration date, your access continues without interruption.",
+      "detailsTitle": "Subscription details",
+      "labelPlan": "Plan",
+      "labelExpiresAt": "Expiration date",
+      "cta": "View subscription"
+    },
+    "ko": {
+      "subject": "HR Copilot AI 구독이 3일 후 만료됩니다",
+      "preheader": "구독이 곧 만료됩니다. 만료일 전 언제든지 갱신하실 수 있습니다.",
+      "heading": "구독이 3일 후 만료됩니다",
+      "greeting": "{fullName}님, 안녕하세요.",
+      "body1": "현재 이용 중인 HR Copilot AI 구독이 3일 후 만료됩니다.",
+      "body2": "만료일 전에 갱신하시면 중단 없이 계속 이용하실 수 있습니다.",
+      "detailsTitle": "구독 정보",
+      "labelPlan": "플랜",
+      "labelExpiresAt": "만료일",
+      "cta": "구독 확인"
+    },
+    "ru": {
+      "subject": "Ваша подписка HR Copilot AI истекает через 3 дня",
+      "preheader": "Срок подписки подходит к концу — продлить можно в любой момент до даты окончания.",
+      "heading": "Подписка истекает через 3 дня",
+      "greeting": "Здравствуйте, {fullName}!",
+      "body1": "Срок действия вашей текущей подписки HR Copilot AI истекает через 3 дня.",
+      "body2": "Если продлить подписку до даты окончания, доступ сохранится без перерыва.",
+      "detailsTitle": "Детали подписки",
+      "labelPlan": "Тариф",
+      "labelExpiresAt": "Дата окончания",
+      "cta": "Посмотреть подписку"
+    },
+    "uz": {
+      "subject": "HR Copilot AI obunangiz 3 kundan keyin tugaydi",
+      "preheader": "Obuna muddati tugab bormoqda — tugash sanasigacha istalgan vaqtda yangilashingiz mumkin.",
+      "heading": "Obunangiz 3 kundan keyin tugaydi",
+      "greeting": "Hurmatli {fullName},",
+      "body1": "Joriy HR Copilot AI obunangizning muddati 3 kundan keyin tugaydi.",
+      "body2": "Tugash sanasigacha yangilasangiz, foydalanish uzluksiz davom etadi.",
+      "detailsTitle": "Obuna ma'lumotlari",
+      "labelPlan": "Tarif",
+      "labelExpiresAt": "Tugash sanasi",
+      "cta": "Obunani ko'rish"
+    }
+  }
+}

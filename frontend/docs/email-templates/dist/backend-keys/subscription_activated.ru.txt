@@ -1,0 +1,20 @@
+HR Copilot AI
+
+Ваша подписка активна
+
+Здравствуйте, {name}!
+
+Ваша подписка HR Copilot AI активирована.
+
+Детали подписки
+
+[row:plan]Тариф: {detail.plan}[/row:plan]
+[row:status]Статус: {detail.status}[/row:status]
+[row:startDate]Дата начала: {detail.start}[/row:startDate]
+[row:expiresAt]Дата продления: {detail.end}[/row:expiresAt]
+[row:amount]Сумма: {detail.amount}[/row:amount]
+
+Управление подпиской: {url}
+
+--
+Это автоматическое сервисное письмо от HR Copilot AI.

@@ -1,0 +1,14 @@
+HR Copilot AI
+
+HR Copilot AI ga xush kelibsiz
+
+Hurmatli {name},
+
+HR Copilot AI hisobingiz muvaffaqiyatli yaratildi.
+
+Endi ish maydoningizga kirib, hisobingiz uchun mavjud imkoniyatlardan foydalanishingiz mumkin.
+
+HR Copilot AI ni ochish: {url}
+
+--
+Bu HR Copilot AI tomonidan yuborilgan avtomatik xizmat xati.

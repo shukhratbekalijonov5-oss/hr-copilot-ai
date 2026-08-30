@@ -1,0 +1,21 @@
+HR Copilot AI
+
+구독이 활성화되었습니다
+
+{fullName}님, 안녕하세요.
+
+HR Copilot AI 구독이 현재 활성 상태입니다.
+
+구독 정보
+
+[row:plan]플랜: {planName}[/row:plan]
+[row:status]상태: {subStatus}[/row:status]
+[row:startDate]시작일: {startDate}[/row:startDate]
+[row:expiresAt]갱신일: {expiresAt}[/row:expiresAt]
+[row:amount]결제 금액: {amount}[/row:amount]
+[row:currency]통화: {currency}[/row:currency]
+
+구독 관리: {billingUrl}
+
+--
+본 메일은 HR Copilot AI에서 자동으로 발송된 안내 메일입니다.
